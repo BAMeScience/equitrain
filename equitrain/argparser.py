@@ -23,6 +23,8 @@ def get_args_parser_train():
     # model type parameter
     parser.add_argument('--model', type=str, default=None,
                         help='Path to a model file')
+    parser.add_argument('--model-wrapper', type=str, default=None,
+                        help='Model wrapper classe [mace]')
     # regularization
     parser.add_argument('--alpha-drop', type=float, default=0.0)
     parser.add_argument('--proj-drop', type=float, default=0.0)

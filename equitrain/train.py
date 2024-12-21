@@ -27,7 +27,7 @@ from timm.scheduler import create_scheduler
 
 from equitrain.argparser   import ArgumentError
 from equitrain.dataloaders import get_dataloaders
-from equitrain.model       import get_model, ModelWrapper
+from equitrain.model       import get_model
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
