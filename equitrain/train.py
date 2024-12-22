@@ -493,10 +493,7 @@ def _train(args):
     train_loader, val_loader, test_loader = accelerator.prepare(train_loader, val_loader, test_loader)
 
     ''' Network '''
-    model = get_model(r_max, args,
-        compute_force=args.force_weight > 0.0,
-        compute_stress=args.stress_weight > 0.0,
-        logger=logger)
+    model = get_model(args, logger=logger)
 
     if accelerator.process_index == 0:
 

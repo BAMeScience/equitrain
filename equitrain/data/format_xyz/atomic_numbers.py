@@ -1,5 +1,9 @@
 import ase.io
+
 from ase.data import atomic_numbers
+
+from equitrain.data.atomic import AtomicNumberTable
+
 
 def get_atomic_numbers_from_xyz(xyz_file):
     # Initialize a set to keep track of unique atomic numbers
@@ -17,8 +21,12 @@ def get_atomic_numbers_from_xyz(xyz_file):
             atomic_number_set.add(atomic_number)
     
     # Convert the set to a sorted list
-    atomic_numbers_list = sorted(atomic_number_set)
+    atomic_numbers_list = sorted(list(atomic_number_set))
     return atomic_numbers_list
+
+
+def get_atomic_numbers_table_from_xyz(xyz_file):
+    return AtomicNumberTable(get_atomic_numbers_from_xyz(xyz_file))
 
 
 # Example usage

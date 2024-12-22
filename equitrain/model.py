@@ -3,8 +3,7 @@ import torch
 from equitrain.model_wrappers import *
 
 
-# TODO: Use arguments compute_force, compute_stress
-def get_model(r_max, args, compute_force=True, compute_stress=True, logger=None):
+def get_model(args, logger=None):
 
     if isinstance(args.model, torch.nn.Module):
 
@@ -22,6 +21,6 @@ def get_model(r_max, args, compute_force=True, compute_stress=True, logger=None)
         model.load_state_dict(torch.load(args.load_checkpoint_model))
 
     if args.model_wrapper == "mace":
-        model = MaceWrapper(model)
+        model = MaceWrapper(args, model)
 
     return model
