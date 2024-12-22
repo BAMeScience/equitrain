@@ -12,13 +12,11 @@ import os
 
 from pathlib import Path
 
-from equitrain.mace import tools
-from equitrain.mace.data import HDF5Dataset, random_train_valid_split
-from equitrain.mace.data.utils import save_configurations_as_HDF5, compute_statistics
-from equitrain.mace.tools.scripts_utils import get_dataset_from_xyz, get_atomic_energies
-from equitrain.mace.data.utils import load_from_xyz_in_chunks, process_atoms_list
-from equitrain.mace.tools.scripts_utils import SubsetCollection
 from equitrain.argparser import ArgumentError
+from equitrain.data import SubsetCollection, compute_statistics, process_atoms_list, random_train_valid_split, get_atomic_energies, get_atomic_number_table_from_zs
+from equitrain.data.format_hdf5 import HDF5Dataset, save_configurations_as_HDF5
+from equitrain.data.format_xyz import get_dataset_from_xyz, load_from_xyz_in_chunks
+from equitrain.utility import set_seeds
 
 
 def split_array(a: np.ndarray, max_size: int):
@@ -53,7 +51,7 @@ def _preprocess(args):
     """
 
     # Setup
-    tools.set_seeds(args.seed)
+    set_seeds(args.seed)
     random.seed(args.seed)
     logging.basicConfig(
         level=logging.INFO,
@@ -77,7 +75,7 @@ def _preprocess(args):
     collections = SubsetCollection(train=[], valid=[], tests=[])
 
     if args.atomic_numbers is None:
-        z_table = tools.get_atomic_number_table_from_zs(
+        z_table = get_atomic_number_table_from_zs(
             z
             for configs in (collections.train, collections.valid)
             for config in configs
@@ -87,7 +85,7 @@ def _preprocess(args):
         logging.info("Using atomic numbers from command line argument")
         zs_list = ast.literal_eval(args.atomic_numbers)
         assert isinstance(zs_list, list)
-        z_table = tools.get_atomic_number_table_from_zs(zs_list)
+        z_table = get_atomic_number_table_from_zs(zs_list)
 
     # Load and process training data in chunks
     atomic_energies_dict, collections.train = load_from_xyz_in_chunks(

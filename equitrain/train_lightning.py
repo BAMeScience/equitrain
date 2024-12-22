@@ -9,8 +9,8 @@ from pathlib import Path
 
 from torch.optim import SGD, Adam, AdamW, RMSprop, Adadelta
 
-from equitrain.dataloaders   import get_dataloaders
-from equitrain.model         import get_model
+from equitrain.data.loaders import get_dataloaders
+from equitrain.model        import get_model
 
 
 def log_metrics(args, logger, prefix, postfix, loss_metrics):

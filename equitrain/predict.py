@@ -10,10 +10,10 @@ from torch_geometric.data.collate import collate
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from equitrain.mace.tools  import AtomicNumberTable
-from equitrain.model       import get_model
-from equitrain.dataloaders import get_dataloader
-from equitrain.ocpmodels.preprocessing import AtomsToGraphs
+from equitrain.model           import get_model
+from equitrain.data.loaders    import get_dataloader
+from equitrain.data.graphs     import AtomsToGraphs
+from equitrain.data.statistics import AtomicNumberTable
 
 
 def predict_structures(model: torch.nn.Module, structure_list: List[Structure], z_table : AtomicNumberTable, max_neighbors=200, r_max = None, num_workers = 1, pin_memory = False, batch_size = 12, device = None) -> List[torch.Tensor]:

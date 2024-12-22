@@ -14,6 +14,7 @@ from typing  import Iterable, Optional
 
 from torch_cluster import radius_graph
 
+# TODO: Replace with torch or lightning implementations
 from timm.optim.adafactor import Adafactor
 from timm.optim.adahessian import Adahessian
 from timm.optim.adamp import AdamP
@@ -25,9 +26,9 @@ from timm.optim.sgdp import SGDP
 from timm.optim.adabelief import AdaBelief
 from timm.scheduler import create_scheduler
 
-from equitrain.argparser   import ArgumentError
-from equitrain.dataloaders import get_dataloaders
-from equitrain.model       import get_model
+from equitrain.argparser    import ArgumentError
+from equitrain.data.loaders import get_dataloaders
+from equitrain.model        import get_model
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")

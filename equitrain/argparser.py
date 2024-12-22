@@ -25,11 +25,6 @@ def get_args_parser_train():
                         help='Path to a model file')
     parser.add_argument('--model-wrapper', type=str, default=None,
                         help='Model wrapper classe [mace]')
-    # regularization
-    parser.add_argument('--alpha-drop', type=float, default=0.0)
-    parser.add_argument('--proj-drop', type=float, default=0.0)
-    parser.add_argument('--out_drop', type=float, default=0.0)
-    parser.add_argument('--drop-path-rate', type=float, default=0.0)
     # optimizer (timm)
     parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
                         help='Optimizer (default: "adamw"')
@@ -166,11 +161,6 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
         type=int,
         default=123,
     )
-    parser.add_argument(
-        '--mixed_precision', 
-        action='store_true', 
-        help='Enable mixed precision training (16-bit precision)'
-    )
     return parser
 
 
@@ -209,11 +199,6 @@ def get_args_parser_test() -> argparse.ArgumentParser:
         type=int, 
         default=16,
     )
-    # regularization
-    parser.add_argument('--alpha-drop', type=float, default=0.0)
-    parser.add_argument('--proj-drop', type=float, default=0.0)
-    parser.add_argument('--out_drop', type=float, default=0.0)
-    parser.add_argument('--drop-path-rate', type=float, default=0.0)
     # data loader config
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument('--pin-mem', action='store_true',
@@ -234,11 +219,6 @@ def get_args_parser_predict() -> argparse.ArgumentParser:
         type=int, 
         default=16,
     )
-    # regularization
-    parser.add_argument('--alpha-drop', type=float, default=0.0)
-    parser.add_argument('--proj-drop', type=float, default=0.0)
-    parser.add_argument('--out_drop', type=float, default=0.0)
-    parser.add_argument('--drop-path-rate', type=float, default=0.0)
     # data loader config
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument('--pin-mem', action='store_true',
