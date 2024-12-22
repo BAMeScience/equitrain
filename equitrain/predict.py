@@ -14,6 +14,7 @@ from equitrain.model           import get_model
 from equitrain.data.loaders    import get_dataloader
 from equitrain.data.graphs     import AtomsToGraphs
 from equitrain.data.statistics import AtomicNumberTable
+from equitrain.utility         import set_dtype
 
 
 def predict_structures(model: torch.nn.Module, structure_list: List[Structure], z_table : AtomicNumberTable, max_neighbors=200, r_max = None, num_workers = 1, pin_memory = False, batch_size = 12, device = None) -> List[torch.Tensor]:
@@ -82,6 +83,8 @@ def predict_graphs(model: torch.nn.Module, graph_list: List[torch_geometric.data
 
 
 def _predict(args, device=None):
+
+    set_dtype(args.dtype)
 
     r_energy = torch.empty((0), device=device)
     r_force  = torch.empty((0, 3), device=device)

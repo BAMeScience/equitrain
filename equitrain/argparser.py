@@ -89,6 +89,12 @@ def get_args_parser_train():
         action='store_true', 
         help='Enable mixed precision training (16-bit precision)'
     )
+    parser.add_argument(
+        "--dtype",
+        help="Set default dtype [float16, float32, float64]",
+        type=str,
+        default="float64",
+    )
     parser.set_defaults(evaluate=False)
     return parser
 
@@ -161,6 +167,12 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
         type=int,
         default=123,
     )
+    parser.add_argument(
+        "--dtype",
+        help="Set default dtype [float16, float32, float64]",
+        type=str,
+        default="float64",
+    )
     return parser
 
 
@@ -199,6 +211,12 @@ def get_args_parser_test() -> argparse.ArgumentParser:
         type=int, 
         default=16,
     )
+    parser.add_argument(
+        "--dtype",
+        help="Set default dtype [float16, float32, float64]",
+        type=str,
+        default="float64",
+    )
     # data loader config
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument('--pin-mem', action='store_true',
@@ -223,6 +241,12 @@ def get_args_parser_predict() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
+    parser.add_argument(
+        "--dtype",
+        help="Set default dtype [float16, float32, float64]",
+        type=str,
+        default="float64",
+    )
     parser.set_defaults(pin_mem=True)
 
     return parser

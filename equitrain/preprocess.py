@@ -16,7 +16,7 @@ from equitrain.argparser import ArgumentError
 from equitrain.data import SubsetCollection, compute_statistics, process_atoms_list, random_train_valid_split, get_atomic_energies, get_atomic_number_table_from_zs
 from equitrain.data.format_hdf5 import HDF5Dataset, save_configurations_as_HDF5
 from equitrain.data.format_xyz import get_dataset_from_xyz, load_from_xyz_in_chunks
-from equitrain.utility import set_seeds
+from equitrain.utility import set_dtype, set_seeds
 
 
 def split_array(a: np.ndarray, max_size: int):
@@ -50,9 +50,9 @@ def _preprocess(args):
     new hdf5 file that is ready for training with on-the-fly dataloading
     """
 
-    # Setup
     set_seeds(args.seed)
-    random.seed(args.seed)
+    set_dtype(args.dtype)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(message)s",

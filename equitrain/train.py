@@ -29,6 +29,7 @@ from timm.scheduler import create_scheduler
 from equitrain.argparser    import ArgumentError
 from equitrain.data.loaders import get_dataloaders
 from equitrain.model        import get_model
+from equitrain.utility      import set_dtype, set_seeds
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
@@ -476,13 +477,9 @@ def _train(args):
     
     logger = FileLogger(is_master=True, is_rank0=True, output_dir=args.output_dir)
     logger.info(args)
-    
-    # since dataset needs random 
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
 
-    # set dtype globally
-    torch.set_default_dtype(torch.float64)
+    set_seeds(args.seed)
+    set_dtype(args.dtype)
 
     if args.energy_weight == 0.0:
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
