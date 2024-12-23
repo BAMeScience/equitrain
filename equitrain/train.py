@@ -14,22 +14,12 @@ from typing  import Iterable, Optional
 
 from torch_cluster import radius_graph
 
-# TODO: Replace with torch or lightning implementations
-from timm.optim.adafactor import Adafactor
-from timm.optim.adahessian import Adahessian
-from timm.optim.adamp import AdamP
-from timm.optim.lookahead import Lookahead
-from timm.optim.nadam import Nadam
-from timm.optim.radam import RAdam
-from timm.optim.rmsprop_tf import RMSpropTF
-from timm.optim.sgdp import SGDP
-from timm.optim.adabelief import AdaBelief
-from timm.scheduler import create_scheduler
-
-from equitrain.argparser    import ArgumentError
-from equitrain.data.loaders import get_dataloaders
-from equitrain.model        import get_model
-from equitrain.utility      import set_dtype, set_seeds
+from equitrain.argparser       import ArgumentError
+from equitrain.data.loaders    import get_dataloaders
+from equitrain.model           import get_model
+from equitrain.utility         import set_dtype, set_seeds
+from equitrain.train_optimizer import create_optimizer
+from equitrain.train_scheduler import create_scheduler
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
@@ -146,137 +136,6 @@ def compute_stats(data_loader, max_radius, logger, print_freq=1000):
             log_str += 'avg edge: {}, '.format(avg_edge.avg)
             log_str += 'avg degree: {}, '.format(avg_degree.avg)
             logger.info(log_str)
-
-
-def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
-    decay = []
-    no_decay = []
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue  # frozen weights
-        if (name.endswith(".bias") or name.endswith(".affine_weight")  
-            or name.endswith(".affine_bias") or name.endswith('.mean_shift')
-            or 'bias.' in name 
-            or name in skip_list):
-            no_decay.append(param)
-        else:
-            decay.append(param)
-    return [
-        {'params': no_decay, 'weight_decay': 0.},
-        {'params': decay, 'weight_decay': weight_decay}]
-
-
-def optimizer_kwargs(cfg):
-    """ cfg/argparse to kwargs helper
-    Convert optimizer args in argparse args or cfg like object to keyword args for updated create fn.
-    """
-    kwargs = dict(
-        optimizer_name=cfg.opt,
-        lr=cfg.lr,
-        weight_decay=cfg.weight_decay,
-        momentum=cfg.momentum)
-    if getattr(cfg, 'opt_eps', None) is not None:
-        kwargs['eps'] = cfg.opt_eps
-    if getattr(cfg, 'opt_betas', None) is not None:
-        kwargs['betas'] = cfg.opt_betas
-    if getattr(cfg, 'opt_args', None) is not None:
-        kwargs.update(cfg.opt_args)
-    return kwargs
-
-
-def create_optimizer(args, model, filter_bias_and_bn=True):
-    """ Legacy optimizer factory for backwards compatibility.
-    NOTE: Use create_optimizer_v2 for new code.
-    """
-    return create_optimizer_v2(
-        model,
-        **optimizer_kwargs(cfg=args),
-        filter_bias_and_bn=filter_bias_and_bn,
-    )
-
-
-def create_optimizer_v2(
-        model: torch.nn.Module,
-        optimizer_name: str = 'sgd',
-        lr: Optional[float] = None,
-        weight_decay: float = 0.,
-        momentum: float = 0.9,
-        filter_bias_and_bn: bool = True,
-        **kwargs):
-    """ Create an optimizer.
-
-    TODO currently the model is passed in and all parameters are selected for optimization.
-    For more general use an interface that allows selection of parameters to optimize and lr groups, one of:
-      * a filter fn interface that further breaks params into groups in a weight_decay compatible fashion
-      * expose the parameters interface and leave it up to caller
-
-    Args:
-        model (nn.Module): model containing parameters to optimize
-        optimizer_name: name of optimizer to create
-        lr: initial learning rate
-        weight_decay: weight decay to apply in optimizer
-        momentum:  momentum for momentum based optimizers (others may use betas via kwargs)
-        filter_bias_and_bn:  filter out bias, bn and other 1d params from weight decay
-        **kwargs: extra optimizer specific kwargs to pass through
-
-    Returns:
-        Optimizer
-    """
-    opt_lower = optimizer_name.lower()
-    if weight_decay and filter_bias_and_bn:
-        skip = {}
-        if hasattr(model, 'no_weight_decay'):
-            skip = model.no_weight_decay()
-        parameters = add_weight_decay(model, weight_decay, skip)
-        weight_decay = 0.
-    else:
-        parameters = model.parameters()
-    #if 'fused' in opt_lower:
-    #    assert has_apex and torch.cuda.is_available(), 'APEX and CUDA required for fused optimizers'
-
-    opt_args = dict(lr=lr, weight_decay=weight_decay, **kwargs)
-    opt_split = opt_lower.split('_')
-    opt_lower = opt_split[-1]
-    if opt_lower == 'sgd' or opt_lower == 'nesterov':
-        opt_args.pop('eps', None)
-        optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=True, **opt_args)
-    elif opt_lower == 'momentum':
-        opt_args.pop('eps', None)
-        optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=False, **opt_args)
-    elif opt_lower == 'adam':
-        optimizer = torch.optim.Adam(parameters, **opt_args) 
-    elif opt_lower == 'adabelief':
-        optimizer = AdaBelief(parameters, rectify=False, **opt_args)
-    elif opt_lower == 'adamw':
-        optimizer = torch.optim.AdamW(parameters, **opt_args)
-    elif opt_lower == 'nadam':
-        optimizer = Nadam(parameters, **opt_args)
-    elif opt_lower == 'radam':
-        optimizer = RAdam(parameters, **opt_args)
-    elif opt_lower == 'adamp':        
-        optimizer = AdamP(parameters, wd_ratio=0.01, nesterov=True, **opt_args)
-    elif opt_lower == 'sgdp':
-        optimizer = SGDP(parameters, momentum=momentum, nesterov=True, **opt_args)
-    elif opt_lower == 'adadelta':
-        optimizer = torch.optim.Adadelta(parameters, **opt_args)
-    elif opt_lower == 'adafactor':
-        if not lr:
-            opt_args['lr'] = None
-        optimizer = Adafactor(parameters, **opt_args)
-    elif opt_lower == 'adahessian':
-        optimizer = Adahessian(parameters, **opt_args)
-    elif opt_lower == 'rmsprop':
-        optimizer = torch.optim.RMSprop(parameters, alpha=0.9, momentum=momentum, **opt_args)
-    elif opt_lower == 'rmsproptf':
-        optimizer = RMSpropTF(parameters, alpha=0.9, momentum=momentum, **opt_args)
-    else:
-        assert False and "Invalid optimizer"
-
-    if len(opt_split) > 1:
-        if opt_split[0] == 'lookahead':
-            optimizer = Lookahead(optimizer)
-
-    return optimizer
 
 
 def log_metrics(args, logger, prefix, postfix, loss_metrics):
@@ -502,12 +361,8 @@ def _train(args):
         logger.info('Number of params: {}'.format(n_parameters))
     
     ''' Optimizer and LR Scheduler '''
-    optimizer = create_optimizer(args, model)
-    lr_scheduler, _ = create_scheduler(args, optimizer)
-    if args.warmup_epochs == 0:
-        if hasattr(lr_scheduler, 'warmup_t'):
-            # manually disable warmup (timm bugfix)
-            lr_scheduler.warmup_t = -1
+    optimizer    = create_optimizer(args, model)
+    lr_scheduler = create_scheduler(args, optimizer)
 
     criterion = torch.nn.L1Loss() 
 
@@ -554,7 +409,8 @@ def _train(args):
         
         val_loss = evaluate(args, model=model, criterion=criterion, data_loader=val_loader)
 
-        lr_scheduler.step(best_metrics['val_epoch'], epoch)
+        if lr_scheduler is not None:
+            lr_scheduler.step(best_metrics['val_epoch'], epoch)
 
         # Only main process should save model
         if accelerator.process_index == 0:

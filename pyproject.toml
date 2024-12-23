@@ -13,7 +13,6 @@ requires = [
     'torch_cluster',
     'torchmetrics',
     'tqdm',
-    'timm',
     'accelerate',
     'e3nn',
 ]

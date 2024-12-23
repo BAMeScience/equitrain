@@ -81,7 +81,6 @@ dependencies:
       - tbb==2021.13.1
       - tenacity==9.0.0
       - threadpoolctl==3.5.0
-      - timm==1.0.9
       - torch==2.3.0
       - torch-cluster==1.6.3
       - torch-ema==0.3

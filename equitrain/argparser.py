@@ -7,7 +7,7 @@ class ArgumentError(ValueError):
 
 
 def get_args_parser_preprocess() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser('Equitrain preprocess script', add_help=False)
+    parser = argparse.ArgumentParser('Equitrain preprocess script')
     parser.add_argument("--train_file", help="Training set xyz file", type=str, default=None, required=False)
     parser.add_argument("--valid_file", help="Validation set xyz file", type=str, default=None, required=False)
     parser.add_argument(
@@ -84,7 +84,7 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
 
 
 def get_args_parser_train():
-    parser = argparse.ArgumentParser('Equitrain training script', add_help=False)
+    parser = argparse.ArgumentParser('Equitrain training script')
     # required arguments
     parser.add_argument('--train-file', type=str, default=None)
     parser.add_argument('--valid-file', type=str, default=None)
@@ -107,51 +107,42 @@ def get_args_parser_train():
                         help="Load full checkpoint including optimizer and random state (for resuming training exactly where it stopped)")
     parser.add_argument('--load-checkpoint-model', type=str, default=None,
                         help="Load model checkpoint")
-    # optimizer (timm)
+    # optimizer parameters
     parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
                         help='Optimizer (default: "adamw"')
-    parser.add_argument('--opt-eps', default=1e-8, type=float, metavar='EPSILON',
-                        help='Optimizer Epsilon (default: 1e-8)')
-    parser.add_argument('--opt-betas', default=None, type=float, nargs='+', metavar='BETA',
-                        help='Optimizer Betas (default: None, use opt default)')
-    parser.add_argument('--clip-grad', type=float, default=None, metavar='NORM',
-                        help='Clip gradient norm (default: None, no clipping)')
+    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+                        help='Learning rate (default: 0.01)')
+    parser.add_argument('--eps', default=1e-8, type=float, metavar='EPSILON',
+                        help='Term added to the denominator to improve numerical stability (default: 1e-8)')
+    parser.add_argument('--alpha', default=0.99, type=float, metavar='ALPHA',
+                        help='Smoothing constant (default: 0.99)')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                         help='SGD momentum (default: 0.9)')
-    parser.add_argument('--weight-decay', type=float, default=5e-3,
-                        help='weight decay (default: 5e-3)')
-    # learning rate schedule parameters (timm)
-    parser.add_argument('--sched', default='plateau', type=str, metavar='SCHEDULER',
+    parser.add_argument('--weight-decay', type=float, default=0.0,
+                        help='weight decay (default: 0.0)')
+    # learning rate schedule parameters
+    parser.add_argument('--scheduler', default='plateau', type=str, metavar='SCHEDULER',
                         help='LR scheduler (default: "plateau"')
-    parser.add_argument('--lr', type=float, default=5e-4, metavar='LR',
-                        help='learning rate (default: 5e-4)')
-    parser.add_argument('--lr-noise', type=float, nargs='+', default=None, metavar='pct, pct',
-                        help='learning rate noise on/off epoch percentages')
-    parser.add_argument('--lr-noise-pct', type=float, default=0.67, metavar='PERCENT',
-                        help='learning rate noise limit percent (default: 0.67)')
-    parser.add_argument('--lr-noise-std', type=float, default=1.0, metavar='STDDEV',
-                        help='learning rate noise std-dev (default: 1.0)')
-    parser.add_argument('--warmup-lr', type=float, default=0.01, metavar='LR',
-                        help='warmup learning rate (default: 1e-6)')
-    parser.add_argument('--min-lr', type=float, default=1e-6, metavar='LR',
-                        help='lower lr bound for cyclic schedulers that hit 0 (1e-6)')
-
-    parser.add_argument('--decay-epochs', type=float, default=30, metavar='N',
-                        help='epoch interval to decay LR')
-    parser.add_argument('--warmup-epochs', type=int, default=0, metavar='N',
-                        help='epochs to warmup LR, if scheduler supports')
-    parser.add_argument('--cooldown-epochs', type=int, default=0, metavar='N',
-                        help='epochs to cooldown LR at min_lr, after cyclic schedule ends')
-    parser.add_argument('--patience-epochs', type=int, default=2, metavar='N',
-                        help='patience epochs for Plateau LR scheduler (default: 2')
+    parser.add_argument('--min-lr', type=float, default=0.0, metavar='LR',
+                        help='A lower bound on the learning rate of all param groups or each group respectively (default: 0.0)')
+    parser.add_argument('--gamma', type=float, default=0.0, metavar='LR',
+                        help='Multiplicative factor of learning rate decay (default: 0.1)')
+    parser.add_argument('--plateau-patience', type=int, default=2, metavar='N',
+                        help='The number of allowed epochs with no improvement after which the learning rate will be reduced (default: 2)')
+    parser.add_argument('--plateau-factor', type=float, default=0.5, metavar='F',
+                        help='Factor by which the learning rate will be reduced. new_lr = lr * factor (default: 0.5)')
+    parser.add_argument('--plateau-threshold', type=float, default=1e-4, metavar='T',
+                        help='Threshold for measuring the new optimum, to only focus on significant changes (default: 1e-4)')
+    parser.add_argument('--plateau-mode', type=str, default='min', metavar='T',
+                        help='One of min, max. In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing (default: min)')
     parser.add_argument('--decay-rate', '--dr', type=float, default=0.5, metavar='RATE',
                         help='LR decay rate (default: 0.5)')
     # logging
     parser.add_argument("--print-freq", type=int, default=100)
     # weights
-    parser.add_argument('--energy-weight', type=float, default=0.2)
-    parser.add_argument('--force-weight' , type=float, default=0.8)
-    parser.add_argument('--stress-weight', type=float, default=0.0)
+    parser.add_argument('--energy-weight', help='Weight for the energy loss term (default: 0.2)', type=float, default=0.2)
+    parser.add_argument('--force-weight' , help='Weight for the forces loss term (default: 0.8)', type=float, default=0.8)
+    parser.add_argument('--stress-weight', help='Weight for the stress loss term (default: 0.0)', type=float, default=0.0)
     # random
     parser.add_argument("--seed", type=int, default=1)
     # data loader config
@@ -170,7 +161,7 @@ def get_args_parser_train():
 
 
 def get_args_parser_test() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser('Equitrain test script', add_help=False)
+    parser = argparse.ArgumentParser('Equitrain test script')
     # model parameter
     parser.add_argument('--model', type=str, default=None,
                         help='Path to a model file')
@@ -229,7 +220,7 @@ def get_args_parser_test() -> argparse.ArgumentParser:
 
 
 def get_args_parser_predict() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser('Equitrain predict script', add_help=False)
+    parser = argparse.ArgumentParser('Equitrain predict script')
     # model parameter
     parser.add_argument('--model', type=str, default=None,
                         help='Path to a model file')
