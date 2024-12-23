@@ -62,7 +62,7 @@ def load_from_xyz_in_chunks(
     file_path: str,
     config_type_weights: Dict,
     chunk_size: int = 1000,
-    energy_key: str = "energy_corrected",
+    energy_key: str = "energy",
     forces_key: str = "forces",
     stress_key: str = "stress",
     virials_key: str = "virials",
