@@ -143,7 +143,7 @@ def _preprocess(args):
             [atomic_energies_dict[z] for z in z_table.zs]
         )
         logging.info(f"Atomic energies array for computation: {atomic_energies.tolist()}")
-        train_dataset = HDF5Dataset(os.path.join(args.output_dir, "train.h5"), z_table=z_table, r_max=args.r_max)
+        train_dataset = HDF5Dataset(os.path.join(args.output_dir, "train.h5"), r_max=args.r_max, z_table=z_table)
         train_loader = torch_geometric.loader.DataLoader(
             dataset=train_dataset, 
             batch_size=args.batch_size, 
@@ -159,12 +159,12 @@ def _preprocess(args):
             
         # save the statistics as a json
         statistics = {
-            "atomic_energies": {int(k): float(v) for k, v in atomic_energies_dict.items()},
+            "atomic_energies"  : {int(k): float(v) for k, v in atomic_energies_dict.items()},
             "avg_num_neighbors": avg_num_neighbors,
-            "mean": mean,
-            "std": std,
-            "atomic_numbers": z_table.zs,
-            "r_max": args.r_max,
+            "mean"             : mean,
+            "std"              : std,
+            "atomic_numbers"   : z_table.zs,
+            "r_max"            : args.r_max,
         }
         logging.info(f"Final statistics to be saved: {statistics}")
         del train_dataset

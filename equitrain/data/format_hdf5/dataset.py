@@ -36,7 +36,6 @@ class HDF5Dataset(Dataset):
         self.batch_size = len(self.file[batch_key].keys())
         self.length     = len(self.file.keys()) * self.batch_size
         self.converter  = AtomsToGraphs(z_table, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
-        self.r_max      = r_max
         self.z_table    = z_table
 
         try:

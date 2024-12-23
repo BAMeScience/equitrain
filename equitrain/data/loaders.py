@@ -12,7 +12,7 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
 
     zs_list = ast.literal_eval(statistics["atomic_numbers"])
     z_table = get_atomic_number_table_from_zs(zs_list)
-    r_max = float(statistics["r_max"])
+    r_max   = float(statistics["r_max"])
 
     if logger is not None:
         logger.info(f'Using r_max={r_max} from statistics file `{args.statistics_file}`')
@@ -21,12 +21,12 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
         data_file, r_max=r_max, z_table=z_table
     )
     data_loader = torch_geometric.loader.DataLoader(
-        dataset=data_set,
-        batch_size=args.batch_size,
-        shuffle=shuffle,
-        drop_last=False,
-        pin_memory=args.pin_mem,
-        num_workers=args.workers,
+        dataset     = data_set,
+        batch_size  = args.batch_size,
+        shuffle     = shuffle,
+        drop_last   = False,
+        pin_memory  = args.pin_mem,
+        num_workers = args.workers,
     )
 
     return data_loader, r_max
@@ -51,12 +51,12 @@ def get_dataloaders(args, logger=None):
             args.train_file, r_max=r_max, z_table=z_table
         )
         train_loader = torch_geometric.loader.DataLoader(
-            dataset=train_set,
-            batch_size=args.batch_size,
-            shuffle=args.shuffle,
-            drop_last=False,
-            pin_memory=args.pin_mem,
-            num_workers=args.workers,
+            dataset     = train_set,
+            batch_size  = args.batch_size,
+            shuffle     = args.shuffle,
+            drop_last   = False,
+            pin_memory  = args.pin_mem,
+            num_workers = args.workers,
         )
 
     if args.valid_file is None:
@@ -66,12 +66,12 @@ def get_dataloaders(args, logger=None):
             args.valid_file, r_max=r_max, z_table=z_table
         )
         valid_loader = torch_geometric.loader.DataLoader(
-            dataset=valid_set,
-            batch_size=args.batch_size,
-            shuffle=False,
-            drop_last=False,
-            pin_memory=args.pin_mem,
-            num_workers=args.workers,
+            dataset     = valid_set,
+            batch_size  = args.batch_size,
+            shuffle     = False,
+            drop_last   = False,
+            pin_memory  = args.pin_mem,
+            num_workers = args.workers,
         )
 
     if args.test_file is None:
@@ -81,12 +81,12 @@ def get_dataloaders(args, logger=None):
             args.test_file, r_max=r_max, z_table=z_table
         )
         test_loader = torch_geometric.loader.DataLoader(
-            dataset=test_set,
-            batch_size=args.batch_size,
-            shuffle=False,
-            drop_last=False,
-            pin_memory=args.pin_mem,
-            num_workers=args.workers,
+            dataset     = test_set,
+            batch_size  = args.batch_size,
+            shuffle     = False,
+            drop_last   = False,
+            pin_memory  = args.pin_mem,
+            num_workers = args.workers,
         )
 
     return train_loader, valid_loader, test_loader, r_max

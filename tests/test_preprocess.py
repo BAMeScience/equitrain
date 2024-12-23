@@ -8,6 +8,7 @@ from equitrain import preprocess
 
 # %%
 def test_preprocess():
+
     args = get_args_parser_preprocess().parse_args()
     
     args.train_file         = 'data.xyz'

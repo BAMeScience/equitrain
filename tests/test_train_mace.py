@@ -9,7 +9,6 @@ from equitrain.utility_test import MaceWrapper
 
 def test_train_mace():
 
-    # TODO: Check r in dataset
     r = 4.5
 
     args = get_args_parser_train().parse_args()
