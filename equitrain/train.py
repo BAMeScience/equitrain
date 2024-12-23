@@ -397,15 +397,15 @@ def _train(args):
         epoch_start_time = time.perf_counter()
 
         train_loss = train_one_epoch(
-            args=args,
-            model=model,
-            accelerator=accelerator,
-            criterion=criterion,
-            data_loader=train_loader,
-            optimizer=optimizer,
-            epoch=epoch,
-            print_freq=args.print_freq,
-            logger=logger)
+            args        = args,
+            model       = model,
+            accelerator = accelerator,
+            criterion   = criterion,
+            data_loader = train_loader,
+            optimizer   = optimizer,
+            epoch       = epoch,
+            print_freq  = args.print_freq,
+            logger      = logger)
         
         val_loss = evaluate(args, model=model, criterion=criterion, data_loader=val_loader)
 
