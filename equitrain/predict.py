@@ -113,11 +113,11 @@ def _predict(args, device=None):
 
     set_dtype(args.dtype)
 
-    r_energy = torch.empty((0), device=device)
-    r_force  = torch.empty((0, 3), device=device)
+    r_energy = torch.empty((0)      , device=device)
+    r_force  = torch.empty((0, 3)   , device=device)
     r_stress = torch.empty((0, 3, 3), device=device)
 
-    data_loader, r_max = get_dataloader(args.predict_file, args)
+    data_loader = get_dataloader(args.predict_file, args)
 
     model = get_model(args)
 

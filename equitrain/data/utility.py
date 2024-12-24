@@ -41,7 +41,8 @@ def random_train_valid_split(
 
 
 def atomic_numbers_to_indices(
-    atomic_numbers: np.ndarray, z_table: AtomicNumberTable
+    atomic_numbers: np.ndarray,
+    z_table       : AtomicNumberTable
 ) -> np.ndarray:
     to_index_fn = np.vectorize(z_table.z_to_index)
     return to_index_fn(atomic_numbers)

@@ -2,7 +2,7 @@ import ast
 import json
 import torch_geometric
 
-from equitrain.data.format_hdf5.dataset import HDF5Dataset
+from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
 from equitrain.data.statistics          import get_atomic_number_table_from_zs
 
 
@@ -17,7 +17,7 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
     if logger is not None:
         logger.info(f'Using r_max={r_max} from statistics file `{args.statistics_file}`')
 
-    data_set = HDF5Dataset(
+    data_set = HDF5GraphDataset(
         data_file, r_max=r_max, z_table=z_table
     )
     data_loader = torch_geometric.loader.DataLoader(
@@ -29,7 +29,7 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
         num_workers = args.workers,
     )
 
-    return data_loader, r_max
+    return data_loader
 
 
 def get_dataloaders(args, logger=None):
@@ -47,7 +47,7 @@ def get_dataloaders(args, logger=None):
     if args.train_file is None:
         train_loader = None
     else:
-        train_set = HDF5Dataset(
+        train_set = HDF5GraphDataset(
             args.train_file, r_max=r_max, z_table=z_table
         )
         train_loader = torch_geometric.loader.DataLoader(
@@ -62,7 +62,7 @@ def get_dataloaders(args, logger=None):
     if args.valid_file is None:
         valid_loader = None
     else:
-        valid_set = HDF5Dataset(
+        valid_set = HDF5GraphDataset(
             args.valid_file, r_max=r_max, z_table=z_table
         )
         valid_loader = torch_geometric.loader.DataLoader(
@@ -77,7 +77,7 @@ def get_dataloaders(args, logger=None):
     if args.test_file is None:
         test_loader = None
     else:
-        test_set = HDF5Dataset(
+        test_set = HDF5GraphDataset(
             args.test_file, r_max=r_max, z_table=z_table
         )
         test_loader = torch_geometric.loader.DataLoader(
@@ -89,4 +89,4 @@ def get_dataloaders(args, logger=None):
             num_workers = args.workers,
         )
 
-    return train_loader, valid_loader, test_loader, r_max
+    return train_loader, valid_loader, test_loader

@@ -78,9 +78,9 @@ def get_atomic_energies(E0s, train_collection, z_table) -> dict:
 
 
 def compute_statistics(
-    data_loader: torch.utils.data.DataLoader,
+    data_loader    : torch.utils.data.DataLoader,
     atomic_energies: np.ndarray,
-    z_table: AtomicNumberTable
+    z_table        : AtomicNumberTable
 ) -> Tuple[float, float, float, float]:
     atomic_energies_fn = AtomicEnergiesBlock(atomic_energies=atomic_energies)
 

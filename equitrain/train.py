@@ -348,7 +348,7 @@ def _train(args):
     accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
 
     ''' Data Loader '''
-    train_loader, val_loader, test_loader, r_max = get_dataloaders(args, logger=logger)
+    train_loader, val_loader, test_loader = get_dataloaders(args, logger=logger)
     train_loader, val_loader, test_loader = accelerator.prepare(train_loader, val_loader, test_loader)
 
     ''' Network '''
