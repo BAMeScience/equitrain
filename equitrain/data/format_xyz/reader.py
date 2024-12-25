@@ -2,9 +2,9 @@
 import ase.io
 import logging
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict
 
-from equitrain.data import AtomicNumberTable, Configuration, Configurations
+from equitrain.data import AtomicNumberTable, Configuration
 
 
 class XYZReader():
@@ -17,26 +17,11 @@ class XYZReader():
         virials_key             : str  = "virials",
         dipole_key              : str  = "dipole",
         charges_key             : str  = "charges",
-        config_type_weights     : Dict = {},
         extract_z_table         : bool = False,
         extract_atomic_energies : bool = False,
         ):
 
-        if energy_key == "energy":
-            logging.warning(
-                "Since ASE version 3.23.0b1, using energy_key 'energy' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'energy' to 'REF_energy'. You need to use --energy_key='REF_energy' to specify the chosen key name."
-            )
-        if forces_key == "forces":
-            logging.warning(
-                "Since ASE version 3.23.0b1, using forces_key 'forces' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'forces' to 'REF_forces'. You need to use --forces_key='REF_forces' to specify the chosen key name."
-            )
-        if stress_key == "stress":
-            logging.warning(
-                "Since ASE version 3.23.0b1, using stress_key 'stress' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'stress' to 'REF_stress'. You need to use --stress_key='REF_stress' to specify the chosen key name."
-            )
-
         self.filename                = filename
-        self.config_type_weights     = config_type_weights
         self.energy_key              = energy_key
         self.forces_key              = forces_key
         self.stress_key              = stress_key
@@ -66,18 +51,17 @@ class XYZReader():
 
             else:
 
-                config = Configuration.from_atoms(
+                atoms = Configuration.from_atoms(
                     atoms,
-                    config_type_weights = self.config_type_weights,
-                    energy_key          = self.energy_key,
-                    forces_key          = self.forces_key,
-                    stress_key          = self.stress_key,
-                    virials_key         = self.virials_key,
-                    dipole_key          = self.dipole_key,
-                    charges_key         = self.charges_key,
-                )
+                    energy_key  = self.energy_key,
+                    forces_key  = self.forces_key,
+                    stress_key  = self.stress_key,
+                    virials_key = self.virials_key,
+                    dipole_key  = self.dipole_key,
+                    charges_key = self.charges_key,
+                ).to_atoms()
 
-                yield config
+                yield atoms
 
 
     def update_atomic_energies(self, atoms, i):

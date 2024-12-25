@@ -1,27 +1,10 @@
 import h5py
 
 from ase import Atoms
-from torch.utils.data import Dataset, IterableDataset, ChainDataset
+from torch.utils.data import Dataset
 
-from equitrain.data        import Configuration
+from equitrain.data.configuration import CachedCalc
 from equitrain.data.graphs import AtomsToGraphs
-
-
-class CachedCalc:
-
-    def __init__(self, energy, forces, stress):
-        self.energy = energy
-        self.forces = forces
-        self.stress = stress
-
-    def get_potential_energy(self, apply_constraint=False):
-        return self.energy
-
-    def get_forces(self, apply_constraint=False):
-        return self.forces
-
-    def get_stress(self, apply_constraint=False):
-        return self.stress
 
 
 class HDF5Dataset(Dataset):
@@ -72,28 +55,32 @@ class HDF5Dataset(Dataset):
             unpack_value(grp["forces"][()]),
             unpack_value(grp["stress"][()]),
         )
+        atoms.info["energy_weight" ] = unpack_value(grp["energy_weight" ][()])
+        atoms.info["forces_weight" ] = unpack_value(grp["forces_weight" ][()])
+        atoms.info["stress_weight" ] = unpack_value(grp["stress_weight" ][()])
+        atoms.info["virials_weight"] = unpack_value(grp["virials_weight"][()])
+        atoms.info["dipole_weight" ] = unpack_value(grp["dipole_weight" ][()])
 
         return atoms
 
 
-    def save_configuration(self, config : Configuration, i : int) -> None:
+    def __setitem__(self, i : int, atoms : Atoms) -> None:
         grp = self.file.create_group(f"{i}")
-        grp["atomic_numbers"] = write_value(config.atomic_numbers)
-        grp["positions"     ] = write_value(config.positions)
-        grp["energy"        ] = write_value(config.energy)
-        grp["forces"        ] = write_value(config.forces)
-        grp["stress"        ] = write_value(config.stress)
-        grp["virials"       ] = write_value(config.virials)
-        grp["dipole"        ] = write_value(config.dipole)
-        grp["charges"       ] = write_value(config.charges)
-        grp["cell"          ] = write_value(config.cell)
-        grp["pbc"           ] = write_value(config.pbc)
-        grp["weight"        ] = write_value(config.weight)
-        grp["energy_weight" ] = write_value(config.energy_weight)
-        grp["forces_weight" ] = write_value(config.forces_weight)
-        grp["stress_weight" ] = write_value(config.stress_weight)
-        grp["virials_weight"] = write_value(config.virials_weight)
-        grp["config_type"   ] = write_value(config.config_type)
+        grp["atomic_numbers"] = write_value(atoms.get_atomic_numbers())
+        grp["positions"     ] = write_value(atoms.get_positions())
+        grp["energy"        ] = write_value(atoms.get_potential_energy())
+        grp["forces"        ] = write_value(atoms.get_forces())
+        grp["stress"        ] = write_value(atoms.get_stress())
+        grp["cell"          ] = write_value(atoms.get_cell())
+        grp["pbc"           ] = write_value(atoms.get_pbc())
+        grp["virials"       ] = write_value(atoms.info  ["virials"])
+        grp["dipole"        ] = write_value(atoms.info  ["dipole" ])
+        grp["charges"       ] = write_value(atoms.arrays["charges"])
+        grp["energy_weight" ] = write_value(atoms.info  ["energy_weight"])
+        grp["forces_weight" ] = write_value(atoms.info  ["forces_weight"])
+        grp["stress_weight" ] = write_value(atoms.info  ["stress_weight"])
+        grp["virials_weight"] = write_value(atoms.info  ["virials_weight"])
+        grp["dipole_weight" ] = write_value(atoms.info  ["dipole_weight"])
 
 
 def write_value(value):
@@ -106,6 +93,7 @@ def unpack_value(value):
 
 
 class HDF5GraphDataset(HDF5Dataset):
+
     def __init__(self, filename, r_max, z_table, mode = "r", **kwargs):
         super().__init__(filename, mode = "r", **kwargs)
 

@@ -3,7 +3,6 @@ from .atomic import (
 )
 from .configuration import (
     Configuration,
-    Configurations,
 )
 from .statistics import (
     compute_statistics,

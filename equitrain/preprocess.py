@@ -20,21 +20,11 @@ from equitrain.utility import set_dtype, set_seeds
 
 def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = False, extract_atomic_energies = False):
 
-    try:
-        config_type_weights = ast.literal_eval(args.config_type_weights)
-        assert isinstance(config_type_weights, dict)
-    except Exception as e:  # pylint: disable=W0703
-        logging.warning(
-            f"Config type weights not specified correctly ({e}), using Default"
-        )
-        config_type_weights = {"Default": 1.0}
-
     z_table = None
     atomic_energies_dict = None
 
     reader = XYZReader(
         filename                = filename_xyz,
-        config_type_weights     = config_type_weights,
         energy_key              = args.energy_key,
         forces_key              = args.forces_key,
         stress_key              = args.stress_key,
@@ -46,7 +36,7 @@ def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = Fa
     with HDF5Dataset(filename_hdf5, "w") as file:
 
         for i, config in enumerate(reader):
-            file.save_configuration(config, i)
+            file[i] = config
 
     if extract_z_table:
         z_table = reader.z_table

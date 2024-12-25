@@ -120,7 +120,7 @@ def compute_statistics(
 def compute_average_E0s(
     dataset : HDF5Dataset,
     z_table : AtomicNumberTable,
-    max_n    : int = None,
+    max_n   : int = None,
 ) -> Dict[int, float]:
     """
     Function to compute the average interaction energy of each chemical element
@@ -157,6 +157,7 @@ def compute_average_E0s(
         # break if max_n is reached
         if i >= len_train:
             break
+
 
     try:
         E0s = np.linalg.lstsq(A, B, rcond=None)[0]
