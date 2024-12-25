@@ -54,11 +54,11 @@ class Configuration:
         if config_type_weights is None:
             config_type_weights = DEFAULT_CONFIG_TYPE_WEIGHTS
 
-        energy  = atoms.info.get(energy_key, None)    # eV
-        forces  = atoms.arrays.get(forces_key, None)  # eV / Ang
-        stress  = atoms.info.get(stress_key, None)    # eV / Ang
-        virials = atoms.info.get(virials_key, None)
-        dipole  = atoms.info.get(dipole_key, None)    # Debye
+        energy  = atoms.info  .get(energy_key , None)    # eV
+        forces  = atoms.arrays.get(forces_key , None)    # eV / Ang
+        stress  = atoms.info  .get(stress_key , None)    # eV / Ang
+        virials = atoms.info  .get(virials_key, None)
+        dipole  = atoms.info  .get(dipole_key , None)    # Debye
 
         # Charges default to 0 instead of None if not found
         charges = atoms.arrays.get(charges_key, np.zeros(len(atoms)))
@@ -166,10 +166,3 @@ class Configurations:
             )
 
         return all_configs
-
-
-@dataclass
-class SubsetCollection:
-    train: Configurations
-    valid: Configurations
-    tests: List[Tuple[str, Configurations]]

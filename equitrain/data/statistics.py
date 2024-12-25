@@ -3,12 +3,13 @@ import ast
 import logging
 import numpy as np
 import torch
+import torch_geometric
 
 from e3nn.util.jit import compile_mode
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+from .format_hdf5   import HDF5Dataset
 from .atomic        import AtomicNumberTable
-from .configuration import Configurations
 from .utility       import compute_one_hot, to_numpy
 from .scatter       import scatter_sum
 
@@ -43,7 +44,7 @@ def get_atomic_number_table_from_zs(zs: Iterable[int]) -> AtomicNumberTable:
     return AtomicNumberTable(sorted(list(z_set)))
 
 
-def get_atomic_energies(E0s, train_collection, z_table) -> dict:
+def get_atomic_energies(E0s, dataset, z_table) -> dict:
     if E0s is not None:
         logging.info(
             "Atomic Energies not in training file, using command line argument E0s"
@@ -54,9 +55,9 @@ def get_atomic_energies(E0s, train_collection, z_table) -> dict:
             )
             # catch if colections.train not defined above
             try:
-                assert train_collection is not None
+                assert dataset is not None
                 atomic_energies_dict = compute_average_E0s(
-                    train_collection, z_table
+                    dataset, z_table
                 )
             except Exception as e:
                 raise RuntimeError(
@@ -85,8 +86,8 @@ def compute_statistics(
     atomic_energies_fn = AtomicEnergiesBlock(atomic_energies=atomic_energies)
 
     atom_energy_list = []
-    forces_list = []
-    num_neighbors = []
+    forces_list      = []
+    num_neighbors    = []
 
     for batch in data_loader:
         node_e0 = atomic_energies_fn(compute_one_hot(z_table, batch))
@@ -117,25 +118,52 @@ def compute_statistics(
 
 
 def compute_average_E0s(
-    collections_train: Configurations, z_table: AtomicNumberTable
+    dataset : HDF5Dataset,
+    z_table : AtomicNumberTable,
+    max_n    : int = None,
 ) -> Dict[int, float]:
     """
     Function to compute the average interaction energy of each chemical element
     returns dictionary of E0s
     """
-    len_train = len(collections_train)
+
+    if max_n is None:
+        len_train = len(dataset)
+    else:
+        len_train = max_n
+
     len_zs = len(z_table)
+
+    # Use data loader for shuffling
+    data_loader = torch.utils.data.DataLoader(
+        dataset     = dataset,
+        batch_size  = 1,
+        # shuffle data in case we only use a subset of the data
+        shuffle     = True,
+        drop_last   = False,
+        pin_memory  = False,
+        num_workers = 1,
+        collate_fn  = lambda data: data
+    )
+
     A = np.zeros((len_train, len_zs))
     B = np.zeros(len_train)
-    for i in range(len_train):
-        B[i] = collections_train[i].energy
+
+    for i, batch in enumerate(data_loader):
+        B[i] = batch[0].get_potential_energy()
         for j, z in enumerate(z_table.zs):
-            A[i, j] = np.count_nonzero(collections_train[i].atomic_numbers == z)
+            A[i, j] = np.count_nonzero(batch[0].get_atomic_numbers() == z)
+
+        # break if max_n is reached
+        if i >= len_train:
+            break
+
     try:
         E0s = np.linalg.lstsq(A, B, rcond=None)[0]
         atomic_energies_dict = {}
         for i, z in enumerate(z_table.zs):
             atomic_energies_dict[z] = E0s[i]
+
     except np.linalg.LinAlgError:
         logging.warning(
             "Failed to compute E0s using least squares regression, using the same for all atoms"
@@ -143,4 +171,5 @@ def compute_average_E0s(
         atomic_energies_dict = {}
         for i, z in enumerate(z_table.zs):
             atomic_energies_dict[z] = 0.0
+
     return atomic_energies_dict

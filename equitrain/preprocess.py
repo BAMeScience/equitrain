@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from equitrain.argparser import ArgumentError
-from equitrain.data import SubsetCollection, compute_statistics, get_atomic_energies, get_atomic_number_table_from_zs
+from equitrain.data import compute_statistics, get_atomic_energies, get_atomic_number_table_from_zs
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.utility import set_dtype, set_seeds
@@ -115,14 +115,20 @@ def _preprocess(args):
 
     if args.train_file and args.compute_statistics:
         # Compute statistics
-        logging.info("Computing statistics")
-        # Remove all items from z_table for which no atomic energies exits
-        z_table.zs = sorted(list(set(z_table.zs).intersection(atomic_energies_dict.keys())))
-        # Sort atomic energies according to z_table
-        atomic_energies: np.ndarray = np.array(
-            [atomic_energies_dict[z] for z in z_table.zs]
-        )
-        logging.info(f"Atomic energies array for computation: {atomic_energies.tolist()}")
+        with HDF5Dataset(filename_train, r_max=args.r_max, z_table=z_table) as train_dataset:
+
+            logging.info("Computing statistics")
+            # If training set did not contain any single atom entries, estimate E0s...
+            if len(atomic_energies_dict) == 0:
+                atomic_energies_dict = get_atomic_energies(args.E0s, train_dataset, z_table)
+
+            # Remove all items from z_table for which no atomic energies exits
+            z_table.zs = sorted(list(set(z_table.zs).intersection(atomic_energies_dict.keys())))
+            # Sort atomic energies according to z_table
+            atomic_energies: np.ndarray = np.array(
+                [atomic_energies_dict[z] for z in z_table.zs]
+            )
+            logging.info(f"Atomic energies array for computation: {atomic_energies.tolist()}")
 
         with HDF5GraphDataset(filename_train, r_max=args.r_max, z_table=z_table) as train_dataset:
 
