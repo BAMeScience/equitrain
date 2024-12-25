@@ -38,7 +38,8 @@ def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = Fa
         energy_key              = args.energy_key,
         forces_key              = args.forces_key,
         stress_key              = args.stress_key,
-        extract_atomic_energies = True,
+        extract_z_table         = extract_z_table,
+        extract_atomic_energies = extract_atomic_energies,
     )
 
     # Open HDF5 file in write mode
@@ -119,11 +120,9 @@ def _preprocess(args):
 
             logging.info("Computing statistics")
             # If training set did not contain any single atom entries, estimate E0s...
-            if len(atomic_energies_dict) == 0:
+            if atomic_energies_dict is None or len(atomic_energies_dict) == 0:
                 atomic_energies_dict = get_atomic_energies(args.E0s, train_dataset, z_table)
 
-            # Remove all items from z_table for which no atomic energies exits
-            z_table.zs = sorted(list(set(z_table.zs).intersection(atomic_energies_dict.keys())))
             # Sort atomic energies according to z_table
             atomic_energies: np.ndarray = np.array(
                 [atomic_energies_dict[z] for z in z_table.zs]
@@ -151,7 +150,7 @@ def _preprocess(args):
                 "avg_num_neighbors": avg_num_neighbors,
                 "mean"             : mean,
                 "std"              : std,
-                "atomic_numbers"   : z_table.zs,
+                "atomic_numbers"   : [ int(zs) for zs in z_table.zs ],
                 "r_max"            : args.r_max,
             }
             logging.info(f"Final statistics to be saved: {statistics}")
@@ -163,8 +162,6 @@ def _preprocess(args):
 def preprocess(args):
     if args.train_file is None:
         raise ArgumentError("--train-file is a required argument")
-    if args.valid_file is None:
-        raise ArgumentError("--valid-file is a required argument")
     if args.statistics_file is None:
         raise ArgumentError("--statistics-file is a required argument")
     if args.output_dir is None:

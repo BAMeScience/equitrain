@@ -4,7 +4,6 @@ from .atomic import (
 from .configuration import (
     Configuration,
     Configurations,
-    SubsetCollection,
 )
 from .statistics import (
     compute_statistics,

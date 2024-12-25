@@ -14,4 +14,7 @@ class AtomicNumberTable:
         return self.zs[index]
 
     def z_to_index(self, atomic_number: str) -> int:
-        return self.zs.index(atomic_number)
+        try:
+            return self.zs.index(atomic_number)
+        except ValueError:
+            raise ValueError("Observed atom type that is not listed in the atomic numbers table.")

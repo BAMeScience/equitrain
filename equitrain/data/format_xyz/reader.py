@@ -45,7 +45,7 @@ class XYZReader():
         self.charges_key             = charges_key
         self.z_set                   = set()
         self.atomic_energies_dict    = {}
-        self.extract_z_table         = {}
+        self.extract_z_table         = extract_z_table
         self.extract_atomic_energies = extract_atomic_energies
 
 
@@ -53,7 +53,7 @@ class XYZReader():
 
         self.atomic_energies_dict = {}
 
-        for atoms in ase.io.iread(self.filename, index=":"):
+        for i, atoms in enumerate(ase.io.iread(self.filename, index=":")):
 
             if self.extract_z_table:
                 self.z_set.update(atoms.get_atomic_numbers())
@@ -62,7 +62,7 @@ class XYZReader():
             # to update the atomic energies dictionary
             if self.extract_atomic_energies and (len(atoms) == 1 and atoms.info["config_type"] == "IsolatedAtom"):
 
-                self.update_atomic_energies(atoms)
+                self.update_atomic_energies(atoms, i)
 
             else:
 
@@ -80,7 +80,7 @@ class XYZReader():
                 yield config
 
 
-    def update_atomic_energies(self, atoms):
+    def update_atomic_energies(self, atoms, i):
 
         if self.energy_key in atoms.info.keys():
             self.atomic_energies_dict[atoms.get_atomic_numbers()[0]] = atoms.info[
@@ -88,10 +88,10 @@ class XYZReader():
             ]
         else:
             logging.warning(
-                f"Configuration '{idx}' is marked as 'IsolatedAtom' "
+                f"Configuration '{i}' is marked as 'IsolatedAtom' "
                 "but does not contain an energy."
             )
 
     @property
     def z_table(self):
-        AtomicNumberTable(sorted(list(self.z_set)))
+        return AtomicNumberTable(sorted(list(self.z_set)))
