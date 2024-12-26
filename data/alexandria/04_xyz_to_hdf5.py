@@ -1,13 +1,10 @@
 # %%
-
-import pytest
-
 from equitrain import get_args_parser_preprocess
 from equitrain import preprocess
 
 
 # %%
-def test_preprocess():
+def main():
 
     args = get_args_parser_preprocess().parse_args()
     
@@ -24,4 +21,4 @@ def test_preprocess():
 
 # %%
 if __name__ == "__main__":
-    test_preprocess()
+    main()
