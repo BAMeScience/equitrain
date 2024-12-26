@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from equitrain.argparser import ArgumentError
-from equitrain.data import compute_statistics, get_atomic_energies, get_atomic_number_table_from_zs
+from equitrain.data import compute_statistics, get_z_table, get_atomic_energies, get_atomic_number_table_from_zs
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.utility import set_dtype, set_seeds
@@ -119,11 +119,17 @@ def _preprocess(args):
             logging.info("Converting test file")
             _convert_xyz_to_hdf5(args, args.test_file, filename_test)
 
-    if args.train_file and args.compute_statistics:
+    if Path(filename_train).exists() and args.compute_statistics:
+
+        logging.info("Computing statistics")
+
         # Compute statistics
         with HDF5Dataset(filename_train) as train_dataset:
 
-            logging.info("Computing statistics")
+            # If training set did not contain any single atom entries, estimate E0s...
+            if z_table is None or len(z_table) == 0:
+                z_table = get_z_table(train_dataset)
+
             # If training set did not contain any single atom entries, estimate E0s...
             if atomic_energies_dict is None or len(atomic_energies_dict) == 0:
                 atomic_energies_dict = get_atomic_energies(args.E0s, train_dataset, z_table)

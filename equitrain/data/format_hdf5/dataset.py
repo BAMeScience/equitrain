@@ -47,7 +47,7 @@ class HDF5Dataset(Dataset):
 
 
     def __len__(self):
-        return len(self.file.keys())
+        return len(self.file.keys()) - 1
 
 
     def __getitem__(self, i : int):
@@ -91,6 +91,7 @@ class HDF5Dataset(Dataset):
         grp["stress_weight" ] = write_value(atoms.info  ["stress_weight"])
         grp["virials_weight"] = write_value(atoms.info  ["virials_weight"])
         grp["dipole_weight" ] = write_value(atoms.info  ["dipole_weight"])
+
 
     def check_magic(self):
         try:

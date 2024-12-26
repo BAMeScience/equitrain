@@ -44,6 +44,30 @@ def get_atomic_number_table_from_zs(zs: Iterable[int]) -> AtomicNumberTable:
     return AtomicNumberTable(sorted(list(z_set)))
 
 
+def get_z_table(
+    dataset : HDF5Dataset,
+) -> AtomicNumberTable:
+
+    data_loader = torch.utils.data.DataLoader(
+        dataset     = dataset,
+        batch_size  = 1,
+        # shuffle data in case we only use a subset of the data
+        shuffle     = True,
+        drop_last   = False,
+        pin_memory  = False,
+        num_workers = 1,
+        collate_fn  = lambda data: data
+    )
+
+    z_set = set()
+
+    for batch in data_loader:
+
+        z_set.update(batch[0].get_atomic_numbers())
+
+    return AtomicNumberTable(sorted(list(z_set)))
+
+
 def get_atomic_energies(E0s, dataset, z_table) -> dict:
     if E0s is not None:
         logging.info(
@@ -157,7 +181,6 @@ def compute_average_E0s(
         # break if max_n is reached
         if i >= len_train:
             break
-
 
     try:
         E0s = np.linalg.lstsq(A, B, rcond=None)[0]
