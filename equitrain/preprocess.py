@@ -79,34 +79,49 @@ def _preprocess(args):
 
     # Convert training file and obtain z_table and atomit_energies if required
     if args.train_file:
-        logging.info("Converting train file")
-        _z_table, _atomic_energies_dict = _convert_xyz_to_hdf5(
-            args,
-            args.train_file,
-            filename_train,
-            extract_z_table         = (args.compute_statistics and z_table              is None),
-            extract_atomic_energies = (args.compute_statistics and atomic_energies_dict is None),
-            )
 
-        if z_table is None:
-            z_table = _z_table
+        if Path(filename_train).exists():
+            logging.info("Train file exists. Skipping...")
 
-        if atomic_energies_dict is None:
-            atomic_energies_dict = _atomic_energies_dict
+        else:
+            logging.info("Converting train file")
+            _z_table, _atomic_energies_dict = _convert_xyz_to_hdf5(
+                args,
+                args.train_file,
+                filename_train,
+                extract_z_table         = (args.compute_statistics and z_table              is None),
+                extract_atomic_energies = (args.compute_statistics and atomic_energies_dict is None),
+                )
+
+            if z_table is None:
+                z_table = _z_table
+
+            if atomic_energies_dict is None:
+                atomic_energies_dict = _atomic_energies_dict
 
     # Convert validation file
     if args.valid_file:
-        logging.info("Converting valid file")
-        _convert_xyz_to_hdf5(args, args.valid_file, filename_valid)
+
+        if Path(filename_valid).exists():
+            logging.info("Validation file exists. Skipping...")
+
+        else:
+            logging.info("Converting valid file")
+            _convert_xyz_to_hdf5(args, args.valid_file, filename_valid)
 
     # Convert test file
     if args.test_file:
-        logging.info("Converting test file")
-        _convert_xyz_to_hdf5(args, args.test_file, filename_test)
+
+        if Path(filename_test).exists():
+            logging.info("Test file exists. Skipping...")
+
+        else:
+            logging.info("Converting test file")
+            _convert_xyz_to_hdf5(args, args.test_file, filename_test)
 
     if args.train_file and args.compute_statistics:
         # Compute statistics
-        with HDF5Dataset(filename_train, r_max=args.r_max, z_table=z_table) as train_dataset:
+        with HDF5Dataset(filename_train) as train_dataset:
 
             logging.info("Computing statistics")
             # If training set did not contain any single atom entries, estimate E0s...

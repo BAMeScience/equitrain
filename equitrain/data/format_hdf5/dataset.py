@@ -2,18 +2,28 @@ import h5py
 
 from ase import Atoms
 from torch.utils.data import Dataset
+from pathlib import Path
 
 from equitrain.data.configuration import CachedCalc
 from equitrain.data.graphs import AtomsToGraphs
 
 
 class HDF5Dataset(Dataset):
-    def __init__(self, filename, mode = "r", **kwargs):
-        super().__init__()
-        self.filename   = filename
-        self.mode       = mode
-        self.file       = h5py.File(self.filename, self.mode)
 
+    MAGIC_STRING = "ZVNjaWVuY2UgRXF1aXRyYWlu"
+
+    def __init__(self, filename : Path | str, mode = "r"):
+        super().__init__()
+
+        filename = Path(filename)
+
+        if filename.exists():
+            self.file = h5py.File(filename, mode)
+            self.check_magic()
+
+        else:
+            self.file = h5py.File(filename, mode)
+            self.write_magic()
 
     def __enter__(self):
         return self
@@ -40,9 +50,9 @@ class HDF5Dataset(Dataset):
         return len(self.file.keys())
 
 
-    def __getitem__(self, index):
+    def __getitem__(self, i : int):
 
-        grp = self.file[str(index)]
+        grp = self.file[f"i_{i}"]
 
         atoms = Atoms(
             numbers   = grp["atomic_numbers"][()],
@@ -65,7 +75,7 @@ class HDF5Dataset(Dataset):
 
 
     def __setitem__(self, i : int, atoms : Atoms) -> None:
-        grp = self.file.create_group(f"{i}")
+        grp = self.file.create_group(f"i_{i}")
         grp["atomic_numbers"] = write_value(atoms.get_atomic_numbers())
         grp["positions"     ] = write_value(atoms.get_positions())
         grp["energy"        ] = write_value(atoms.get_potential_energy())
@@ -82,6 +92,20 @@ class HDF5Dataset(Dataset):
         grp["virials_weight"] = write_value(atoms.info  ["virials_weight"])
         grp["dipole_weight" ] = write_value(atoms.info  ["dipole_weight"])
 
+    def check_magic(self):
+        try:
+            grp = self.file["MAGIC"]
+            if unpack_value(grp["MAGIC_STRING"][()]) != self.MAGIC_STRING:
+                raise IOError("File is not an equitrain data file")
+
+        except KeyError:
+            raise IOError("File is not an equitrain data file")
+
+
+    def write_magic(self):
+        grp = self.file.create_group("MAGIC")
+        grp["MAGIC_STRING"] = write_value(self.MAGIC_STRING)
+
 
 def write_value(value):
     return value if value is not None else "None"
@@ -94,9 +118,10 @@ def unpack_value(value):
 
 class HDF5GraphDataset(HDF5Dataset):
 
-    def __init__(self, filename, r_max, z_table, mode = "r", **kwargs):
+    def __init__(self, filename  : Path | str, r_max : float, z_table, mode = "r", **kwargs):
         super().__init__(filename, mode = "r", **kwargs)
 
+        # TODO: Allow users to control what data is returned (i.e. forces, stress)
         self.converter = AtomsToGraphs(z_table, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
 
 
