@@ -18,7 +18,7 @@ class AtomicNumberTable(list):
 
     @classmethod
     def from_str(cls, string : str):
-        zs_list = ast.literal_eval(args.atomic_numbers)
+        zs_list = ast.literal_eval(string)
         assert isinstance(zs_list, list)
         return AtomicNumberTable.from_zs(zs_list)
 

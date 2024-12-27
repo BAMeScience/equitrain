@@ -39,7 +39,7 @@ def get_dataloaders(args, logger=None):
         train_loader = None
     else:
         train_set = HDF5GraphDataset(
-            args.train_file, r_max=statistics.r_max, z_table=statistics.atomic_numbers
+            args.train_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
         )
         train_loader = torch_geometric.loader.DataLoader(
             dataset     = train_set,
@@ -54,7 +54,7 @@ def get_dataloaders(args, logger=None):
         valid_loader = None
     else:
         valid_set = HDF5GraphDataset(
-            args.valid_file, r_max=statistics.r_max, z_table=statistics.atomic_numbers
+            args.valid_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
         )
         valid_loader = torch_geometric.loader.DataLoader(
             dataset     = valid_set,
@@ -69,7 +69,7 @@ def get_dataloaders(args, logger=None):
         test_loader = None
     else:
         test_set = HDF5GraphDataset(
-            args.test_file, r_max=statistics.r_max, z_table=statistics.atomic_numbers
+            args.test_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
         )
         test_loader = torch_geometric.loader.DataLoader(
             dataset     = test_set,

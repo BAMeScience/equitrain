@@ -5,6 +5,7 @@ from ase import Atoms
 from torch.utils.data import Dataset
 from pathlib import Path
 
+from equitrain.data import AtomicNumberTable
 from equitrain.data.configuration import CachedCalc
 from equitrain.data.graphs import AtomsToGraphs
 
@@ -154,7 +155,7 @@ def unpack_value(value):
 
 class HDF5GraphDataset(HDF5Dataset):
 
-    def __init__(self, filename  : Path | str, r_max : float, atomic_numbers, mode = "r", **kwargs):
+    def __init__(self, filename  : Path | str, r_max : float, atomic_numbers : AtomicNumberTable, mode = "r", **kwargs):
         super().__init__(filename, mode = "r", **kwargs)
 
         # TODO: Allow users to control what data is returned (i.e. forces, stress)

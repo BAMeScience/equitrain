@@ -9,8 +9,7 @@ import os
 from pathlib import Path
 
 from equitrain.argparser import ArgumentError
-from equitrain.data import compute_statistics, compute_atomic_numbers, get_atomic_energies
-from equitrain.data.statistics_data import Statistics
+from equitrain.data import AtomicNumberTable, Statistics, compute_statistics, compute_atomic_numbers, get_atomic_energies
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.utility import set_dtype, set_seeds
