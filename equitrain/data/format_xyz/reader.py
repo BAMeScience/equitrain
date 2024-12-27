@@ -17,7 +17,7 @@ class XYZReader():
         virials_key             : str  = "virials",
         dipole_key              : str  = "dipole",
         charges_key             : str  = "charges",
-        extract_z_table         : bool = False,
+        extract_atomic_numbers  : bool = False,
         extract_atomic_energies : bool = False,
         ):
 
@@ -29,18 +29,18 @@ class XYZReader():
         self.dipole_key              = dipole_key
         self.charges_key             = charges_key
         self.z_set                   = set()
-        self.atomic_energies_dict    = {}
-        self.extract_z_table         = extract_z_table
+        self.atomic_energies         = {}
+        self.extract_atomic_numbers  = extract_atomic_numbers
         self.extract_atomic_energies = extract_atomic_energies
 
 
     def __iter__(self):
 
-        self.atomic_energies_dict = {}
+        self.atomic_energies = {}
 
         for i, atoms in enumerate(ase.io.iread(self.filename, index=":")):
 
-            if self.extract_z_table:
+            if self.extract_atomic_numbers:
                 self.z_set.update(atoms.get_atomic_numbers())
 
             # Do not forward isolated atoms but use this information
@@ -67,7 +67,7 @@ class XYZReader():
     def update_atomic_energies(self, atoms, i):
 
         if self.energy_key in atoms.info.keys():
-            self.atomic_energies_dict[atoms.get_atomic_numbers()[0]] = atoms.info[
+            self.atomic_energies[atoms.get_atomic_numbers()[0]] = atoms.info[
                 self.energy_key
             ]
         else:
@@ -77,5 +77,5 @@ class XYZReader():
             )
 
     @property
-    def z_table(self):
-        return AtomicNumberTable(sorted(list(self.z_set)))
+    def atomic_numbers(self):
+        return AtomicNumberTable(self.z_set)

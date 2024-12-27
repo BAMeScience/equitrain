@@ -9,14 +9,14 @@ import os
 from pathlib import Path
 
 from equitrain.argparser import ArgumentError
-from equitrain.data import compute_statistics, compute_z_table, get_atomic_energies
-from equitrain.data.statistics_data import get_atomic_number_table_from_zs
+from equitrain.data import compute_statistics, compute_atomic_numbers, get_atomic_energies
+from equitrain.data.statistics_data import Statistics
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.utility import set_dtype, set_seeds
 
 
-def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = False, extract_atomic_energies = False):
+def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_atomic_numbers = False, extract_atomic_energies = False):
 
     z_table = None
     atomic_energies_dict = None
@@ -26,7 +26,7 @@ def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = Fa
         energy_key              = args.energy_key,
         forces_key              = args.forces_key,
         stress_key              = args.stress_key,
-        extract_z_table         = extract_z_table,
+        extract_atomic_numbers  = extract_atomic_numbers,
         extract_atomic_energies = extract_atomic_energies,
     )
 
@@ -36,13 +36,13 @@ def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_z_table = Fa
         for i, config in enumerate(reader):
             file[i] = config
 
-    if extract_z_table:
-        z_table = reader.z_table
+    if extract_atomic_numbers:
+        atomic_numbers = reader.atomic_numbers
 
     if extract_atomic_energies:
-        atomic_energies_dict = reader.atomic_energies_dict
+        atomic_energies = reader.atomic_energies
 
-    return z_table, atomic_energies_dict
+    return atomic_numbers, atomic_energies
 
 
 def _preprocess(args):
@@ -55,25 +55,22 @@ def _preprocess(args):
     set_dtype(args.dtype)
 
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler()],
+        level    = logging.INFO,
+        format   = "%(asctime)s %(levelname)-8s %(message)s",
+        datefmt  = "%Y-%m-%d %H:%M:%S",
+        handlers = [logging.StreamHandler()],
     )
 
     filename_train = os.path.join(args.output_dir, "train.h5")
     filename_valid = os.path.join(args.output_dir, "valid.h5")
     filename_test  = os.path.join(args.output_dir, "test.h5")
 
-    z_table = None
-    atomic_energies_dict = None
+    statistics = Statistics(r_max = args.r_max)
 
     # Read atomic numbers from arguments if available
     if args.atomic_numbers is not None:
         logging.info("Using atomic numbers from command line argument")
-        zs_list = ast.literal_eval(args.atomic_numbers)
-        assert isinstance(zs_list, list)
-        z_table = get_atomic_number_table_from_zs(zs_list)
+        statistics.atomic_numbers = AtomicNumberTable.from_str(args.atomic_numbers)
 
     # Convert training file and obtain z_table and atomit_energies if required
     if args.train_file:
@@ -83,19 +80,19 @@ def _preprocess(args):
 
         else:
             logging.info("Converting train file")
-            _z_table, _atomic_energies_dict = _convert_xyz_to_hdf5(
+            atomic_numbers, atomic_energies = _convert_xyz_to_hdf5(
                 args,
                 args.train_file,
                 filename_train,
-                extract_z_table         = (args.compute_statistics and z_table              is None),
-                extract_atomic_energies = (args.compute_statistics and atomic_energies_dict is None),
+                extract_atomic_numbers  = (args.compute_statistics and statistics.atomic_numbers  is None),
+                extract_atomic_energies = (args.compute_statistics and statistics.atomic_energies is None),
                 )
 
-            if z_table is None:
-                z_table = _z_table
+            if statistics.atomic_numbers is None:
+                statistics.atomic_numbers = atomic_numbers
 
-            if atomic_energies_dict is None:
-                atomic_energies_dict = _atomic_energies_dict
+            if statistics.atomic_energies is None:
+                statistics.atomic_energies = atomic_energies
 
     # Convert validation file
     if args.valid_file:
@@ -125,20 +122,15 @@ def _preprocess(args):
         with HDF5Dataset(filename_train) as train_dataset:
 
             # If training set did not contain any single atom entries, estimate E0s...
-            if z_table is None or len(z_table) == 0:
-                z_table = compute_z_table(train_dataset)
+            if statistics.atomic_numbers is None or len(statistics.atomic_numbers) == 0:
+                statistics.atomic_numbers = compute_atomic_numbers(train_dataset)
 
             # If training set did not contain any single atom entries, estimate E0s...
-            if atomic_energies_dict is None or len(atomic_energies_dict) == 0:
-                atomic_energies_dict = get_atomic_energies(args.E0s, train_dataset, z_table)
+            if statistics.atomic_energies is None or len(statitics.atomic_energies) == 0:
+                statistics.atomic_energies = get_atomic_energies(args.E0s, train_dataset, statistics.atomic_numbers)
 
-            # Sort atomic energies according to z_table
-            atomic_energies: np.ndarray = np.array(
-                [atomic_energies_dict[z] for z in z_table]
-            )
-            logging.info(f"Atomic energies array for computation: {atomic_energies.tolist()}")
 
-        with HDF5GraphDataset(filename_train, r_max=args.r_max, z_table=z_table) as train_dataset:
+        with HDF5GraphDataset(filename_train, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers) as train_dataset:
 
             train_loader = torch_geometric.loader.DataLoader(
                 dataset    = train_dataset,
@@ -146,26 +138,13 @@ def _preprocess(args):
                 shuffle    = False,
                 drop_last  = False,
             )
-            avg_num_neighbors, mean, std = compute_statistics(
-                train_loader, atomic_energies, z_table
+            statistics.avg_num_neighbors, statistics.mean, statistics.std = compute_statistics(
+                train_loader, statistics.atomic_energies, statistics.atomic_numbers,
             )
-            logging.info(f"Average number of neighbors: {avg_num_neighbors}")
-            logging.info(f"Mean                       : {mean}")
-            logging.info(f"Standard deviation         : {std}")
 
-            # save the statistics as a json
-            statistics = {
-                "atomic_energies"  : { int(k): float(v) for k, v in atomic_energies_dict.items() },
-                "avg_num_neighbors": avg_num_neighbors,
-                "mean"             : mean,
-                "std"              : std,
-                "atomic_numbers"   : [ int(zs) for zs in z_table ],
-                "r_max"            : args.r_max,
-            }
             logging.info(f"Final statistics to be saved: {statistics}")
 
-            with open(os.path.join(args.output_dir, "statistics.json"), "w") as f:
-                json.dump(statistics, f)
+            statistics.dump(os.path.join(args.output_dir, "statistics.json"))
 
 
 def preprocess(args):

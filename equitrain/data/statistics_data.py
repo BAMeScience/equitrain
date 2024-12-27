@@ -42,14 +42,6 @@ class Statistics:
             json.dump(asdict(self), f, indent=4)
 
 
-def get_atomic_number_table_from_zs(zs: Iterable[int]) -> AtomicNumberTable:
-    z_set = set()
-    for z in zs:
-        z_set.add(z)
-    return AtomicNumberTable(sorted(list(z_set)))
-
-
-
 def get_atomic_energies(E0s, dataset, z_table) -> dict:
     if E0s is not None:
         logging.info(

@@ -6,12 +6,12 @@ import torch
 import torch_geometric
 
 from e3nn.util.jit import compile_mode
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing        import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-from .format_hdf5 import HDF5Dataset
-from .atomic      import AtomicNumberTable
-from .utility     import compute_one_hot, to_numpy
-from .scatter     import scatter_sum
+from .format_hdf5  import HDF5Dataset
+from .atomic       import AtomicNumberTable
+from .utility      import compute_one_hot, to_numpy
+from .scatter      import scatter_sum
 
 
 @compile_mode("script")
@@ -39,17 +39,22 @@ class AtomicEnergiesBlock(torch.nn.Module):
 
 def compute_statistics(
     data_loader    : torch.utils.data.DataLoader,
-    atomic_energies: np.ndarray,
-    z_table        : AtomicNumberTable
+    atomic_energies: Dict,
+    atomic_numbers : AtomicNumberTable
 ) -> Tuple[float, float, float, float]:
-    atomic_energies_fn = AtomicEnergiesBlock(atomic_energies=atomic_energies)
+
+    atomic_energies_list: np.ndarray = np.array(
+        [atomic_energies[z] for z in atomic_numbers]
+    )
+
+    atomic_energies_fn = AtomicEnergiesBlock(atomic_energies=atomic_energies_list)
 
     atom_energy_list = []
     forces_list      = []
     num_neighbors    = []
 
     for batch in data_loader:
-        node_e0 = atomic_energies_fn(compute_one_hot(z_table, batch))
+        node_e0 = atomic_energies_fn(compute_one_hot(batch.atomic_numbers, atomic_numbers))
         graph_e0s = scatter_sum(
             src=node_e0, index=batch.batch, dim=-1, dim_size=batch.num_graphs
         )
@@ -76,7 +81,7 @@ def compute_statistics(
     return to_numpy(avg_num_neighbors).item(), mean, rms
 
 
-def compute_z_table(
+def compute_atomic_numbers(
     dataset : HDF5Dataset,
 ) -> AtomicNumberTable:
 
@@ -95,7 +100,8 @@ def compute_z_table(
 
     for batch in data_loader:
 
-        z_set.update(batch[0].get_atomic_numbers())
+        # Convert from int64 to int32, which is json serializable
+        z_set.update([ int(z) for z in batch[0].get_atomic_numbers() ])
 
     return AtomicNumberTable(sorted(list(z_set)))
 

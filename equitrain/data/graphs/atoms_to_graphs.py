@@ -57,28 +57,28 @@ class AtomsToGraphs:
 
     def __init__(
         self,
-        z_table,
-        max_neigh=200,
-        radius=6,
-        r_energy=False,
-        r_forces=False,
-        r_stress=False,
-        r_distances=False,
-        r_edges=True,
-        r_fixed=True,
-        r_pbc=False,
+        atomic_numbers,
+        max_neigh   = 200,
+        radius      = 6,
+        r_energy    = False,
+        r_forces    = False,
+        r_stress    = False,
+        r_distances = False,
+        r_edges     = True,
+        r_fixed     = True,
+        r_pbc       = False,
     ):
         
-        self.z_table     = z_table
-        self.max_neigh   = max_neigh
-        self.radius      = radius
-        self.r_energy    = r_energy
-        self.r_forces    = r_forces
-        self.r_stress    = r_stress
-        self.r_distances = r_distances
-        self.r_fixed     = r_fixed
-        self.r_edges     = r_edges
-        self.r_pbc       = r_pbc
+        self.atomic_numbers = atomic_numbers
+        self.max_neigh      = max_neigh
+        self.radius         = radius
+        self.r_energy       = r_energy
+        self.r_forces       = r_forces
+        self.r_stress       = r_stress
+        self.r_distances    = r_distances
+        self.r_fixed        = r_fixed
+        self.r_edges        = r_edges
+        self.r_pbc          = r_pbc
 
     def _get_neighbors(self, atoms):
 
@@ -153,10 +153,10 @@ class AtomsToGraphs:
         # https://wiki.fysik.dtu.dk/ase/_modules/ase/atoms.html#Atoms.get_tags
         tags = torch.Tensor(atoms.get_tags())
 
-        indices = atomic_numbers_to_indices(atomic_numbers, z_table=self.z_table)
+        indices = atomic_numbers_to_indices(atomic_numbers, self.atomic_numbers)
         node_attrs = to_one_hot(
             torch.tensor(indices, dtype=torch.long).unsqueeze(-1),
-            num_classes=len(self.z_table),
+            num_classes=len(self.atomic_numbers),
         )
 
         # put the minimum data in torch geometric data object

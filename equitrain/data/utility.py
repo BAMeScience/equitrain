@@ -41,11 +41,11 @@ def random_train_valid_split(
 
 
 def atomic_numbers_to_indices(
-    atomic_numbers: np.ndarray,
-    z_table       : AtomicNumberTable
+    atomic_numbers_tensor: torch.Tensor,
+    atomic_numbers       : AtomicNumberTable
 ) -> np.ndarray:
-    to_index_fn = np.vectorize(z_table.z_to_index)
-    return to_index_fn(atomic_numbers)
+    to_index_fn = np.vectorize(atomic_numbers.z_to_index)
+    return to_index_fn(atomic_numbers_tensor)
 
 
 def to_one_hot(indices: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -65,10 +65,10 @@ def to_one_hot(indices: torch.Tensor, num_classes: int) -> torch.Tensor:
     return oh.view(*shape)
 
 
-def compute_one_hot(z_table, batch):
-    indices = atomic_numbers_to_indices(batch.atomic_numbers, z_table=z_table)
+def compute_one_hot(batch, atomic_numbers):
+    indices = atomic_numbers_to_indices(batch, atomic_numbers)
     one_hot = to_one_hot(
         torch.tensor(indices, dtype=torch.long).unsqueeze(-1),
-        num_classes=len(z_table),
+        num_classes=len(atomic_numbers),
     )
     return one_hot

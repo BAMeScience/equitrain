@@ -154,11 +154,11 @@ def unpack_value(value):
 
 class HDF5GraphDataset(HDF5Dataset):
 
-    def __init__(self, filename  : Path | str, r_max : float, z_table, mode = "r", **kwargs):
+    def __init__(self, filename  : Path | str, r_max : float, atomic_numbers, mode = "r", **kwargs):
         super().__init__(filename, mode = "r", **kwargs)
 
         # TODO: Allow users to control what data is returned (i.e. forces, stress)
-        self.converter = AtomsToGraphs(z_table, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
+        self.converter = AtomsToGraphs(atomic_numbers, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
 
 
     def __getitem__(self, index):
