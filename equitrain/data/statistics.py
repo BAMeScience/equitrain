@@ -8,10 +8,10 @@ import torch_geometric
 from e3nn.util.jit import compile_mode
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-from .format_hdf5   import HDF5Dataset
-from .atomic        import AtomicNumberTable
-from .utility       import compute_one_hot, to_numpy
-from .scatter       import scatter_sum
+from .format_hdf5 import HDF5Dataset
+from .atomic      import AtomicNumberTable
+from .utility     import compute_one_hot, to_numpy
+from .scatter     import scatter_sum
 
 
 @compile_mode("script")
@@ -35,71 +35,6 @@ class AtomicEnergiesBlock(torch.nn.Module):
     def __repr__(self):
         formatted_energies = ", ".join([f"{x:.4f}" for x in self.atomic_energies])
         return f"{self.__class__.__name__}(energies=[{formatted_energies}])"
-
-
-def get_atomic_number_table_from_zs(zs: Iterable[int]) -> AtomicNumberTable:
-    z_set = set()
-    for z in zs:
-        z_set.add(z)
-    return AtomicNumberTable(sorted(list(z_set)))
-
-
-def get_z_table(
-    dataset : HDF5Dataset,
-) -> AtomicNumberTable:
-
-    data_loader = torch.utils.data.DataLoader(
-        dataset     = dataset,
-        batch_size  = 1,
-        # shuffle data in case we only use a subset of the data
-        shuffle     = True,
-        drop_last   = False,
-        pin_memory  = False,
-        num_workers = 2,
-        collate_fn  = lambda data: data
-    )
-
-    z_set = set()
-
-    for batch in data_loader:
-
-        z_set.update(batch[0].get_atomic_numbers())
-
-    return AtomicNumberTable(sorted(list(z_set)))
-
-
-def get_atomic_energies(E0s, dataset, z_table) -> dict:
-    if E0s is not None:
-        logging.info(
-            "Atomic Energies not in training file, using command line argument E0s"
-        )
-        if E0s.lower() == "average":
-            logging.info(
-                "Computing average Atomic Energies using least squares regression"
-            )
-            # catch if colections.train not defined above
-            try:
-                assert dataset is not None
-                atomic_energies_dict = compute_average_E0s(
-                    dataset, z_table
-                )
-            except Exception as e:
-                raise RuntimeError(
-                    f"Could not compute average E0s if no training xyz given, error {e} occured"
-                ) from e
-        else:
-            try:
-                atomic_energies_dict = ast.literal_eval(E0s)
-                assert isinstance(atomic_energies_dict, dict)
-            except Exception as e:
-                raise RuntimeError(
-                    f"E0s specified invalidly, error {e} occured"
-                ) from e
-    else:
-        raise RuntimeError(
-            "E0s not found in training file and not specified in command line"
-        )
-    return atomic_energies_dict
 
 
 def compute_statistics(
@@ -141,7 +76,31 @@ def compute_statistics(
     return to_numpy(avg_num_neighbors).item(), mean, rms
 
 
-def compute_average_E0s(
+def compute_z_table(
+    dataset : HDF5Dataset,
+) -> AtomicNumberTable:
+
+    data_loader = torch.utils.data.DataLoader(
+        dataset     = dataset,
+        batch_size  = 1,
+        # shuffle data in case we only use a subset of the data
+        shuffle     = True,
+        drop_last   = False,
+        pin_memory  = False,
+        num_workers = 2,
+        collate_fn  = lambda data: data
+    )
+
+    z_set = set()
+
+    for batch in data_loader:
+
+        z_set.update(batch[0].get_atomic_numbers())
+
+    return AtomicNumberTable(sorted(list(z_set)))
+
+
+def compute_average_atomic_energies(
     dataset : HDF5Dataset,
     z_table : AtomicNumberTable,
     max_n   : int = None,
@@ -175,7 +134,7 @@ def compute_average_E0s(
 
     for i, batch in enumerate(data_loader):
         B[i] = batch[0].get_potential_energy()
-        for j, z in enumerate(z_table.zs):
+        for j, z in enumerate(z_table):
             A[i, j] = np.count_nonzero(batch[0].get_atomic_numbers() == z)
 
         # break if max_n is reached
@@ -185,7 +144,7 @@ def compute_average_E0s(
     try:
         E0s = np.linalg.lstsq(A, B, rcond=None)[0]
         atomic_energies_dict = {}
-        for i, z in enumerate(z_table.zs):
+        for i, z in enumerate(z_table):
             atomic_energies_dict[z] = E0s[i]
 
     except np.linalg.LinAlgError:

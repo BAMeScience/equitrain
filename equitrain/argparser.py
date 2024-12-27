@@ -25,6 +25,12 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
         required=False,
     )
     parser.add_argument(
+        "--compute_statistics",
+        help="Estimate statistics from training data",
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
         "--output_dir",
         help="Output directory for h5 files",
         type=str,
@@ -65,8 +71,14 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
         "--E0s",
         help="Dictionary of isolated atom energies",
         type=str,
-        default=None,
+        default="average",
         required=False,
+    )
+    parser.add_argument(
+        "--r_max",
+        help="Cutoff radius for computing graphs",
+        type=float,
+        default=4.5,
     )
     parser.add_argument(
         "--seed",

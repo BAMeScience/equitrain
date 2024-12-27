@@ -6,9 +6,12 @@ from .configuration import (
 )
 from .statistics import (
     compute_statistics,
+    compute_average_atomic_energies,
+    compute_z_table,
+)
+from .statistics_data import (
+    Statistics,
     get_atomic_energies,
-    get_atomic_number_table_from_zs,
-    get_z_table,
 )
 from .utility import (
     random_train_valid_split,

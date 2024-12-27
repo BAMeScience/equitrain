@@ -1,20 +1,11 @@
-from typing import Sequence
 
-class AtomicNumberTable:
-    def __init__(self, zs: Sequence[int]):
-        self.zs = zs
+class AtomicNumberTable(list):
 
-    def __len__(self) -> int:
-        return len(self.zs)
+    def __init__(self, zs: list):
+        super().__init__(sorted(list(zs)))
 
-    def __str__(self):
-        return f"AtomicNumberTable: {tuple(s for s in self.zs)}"
-
-    def index_to_z(self, index: int) -> int:
-        return self.zs[index]
-
-    def z_to_index(self, atomic_number: str) -> int:
+    def z_to_index(self, atomic_number: int) -> int:
         try:
-            return self.zs.index(atomic_number)
+            return self.index(atomic_number)
         except ValueError:
             raise ValueError("Observed atom type that is not listed in the atomic numbers table.")

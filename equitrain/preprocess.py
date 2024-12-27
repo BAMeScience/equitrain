@@ -1,6 +1,3 @@
-# This file loads an xyz dataset and prepares
-# new hdf5 file that is ready for training with on-the-fly dataloading
-
 import logging
 import ast
 import numpy as np
@@ -12,7 +9,8 @@ import os
 from pathlib import Path
 
 from equitrain.argparser import ArgumentError
-from equitrain.data import compute_statistics, get_z_table, get_atomic_energies, get_atomic_number_table_from_zs
+from equitrain.data import compute_statistics, compute_z_table, get_atomic_energies
+from equitrain.data.statistics_data import get_atomic_number_table_from_zs
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.utility import set_dtype, set_seeds
@@ -128,7 +126,7 @@ def _preprocess(args):
 
             # If training set did not contain any single atom entries, estimate E0s...
             if z_table is None or len(z_table) == 0:
-                z_table = get_z_table(train_dataset)
+                z_table = compute_z_table(train_dataset)
 
             # If training set did not contain any single atom entries, estimate E0s...
             if atomic_energies_dict is None or len(atomic_energies_dict) == 0:
@@ -136,7 +134,7 @@ def _preprocess(args):
 
             # Sort atomic energies according to z_table
             atomic_energies: np.ndarray = np.array(
-                [atomic_energies_dict[z] for z in z_table.zs]
+                [atomic_energies_dict[z] for z in z_table]
             )
             logging.info(f"Atomic energies array for computation: {atomic_energies.tolist()}")
 
@@ -161,7 +159,7 @@ def _preprocess(args):
                 "avg_num_neighbors": avg_num_neighbors,
                 "mean"             : mean,
                 "std"              : std,
-                "atomic_numbers"   : [ int(zs) for zs in z_table.zs ],
+                "atomic_numbers"   : [ int(zs) for zs in z_table ],
                 "r_max"            : args.r_max,
             }
             logging.info(f"Final statistics to be saved: {statistics}")
@@ -173,8 +171,6 @@ def _preprocess(args):
 def preprocess(args):
     if args.train_file is None:
         raise ArgumentError("--train-file is a required argument")
-    if args.statistics_file is None:
-        raise ArgumentError("--statistics-file is a required argument")
     if args.output_dir is None:
         raise ArgumentError("--output-dir is a required argument")
 
