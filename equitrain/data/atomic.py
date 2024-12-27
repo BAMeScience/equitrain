@@ -8,4 +8,4 @@ class AtomicNumberTable(list):
         try:
             return self.index(atomic_number)
         except ValueError:
-            raise ValueError("Observed atom type that is not listed in the atomic numbers table.")
+            raise ValueError(f"Observed atom type {atomic_number} that is not listed in the atomic numbers table.")
