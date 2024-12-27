@@ -55,7 +55,7 @@ def get_z_table(
         shuffle     = True,
         drop_last   = False,
         pin_memory  = False,
-        num_workers = 1,
+        num_workers = 2,
         collate_fn  = lambda data: data
     )
 
@@ -166,7 +166,7 @@ def compute_average_E0s(
         shuffle     = True,
         drop_last   = False,
         pin_memory  = False,
-        num_workers = 1,
+        num_workers = 2,
         collate_fn  = lambda data: data
     )
 

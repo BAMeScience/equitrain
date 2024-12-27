@@ -33,7 +33,7 @@ class Configuration:
     forces_weight : float = 1.0  # weight of config forces in loss
     stress_weight : float = 1.0  # weight of config stress in loss
     virials_weight: float = 1.0  # weight of config virial in loss
-    dipole_weight : float = 1.0
+    dipole_weight : float = 1.0  # weight of config dipole in loss
 
     @classmethod
     def from_atoms(cls,

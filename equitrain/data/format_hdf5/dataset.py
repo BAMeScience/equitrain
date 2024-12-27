@@ -1,4 +1,5 @@
 import h5py
+import numpy as np
 
 from ase import Atoms
 from torch.utils.data import Dataset
@@ -8,27 +9,54 @@ from equitrain.data.configuration import CachedCalc
 from equitrain.data.graphs import AtomsToGraphs
 
 
-class HDF5Dataset(Dataset):
-
+class HDF5Dataset:
     MAGIC_STRING = "ZVNjaWVuY2UgRXF1aXRyYWlu"
 
-    def __init__(self, filename : Path | str, mode = "r"):
-        super().__init__()
-
+    def __init__(self, filename: Path | str, mode="r"):
         filename = Path(filename)
 
         if filename.exists():
             self.file = h5py.File(filename, mode)
             self.check_magic()
-
         else:
             self.file = h5py.File(filename, mode)
             self.write_magic()
+            self.create_dataset()
 
+
+    def create_dataset(self):
+        atom_dtype = np.dtype([
+            ("atomic_numbers" , h5py.special_dtype(vlen=np.int32)),
+            ("positions"      , h5py.special_dtype(vlen=np.float64)),
+            ("cell"           , np.float64, (3, 3)),
+            ("pbc"            , np.bool_,   (3,)),
+            ("energy"         , np.float64),
+            ("forces"         , h5py.special_dtype(vlen=np.float64)),
+            ("stress"         , np.float64, (6,)),
+            ("virials"        , np.float64, (3, 3)),
+            ("dipole"         , np.float64, (3,)),
+            ("energy_weight"  , np.float32),
+            ("forces_weight"  , np.float32),
+            ("stress_weight"  , np.float32),
+            ("virials_weight" , np.float32),
+            ("dipole_weight"  , np.float32),
+        ])
+        # There are some parameters that should be accessible through
+        # command-line options, i.e. chunking and compression
+        self.file.create_dataset(
+            "atoms",
+            shape    = (0,),        # Initially empty
+            maxshape = (None,),     # Extendable along the first dimension
+            dtype    = atom_dtype,
+        )
+
+
+    # Allow `with` notation, just syntactic sugar in this case
     def __enter__(self):
         return self
 
 
+    # Allow `with` notation, just syntactic sugar in this case
     def __exit__(self, exc_type, exc_value, traceback):
         pass
 
@@ -47,50 +75,57 @@ class HDF5Dataset(Dataset):
 
 
     def __len__(self):
-        return len(self.file.keys()) - 1
+        if "atoms" not in self.file:
+            raise RuntimeError("Dataset 'atoms' does not exist")
+        return self.file["atoms"].shape[0]
 
 
-    def __getitem__(self, i : int):
-
-        grp = self.file[f"i_{i}"]
-
+    def __getitem__(self, i: int) -> Atoms:
+        entry = self.file["atoms"][i]
+        num_atoms = len(entry["positions"]) // 3
         atoms = Atoms(
-            numbers   = grp["atomic_numbers"][()],
-            positions = grp["positions"][()],
-            cell      = unpack_value(grp["cell"][()]),
-            pbc       = unpack_value(grp["pbc"][()]),
+            numbers   = entry["atomic_numbers"],
+            positions = entry["positions"].reshape((num_atoms, 3)),
+            cell      = entry["cell"],
+            pbc       = entry["pbc"]
         )
         atoms.calc = CachedCalc(
-            unpack_value(grp["energy"][()]),
-            unpack_value(grp["forces"][()]),
-            unpack_value(grp["stress"][()]),
+            entry["energy"],
+            entry["forces"].reshape((num_atoms, 3)),
+            entry["stress"]
         )
-        atoms.info["energy_weight" ] = unpack_value(grp["energy_weight" ][()])
-        atoms.info["forces_weight" ] = unpack_value(grp["forces_weight" ][()])
-        atoms.info["stress_weight" ] = unpack_value(grp["stress_weight" ][()])
-        atoms.info["virials_weight"] = unpack_value(grp["virials_weight"][()])
-        atoms.info["dipole_weight" ] = unpack_value(grp["dipole_weight" ][()])
-
+        atoms.info["virials"] = entry["virials"]
+        atoms.info["dipole" ] = entry["dipole" ]
+        atoms.info["energy_weight" ] = entry["energy_weight" ]
+        atoms.info["forces_weight" ] = entry["forces_weight" ]
+        atoms.info["stress_weight" ] = entry["stress_weight" ]
+        atoms.info["virials_weight"] = entry["virials_weight"]
+        atoms.info["dipole_weight" ] = entry["dipole_weight" ]
         return atoms
 
 
-    def __setitem__(self, i : int, atoms : Atoms) -> None:
-        grp = self.file.create_group(f"i_{i}")
-        grp["atomic_numbers"] = write_value(atoms.get_atomic_numbers())
-        grp["positions"     ] = write_value(atoms.get_positions())
-        grp["energy"        ] = write_value(atoms.get_potential_energy())
-        grp["forces"        ] = write_value(atoms.get_forces())
-        grp["stress"        ] = write_value(atoms.get_stress())
-        grp["cell"          ] = write_value(atoms.get_cell())
-        grp["pbc"           ] = write_value(atoms.get_pbc())
-        grp["virials"       ] = write_value(atoms.info  ["virials"])
-        grp["dipole"        ] = write_value(atoms.info  ["dipole" ])
-        grp["charges"       ] = write_value(atoms.arrays["charges"])
-        grp["energy_weight" ] = write_value(atoms.info  ["energy_weight"])
-        grp["forces_weight" ] = write_value(atoms.info  ["forces_weight"])
-        grp["stress_weight" ] = write_value(atoms.info  ["stress_weight"])
-        grp["virials_weight"] = write_value(atoms.info  ["virials_weight"])
-        grp["dipole_weight" ] = write_value(atoms.info  ["dipole_weight"])
+    def __setitem__(self, i: int, atoms: Atoms) -> None:
+        dataset = self.file["atoms"]
+        # Extend dataset if necessary
+        if i >= len(dataset):
+            dataset.resize(i + 1, axis=0)
+
+        dataset[i] = (
+            atoms.get_atomic_numbers()     .astype(np.int32),
+            atoms.get_positions().flatten().astype(np.float64),
+            atoms.get_cell()               .astype(np.float64),
+            atoms.get_pbc()                .astype(np.bool_),
+            np.float64(atoms.get_potential_energy()),
+            atoms.get_forces().flatten()   .astype(np.float64),
+            atoms.get_stress()             .astype(np.float64),
+            atoms.info["virials"]          .astype(np.float64),
+            atoms.info["dipole" ]          .astype(np.float64),
+            np.float32(atoms.info.get("energy_weight" , 1.0)),
+            np.float32(atoms.info.get("forces_weight" , 1.0)),
+            np.float32(atoms.info.get("stress_weight" , 1.0)),
+            np.float32(atoms.info.get("virials_weight", 1.0)),
+            np.float32(atoms.info.get("dipole_weight" , 1.0)),
+        )
 
 
     def check_magic(self):
