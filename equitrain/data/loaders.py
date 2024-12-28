@@ -10,7 +10,7 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
 
     statistics = Statistics.load(args.statistics_file)
 
-    if logger is not None:
+    if logger is not None and args.verbose > 0:
         logger.info(f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
 
     data_set = HDF5GraphDataset(
@@ -32,7 +32,7 @@ def get_dataloaders(args, logger=None):
 
     statistics = Statistics.load(args.statistics_file)
 
-    if logger is not None:
+    if logger is not None and args.verbose > 0:
         logger.info(f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
 
     if args.train_file is None:

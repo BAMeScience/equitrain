@@ -194,7 +194,7 @@ def evaluate(args,
         'stress': AverageMeter(),
     }
 
-    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Evaluating"):
+    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or accelerator.process_index != 0, desc="Evaluating"):
 
         pred_e, pred_f, pred_s = model(data)
 
@@ -277,7 +277,7 @@ def train_one_epoch(args,
 
     start_time = time.perf_counter()
 
-    with tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Training") as pbar:
+    with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or accelerator.process_index != 0, desc="Training") as pbar:
 
         for step, data in pbar:
 
@@ -347,9 +347,6 @@ def train_one_epoch(args,
 
 
 def _train(args):
-    
-    logger = FileLogger(is_master=True, is_rank0=True, output_dir=args.output_dir)
-    logger.info(args)
 
     set_seeds(args.seed)
     set_dtype(args.dtype)
@@ -360,6 +357,10 @@ def _train(args):
         ddp_kwargs = DistributedDataParallelKwargs()
 
     accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
+
+    # Only main process should output information
+    logger = FileLogger(is_master=True, is_rank0=(accelerator.process_index == 0), output_dir=args.output_dir)
+    logger.info(args)
 
     ''' Data Loader '''
     train_loader, val_loader, test_loader = get_dataloaders(args, logger=logger)
@@ -398,12 +399,10 @@ def _train(args):
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
         # Print validation loss
-        if accelerator.process_index == 0:
+        info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=0)
+        info_str_postfix = None
 
-            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=0)
-            info_str_postfix = None
-
-            log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
+        log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
 
 
     for epoch in range(1, args.epochs+1):
@@ -426,7 +425,7 @@ def _train(args):
         if lr_scheduler is not None:
             lr_scheduler.step(best_metrics['val_epoch'], epoch)
 
-        # Only main process should save model
+        # Only main process should save model and compute validation statistics
         if accelerator.process_index == 0:
 
             update_val_result = update_best_results(args, best_metrics, val_loss, epoch)

@@ -163,6 +163,7 @@ def get_args_parser_train():
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.set_defaults(pin_mem=True)
     parser.add_argument("--shuffle", help="Shuffle the training dataset", type=bool, default=True)
+    parser.add_argument('--tqdm', action='store_true', help='Show epoch progress with TQDM')
     parser.add_argument(
         "--dtype",
         help="Set default dtype [float16, float32, float64]",
@@ -176,6 +177,7 @@ def get_args_parser_train():
         default=0,
         help="Increase verbosity level (e.g., -v, -vv, -vvv)"
     )
+
     return parser
 
 
