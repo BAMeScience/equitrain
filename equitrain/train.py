@@ -277,64 +277,71 @@ def train_one_epoch(args,
 
     start_time = time.perf_counter()
 
-    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Training"):
+    with tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Training") as pbar:
 
-        # prevent out of memory error
-        if args.batch_edge_limit > 0:
-            if data.edge_index.shape[1] > args.batch_edge_limit:
-                logger.info(f'Batch edge limit violated. Batch has {data.edge_index.shape[1]} edges. Skipping batch...')
+        for step, data in pbar:
+
+            # prevent out of memory error
+            if args.batch_edge_limit > 0:
+                if data.edge_index.shape[1] > args.batch_edge_limit:
+                    logger.info(f'Batch edge limit violated. Batch has {data.edge_index.shape[1]} edges. Skipping batch...')
+                    continue
+
+            e_true = data.y
+            f_true = data['force']
+            s_true = data['stress']
+
+            e_pred, f_pred, s_pred = model(data)
+
+            loss_e = None
+            loss_f = None
+            loss_s = None
+
+            if args.energy_weight > 0.0:
+                loss_e = criterion(e_pred, e_true)
+            if args.force_weight > 0.0:
+                loss_f = criterion(f_pred, f_true)
+            if args.stress_weight > 0.0:
+                loss_s = criterion(s_pred, s_true)
+
+            loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
+
+            if torch.isnan(loss):
+                logger.info(f'Nan value detected. Skipping batch...')
                 continue
 
-        e_true = data.y
-        f_true = data['force']
-        s_true = data['stress']
+            optimizer.zero_grad()
+            accelerator.backward(loss)
+            optimizer.step()
 
-        e_pred, f_pred, s_pred = model(data)
+            loss_metrics['total'].update(loss.item(), n=e_pred.shape[0])
 
-        loss_e = None
-        loss_f = None
-        loss_s = None
+            if args.energy_weight > 0.0:
+                loss_metrics['energy'].update(loss_e.item(), n=e_pred.shape[0])
+            if args.force_weight > 0.0:
+                loss_metrics['forces'].update(loss_f.item(), n=f_pred.shape[0])
+            if args.stress_weight > 0.0:
+                loss_metrics['stress'].update(loss_s.item(), n=s_pred.shape[0])
 
-        if args.energy_weight > 0.0:
-            loss_e = criterion(e_pred, e_true)
-        if args.force_weight > 0.0:
-            loss_f = criterion(f_pred, f_true)
-        if args.stress_weight > 0.0:
-            loss_s = criterion(s_pred, s_true)
+            if accelerator.process_index == 0:
 
-        loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
+                if args.verbose == 1:
+                    # logging
+                    if step % print_freq == 0 or step == len(data_loader) - 1:
+                        w = time.perf_counter() - start_time
+                        e = (step + 1) / len(data_loader)
 
-        if torch.isnan(loss):
-            logger.info(f'Nan value detected. Skipping batch...')
-            continue
+                        info_str_prefix  = 'Epoch [{epoch:>4}][{step:>6}/{length}] -- '.format(epoch=epoch, step=step, length=len(data_loader))
+                        info_str_postfix = ', time/step={time_per_step:.0f}ms'.format(
+                            time_per_step=(1e3 * w / e / len(data_loader))
+                        )
+                        info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
 
-        optimizer.zero_grad()
-        accelerator.backward(loss)
-        optimizer.step()
+                        log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
 
-        loss_metrics['total'].update(loss.item(), n=e_pred.shape[0])
+                if args.verbose > 1:
+                    pbar.set_description(f"Training (loss={loss_metrics['total'].avg:.04f})")
 
-        if args.energy_weight > 0.0:
-            loss_metrics['energy'].update(loss_e.item(), n=e_pred.shape[0])
-        if args.force_weight > 0.0:
-            loss_metrics['forces'].update(loss_f.item(), n=f_pred.shape[0])
-        if args.stress_weight > 0.0:
-            loss_metrics['stress'].update(loss_s.item(), n=s_pred.shape[0])
-
-        if accelerator.process_index == 0:
-
-            # logging
-            if step % print_freq == 0 or step == len(data_loader) - 1: 
-                w = time.perf_counter() - start_time
-                e = (step + 1) / len(data_loader)
-
-                info_str_prefix  = 'Epoch [{epoch:>4}][{step:>6}/{length}] -- '.format(epoch=epoch, step=step, length=len(data_loader))
-                info_str_postfix = ', time/step={time_per_step:.0f}ms'.format(
-                    time_per_step=(1e3 * w / e / len(data_loader))
-                )
-                info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
-
-                log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
 
     return loss_metrics
 
@@ -414,7 +421,7 @@ def _train(args):
             print_freq  = args.print_freq,
             logger      = logger)
         
-        val_loss = evaluate(args, model=model, criterion=criterion, data_loader=val_loader)
+        val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
         if lr_scheduler is not None:
             lr_scheduler.step(best_metrics['val_epoch'], epoch)
@@ -446,7 +453,7 @@ def _train(args):
 
     if test_loader is not None:
         # evaluate on the whole testing set
-        test_loss = evaluate(args, model=model, criterion=criterion, data_loader=test_loader)
+        test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader)
  
         info_str_prefix  = 'Test -- '
         info_str_postfix = None

@@ -22,6 +22,7 @@ def test_train_mace():
     args.epochs     = 10
     args.batch_size = 64
     args.lr         = 0.01
+    args.verbose    = 2
 
     train(args)
 
