@@ -273,3 +273,28 @@ def get_args_parser_predict() -> argparse.ArgumentParser:
     parser.set_defaults(pin_mem=True)
 
     return parser
+
+
+class ArgsFormatter:
+    def __init__(self, args):
+        """
+        Initialize the ArgsFormatter with parsed arguments.
+        :param args: argparse.Namespace object
+        """
+        self.args = vars(args)  # Convert Namespace to dictionary
+
+    def format(self):
+        """
+        Format the arguments into a neatly indented string.
+        :return: Formatted string of arguments
+        """
+        max_key_length = max(len(key) for key in self.args.keys())  # Determine alignment width
+        return "".join(
+            [f"  {key:<{max_key_length}} : {value}\n" if key != "model" else "" for key, value in self.args.items()]
+        )
+
+    def __str__(self):
+        """
+        Return the formatted string when the object is printed.
+        """
+        return f"Options:\n{self.format()}"

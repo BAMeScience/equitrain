@@ -23,6 +23,7 @@ def test_train_mace():
     args.batch_size = 64
     args.lr         = 0.01
     args.verbose    = 2
+    args.tqdm       = True
 
     train(args)
 

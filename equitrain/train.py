@@ -15,7 +15,7 @@ from typing  import Iterable, Optional
 
 from torch_cluster import radius_graph
 
-from equitrain.argparser       import ArgumentError
+from equitrain.argparser       import ArgumentError, ArgsFormatter
 from equitrain.data.loaders    import get_dataloaders
 from equitrain.model           import get_model
 from equitrain.utility         import set_dtype, set_seeds
@@ -360,7 +360,8 @@ def _train(args):
 
     # Only main process should output information
     logger = FileLogger(is_master=True, is_rank0=(accelerator.process_index == 0), output_dir=args.output_dir)
-    logger.info(args)
+    if args.verbose > 0:
+        logger.info(ArgsFormatter(args))
 
     ''' Data Loader '''
     train_loader, val_loader, test_loader = get_dataloaders(args, logger=logger)
