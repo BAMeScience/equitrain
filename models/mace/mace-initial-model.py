@@ -24,6 +24,9 @@ def get_statistics():
 
 def get_model(args: argparse.Namespace):
 
+    # Use 64-bit precision for model weights
+    torch.set_default_dtype(torch.float64)
+
     args.compute_energy = True
     args.compute_dipole = False
 
