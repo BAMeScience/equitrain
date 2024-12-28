@@ -10,6 +10,7 @@ from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
 
 from pathlib import Path
+from tqdm import tqdm
 from typing  import Iterable, Optional
 
 from torch_cluster import radius_graph
@@ -176,10 +177,12 @@ def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
 
 
 def evaluate(args,
-             model      : torch.nn.Module,
-             criterion  : torch.nn.Module,
-             data_loader: Iterable, 
-             max_iter   = -1):
+             model       : torch.nn.Module,
+             accelerator : Accelerator,
+             criterion   : torch.nn.Module,
+             data_loader : Iterable,
+             max_iter    = -1
+    ):
 
     model.eval()
     criterion.eval()
@@ -191,7 +194,7 @@ def evaluate(args,
         'stress': AverageMeter(),
     }
 
-    for step, data in enumerate(data_loader):
+    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Evaluating"):
 
         pred_e, pred_f, pred_s = model(data)
 
@@ -252,11 +255,15 @@ def update_best_results(args, best_metrics, val_loss, epoch):
 
 
 def train_one_epoch(args, 
-                    model: torch.nn.Module, accelerator: Accelerator, criterion: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    epoch: int, 
-                    print_freq: int = 100, 
-                    logger=None):
+                    model       : torch.nn.Module,
+                    accelerator : Accelerator,
+                    criterion   : torch.nn.Module,
+                    data_loader : Iterable,
+                    optimizer   : torch.optim.Optimizer,
+                    epoch       : int,
+                    print_freq  : int = 100,
+                    logger            = None,
+    ):
 
     model.train()
     criterion.train()
@@ -270,7 +277,7 @@ def train_one_epoch(args,
 
     start_time = time.perf_counter()
 
-    for step, data in enumerate(data_loader):
+    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = args.verbose < 2 or accelerator.process_index != 0, desc="Training"):
 
         # prevent out of memory error
         if args.batch_edge_limit > 0:
@@ -381,7 +388,7 @@ def _train(args):
     # Evaluate model before training
     if True:
 
-        val_loss = evaluate(args, model=model, criterion=criterion, data_loader=val_loader)
+        val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
         # Print validation loss
         if accelerator.process_index == 0:

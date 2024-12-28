@@ -169,6 +169,13 @@ def get_args_parser_train():
         type=str,
         default="float64",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity level (e.g., -v, -vv, -vvv)"
+    )
     return parser
 
 
