@@ -125,7 +125,7 @@ def _preprocess(args):
                 statistics.atomic_numbers = compute_atomic_numbers(train_dataset)
 
             # If training set did not contain any single atom entries, estimate E0s...
-            if statistics.atomic_energies is None or len(statitics.atomic_energies) == 0:
+            if statistics.atomic_energies is None or len(statistics.atomic_energies) == 0:
                 statistics.atomic_energies = get_atomic_energies(args.E0s, train_dataset, statistics.atomic_numbers)
 
 

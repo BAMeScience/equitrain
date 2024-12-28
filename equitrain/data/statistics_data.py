@@ -15,7 +15,7 @@ from .statistics import compute_average_atomic_energies
 class Statistics:
 
     atomic_numbers    : AtomicNumberTable = None
-    atomic_energies   : Dict              = None
+    atomic_energies   : Dict[int, float]  = None
 
     # Energy statistics
     mean              : float             = None
@@ -32,7 +32,10 @@ class Statistics:
             statistics_dict = json.load(f)
 
         statistics = cls(**statistics_dict)
-        statistics.atomic_numbers = AtomicNumberTable(statistics.atomic_numbers)
+        # Convert atomic numbers list
+        statistics.atomic_numbers  = AtomicNumberTable(statistics.atomic_numbers)
+        # JSON requires dict keys to be quoted, convert back to integers
+        statistics.atomic_energies = { int(key): float(value) for key, value in statistics.atomic_energies.items() }
 
         return statistics
 

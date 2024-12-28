@@ -5,13 +5,13 @@ import torch
 
 from equitrain.data import Statistics
 
-from mace.tools import build_default_arg_parser, check_args
+from mace.tools import AtomicNumberTable, build_default_arg_parser, check_args
 from mace.tools.model_script_utils import configure_model
 from mace.tools.multihead_tools import prepare_default_head
 
 def get_statistics():
 
-    statistics_file = "alexandria_mptraj/statistics.json"
+    statistics_file = "mace-alexandria_mptraj-statistics.json"
 
     print(f"Reading statistics from `{statistics_file}`")
 
@@ -19,7 +19,7 @@ def get_statistics():
 
     atomic_energies = [ statistics.atomic_energies[i] for i in statistics.atomic_numbers ]
 
-    return statistics.atomic_numbers, atomic_energies, r_max
+    return statistics.atomic_numbers, atomic_energies, statistics.r_max, statistics.mean, statistics.std
 
 
 def get_model(args: argparse.Namespace):
@@ -36,7 +36,7 @@ def get_model(args: argparse.Namespace):
 
     z_table, atomic_energies, r_max, args.mean, args.std = get_statistics()
 
-    model, output_args = configure_model(args, None, atomic_energies, model_foundation = None, heads = heads, z_table = z_table)
+    model, output_args = configure_model(args, None, atomic_energies, model_foundation = None, heads = heads, z_table = AtomicNumberTable(z_table))
 
     torch.save(model, "mace-initial.model")
 
