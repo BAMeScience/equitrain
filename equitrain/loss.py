@@ -1,6 +1,30 @@
 import math
 import torch
 
+class WeightedL1Loss(torch.nn.Module):
+    def __init__(self):
+        super(WeightedL1Loss, self).__init__()
+
+    def forward(self, input, target, weights=None):
+        """
+        Compute the weighted L1 loss.
+
+        Args:
+            input (torch.Tensor): Predicted values.
+            target (torch.Tensor): Ground truth values.
+            weights (torch.Tensor): Weights for each element.
+
+        Returns:
+            torch.Tensor: Weighted L1 loss.
+        """
+        loss = torch.abs(input - target)
+
+        if weights is not None:
+            loss *= weights
+
+        return loss.mean()
+
+
 class GenericLoss(torch.nn.Module):
 
     def __init__(
@@ -8,6 +32,8 @@ class GenericLoss(torch.nn.Module):
         energy_weight = 1.0,
         force_weight  = 1.0,
         stress_weight = 0.0,
+        # As opposed to forces, energy is predicted per material. By normalizing
+        # the energy by the number of atoms, forces and energy become comparable
         loss_energy_per_atom = True,
         **args
         ):
@@ -15,7 +41,7 @@ class GenericLoss(torch.nn.Module):
         super().__init__()
 
         # TODO: Allow to select other los functions with args
-        self.loss_energy = torch.nn.L1Loss()
+        self.loss_energy = WeightedL1Loss()
         self.loss_forces = torch.nn.L1Loss()
         self.loss_stress = torch.nn.L1Loss()
 
@@ -42,6 +68,12 @@ class GenericLoss(torch.nn.Module):
 
     def forward(self, y_pred, y_true):
 
+        energy_weights = None
+
+        if self.loss_energy_per_atom:
+            num_atoms = y_true.ptr[1:] - y_true.ptr[:-1]
+            energy_weights = 1.0 / num_atoms
+
         e_true = y_true.y
         f_true = y_true['force']
         s_true = y_true['stress']
@@ -55,7 +87,7 @@ class GenericLoss(torch.nn.Module):
         loss_s = None
 
         if self.energy_weight > 0.0:
-            loss_e = self.loss_energy(e_pred, e_true)
+            loss_e = self.loss_energy(e_pred, e_true, weights=energy_weights)
         if self.force_weight > 0.0:
             loss_f = self.loss_forces(f_pred, f_true)
         if self.stress_weight > 0.0:
