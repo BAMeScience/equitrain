@@ -399,7 +399,7 @@ def _train(args):
 
                 filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
 
-                if args.verbose > 0
+                if args.verbose > 0:
                     logger.info(f'Validation error decreased. Saving model to `{filename}`...')
 
                 accelerator.save_state(
