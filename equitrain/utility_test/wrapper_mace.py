@@ -23,13 +23,10 @@ class MaceWrapper(torch.nn.Module):
 
 
     def forward(self, *args):
-        r = self.model(*args, training=self.training)
 
-        if isinstance(r, dict):
-            energy = r['energy']
-            forces = r['forces']
-            stress = r['stress']
-        else:
-            energy, forces, stress = r
+        y_pred = self.model(*args, training=self.training)
 
-        return energy, forces, stress
+        if not isinstance(y_pred, dict):
+            y_pred = {'energy': y_pred[0], 'forces': y_pred[1], 'stress': y_pred[2]}
+
+        return y_pred

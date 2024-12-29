@@ -18,6 +18,7 @@ from torch_cluster import radius_graph
 from equitrain.argparser       import ArgumentError, ArgsFormatter
 from equitrain.data.loaders    import get_dataloaders
 from equitrain.model           import get_model
+from equitrain.loss            import GenericLoss
 from equitrain.utility         import set_dtype, set_seeds
 from equitrain.train_optimizer import create_optimizer
 from equitrain.train_scheduler import create_scheduler
@@ -163,19 +164,6 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
     logger.info(info_str)
 
 
-def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
-    result = 0.0
-    # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
-    if energy_loss is not None and (not math.isinf(energy_loss) or args.energy_weight > 0.0):
-        result += args.energy_weight * energy_loss
-    if force_loss is not None and (not math.isinf(force_loss) or args.force_weight > 0.0):
-        result += args.force_weight * force_loss
-    if stress_loss is not None and (not math.isinf(stress_loss) or args.stress_weight > 0.0):
-        result += args.stress_weight * stress_loss
-
-    return result
-
-
 def evaluate(args,
              model       : torch.nn.Module,
              accelerator : Accelerator,
@@ -196,29 +184,18 @@ def evaluate(args,
 
     for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or accelerator.process_index != 0, desc="Evaluating"):
 
-        pred_e, pred_f, pred_s = model(data)
+        y_pred = model(data)
 
-        loss_e = None
-        loss_f = None
-        loss_s = None
+        loss = criterion(y_pred, data)
 
-        if pred_e is not None:
-            loss_e = criterion(pred_e, data.y)
-        if pred_f is not None:
-            loss_f = criterion(pred_f, data['force'])
-        if pred_s is not None:
-            loss_s = criterion(pred_s, data['stress'])
+        loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
 
-        loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
-
-        loss_metrics['total'].update(loss.item(), n=pred_e.shape[0])
-
-        if pred_e is not None:
-            loss_metrics['energy'].update(loss_e.item(), n=pred_e.shape[0])
-        if pred_f is not None:
-            loss_metrics['forces'].update(loss_f.item(), n=pred_f.shape[0])
-        if pred_s is not None:
-            loss_metrics['stress'].update(loss_s.item(), n=pred_s.shape[0])
+        if y_pred['energy'] is not None:
+            loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
+        if y_pred['forces'] is not None:
+            loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
+        if y_pred['stress'] is not None:
+            loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
 
         if ((step + 1) >= max_iter) and (max_iter != -1):
             break
@@ -226,25 +203,25 @@ def evaluate(args,
     return loss_metrics
 
 
-def update_best_results(args, best_metrics, val_loss, epoch):
+def update_best_results(criterion, best_metrics, val_loss, epoch):
 
     update_result = False
 
-    loss_new = compute_weighted_loss(args,
+    loss_new = criterion.compute_weighted_loss(
             val_loss['energy'].avg,
             val_loss['forces'].avg,
             val_loss['stress'].avg)
-    loss_old = compute_weighted_loss(args,
+    loss_old = criterion.compute_weighted_loss(
             best_metrics['val_energy_loss'],
             best_metrics['val_forces_loss'],
             best_metrics['val_stress_loss'])
 
     if loss_new < loss_old:
-        if args.energy_weight > 0.0:
+        if criterion.energy_weight > 0.0:
             best_metrics['val_energy_loss'] = val_loss['energy'].avg
-        if args.force_weight > 0.0:
+        if criterion.force_weight > 0.0:
             best_metrics['val_forces_loss'] = val_loss['forces'].avg
-        if args.stress_weight > 0.0:
+        if criterion.stress_weight > 0.0:
             best_metrics['val_stress_loss'] = val_loss['stress'].avg
 
         best_metrics['val_epoch'] = epoch
@@ -287,41 +264,26 @@ def train_one_epoch(args,
                     logger.info(f'Batch edge limit violated. Batch has {data.edge_index.shape[1]} edges. Skipping batch...')
                     continue
 
-            e_true = data.y
-            f_true = data['force']
-            s_true = data['stress']
+            y_pred = model(data)
 
-            e_pred, f_pred, s_pred = model(data)
+            loss = criterion(y_pred, data)
 
-            loss_e = None
-            loss_f = None
-            loss_s = None
-
-            if args.energy_weight > 0.0:
-                loss_e = criterion(e_pred, e_true)
-            if args.force_weight > 0.0:
-                loss_f = criterion(f_pred, f_true)
-            if args.stress_weight > 0.0:
-                loss_s = criterion(s_pred, s_true)
-
-            loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
-
-            if torch.isnan(loss):
+            if torch.isnan(loss['total']):
                 logger.info(f'Nan value detected. Skipping batch...')
                 continue
 
             optimizer.zero_grad()
-            accelerator.backward(loss)
+            accelerator.backward(loss['total'])
             optimizer.step()
 
-            loss_metrics['total'].update(loss.item(), n=e_pred.shape[0])
+            loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
 
             if args.energy_weight > 0.0:
-                loss_metrics['energy'].update(loss_e.item(), n=e_pred.shape[0])
+                loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
             if args.force_weight > 0.0:
-                loss_metrics['forces'].update(loss_f.item(), n=f_pred.shape[0])
+                loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
             if args.stress_weight > 0.0:
-                loss_metrics['stress'].update(loss_s.item(), n=s_pred.shape[0])
+                loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
 
             if accelerator.process_index == 0:
 
@@ -380,7 +342,7 @@ def _train(args):
     optimizer    = create_optimizer(args, model)
     lr_scheduler = create_scheduler(args, optimizer)
 
-    criterion = torch.nn.L1Loss() 
+    criterion = GenericLoss(**vars(args))
 
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
@@ -429,7 +391,7 @@ def _train(args):
         # Only main process should save model and compute validation statistics
         if accelerator.process_index == 0:
 
-            update_val_result = update_best_results(args, best_metrics, val_loss, epoch)
+            update_val_result = update_best_results(criterion, best_metrics, val_loss, epoch)
 
             if update_val_result:
 
