@@ -2,8 +2,10 @@ import math
 import torch
 
 class WeightedL1Loss(torch.nn.Module):
+
     def __init__(self):
-        super(WeightedL1Loss, self).__init__()
+        super().__init__()
+
 
     def forward(self, input, target, weights=None):
         """
@@ -23,6 +25,39 @@ class WeightedL1Loss(torch.nn.Module):
             loss *= weights
 
         return loss.mean()
+
+
+class ForceAngleLoss(torch.nn.Module):
+
+    def __init__(self, angle_weight = 1.0, epsilon = 1e-8):
+        super().__init__()
+
+        self.angle_weight = angle_weight
+        self.epsilon      = epsilon
+
+
+    def forward(self, input, target, weights=None):
+        # Compute lengths of force vectors
+        n1 = torch.norm(target, dim=1)
+        n2 = torch.norm(input , dim=1)
+        # Compute angle between force vectors
+        angle = compute_angle(target, input, n1=n1, n2=n2)
+
+        # Loss is the sum of normalized length mismath and angle discrepancy
+        return torch.mean(
+            * (torch.abs(n1 - n2)/(0.5*n1 + 0.5*n2 + self.epsilon) + self.angle_weight*angle)
+        )
+
+
+    def compute_angle(self, s, t, n1 = None, n2 = None):
+        if n1 is None:
+            n1 = torch.norm(s, dim=1)
+        if n2 is None:
+            n2 = torch.norm(t, dim=1)
+        # Compute dot product between force vectors
+        dp = torch.einsum('ij,ij->i', s, t)
+        # Compute angle, use tanh for numerical stability
+        return torch.arccos(dp / (n1*n2 + self.epsilon))
 
 
 class GenericLoss(torch.nn.Module):
