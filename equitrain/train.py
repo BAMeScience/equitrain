@@ -305,7 +305,7 @@ def train_one_epoch(args,
 
                         log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
 
-                if args.tqdm > 1:
+                if args.tqdm:
                     pbar.set_description(f"Training (loss={loss_metrics['total'].avg:.04f})")
 
 
