@@ -13,14 +13,14 @@ def get_model(args, logger=None):
 
         model = torch.load(args.model)
 
+    if args.model_wrapper == "mace":
+        model = MaceWrapper(args, model)
+
     if args.model_checkpoint is not None:
 
         if logger is not None:
             logger.info(f'Loading model checkpoint {args.model_checkpoint}...')
 
         model.load_state_dict(torch.load(args.model_checkpoint))
-
-    if args.model_wrapper == "mace":
-        model = MaceWrapper(args, model)
 
     return model
