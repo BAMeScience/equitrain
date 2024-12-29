@@ -171,6 +171,12 @@ def get_args_parser_train():
         default="float64",
     )
     parser.add_argument(
+        "--wandb-project",
+        help="Name of the project for tracking with Wandb",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -298,3 +304,17 @@ class ArgsFormatter:
         Return the formatted string when the object is printed.
         """
         return f"Options:\n{self.format()}"
+
+
+class ArgsFilterSimple:
+    def __init__(self, allowed_types=None):
+        # Default to basic types if no custom types are provided
+        self.allowed_types = allowed_types or (int, float, str, bool, list)
+
+    def is_simple(self, value):
+        """Check if a value is of an allowed type."""
+        return isinstance(value, self.allowed_types)
+    
+    def filter(self, args):
+        """Filter the list of arguments to include only allowed types."""
+        return { key: value for key, value in vars(args).items() if self.is_simple(value) }

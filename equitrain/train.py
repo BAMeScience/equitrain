@@ -15,7 +15,7 @@ from typing  import Iterable, Optional
 
 from torch_cluster import radius_graph
 
-from equitrain.argparser       import ArgumentError, ArgsFormatter
+from equitrain.argparser       import ArgumentError, ArgsFormatter, ArgsFilterSimple
 from equitrain.data.loaders    import get_dataloaders
 from equitrain.model           import get_model
 from equitrain.loss            import GenericLoss
@@ -185,7 +185,7 @@ def evaluate(args,
         'stress': AverageMeter(),
     }
 
-    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or accelerator.process_index != 0, desc="Evaluating"):
+    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
 
         y_pred = model(data)
 
@@ -257,7 +257,7 @@ def train_one_epoch(args,
 
     start_time = time.perf_counter()
 
-    with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or accelerator.process_index != 0, desc="Training") as pbar:
+    with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Training") as pbar:
 
         for step, data in pbar:
 
@@ -288,7 +288,7 @@ def train_one_epoch(args,
             if args.stress_weight > 0.0:
                 loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
 
-            if accelerator.process_index == 0:
+            if accelerator.is_main_process:
 
                 if args.verbose == 1:
                     # logging
@@ -321,10 +321,15 @@ def _train(args):
     else:
         ddp_kwargs = DistributedDataParallelKwargs()
 
-    accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
+    if args.wandb_project is not None:
+        log_with = "wandb"
+    else:
+        log_with = None
+
+    accelerator = Accelerator(log_with = log_with, kwargs_handlers=[ddp_kwargs])
 
     # Only main process should output information
-    logger = FileLogger(is_master=True, is_rank0=(accelerator.process_index == 0), output_dir=args.output_dir)
+    logger = FileLogger(is_master=True, is_rank0=accelerator.is_main_process, output_dir=args.output_dir)
     if args.verbose > 0:
         logger.info(ArgsFormatter(args))
 
@@ -335,7 +340,7 @@ def _train(args):
     ''' Network '''
     model = get_model(args, logger=logger)
 
-    if accelerator.process_index == 0:
+    if accelerator.is_main_process:
 
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -361,17 +366,23 @@ def _train(args):
         'test_energy_loss': float('inf'), 'test_forces_loss': float('inf'), 'test_stress_loss': float('inf'),
     }
 
+    if args.wandb_project is not None and accelerator.is_main_process:
+        accelerator.init_trackers(args.wandb_project, config=ArgsFilterSimple().filter(args))
+
     # Evaluate model before training
     if True:
 
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
-        # Print validation loss
-        info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=0)
-        info_str_postfix = None
+        if accelerator.is_main_process:
 
-        log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
+            # Print validation loss
+            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=0)
+            info_str_postfix = None
 
+            log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
+
+            accelerator.log({"val_loss": val_loss['total'].avg}, step=0)
 
     for epoch in range(1, args.epochs+1):
         
@@ -394,7 +405,7 @@ def _train(args):
             lr_scheduler.step(best_metrics['val_epoch'], epoch)
 
         # Only main process should save model and compute validation statistics
-        if accelerator.process_index == 0:
+        if accelerator.is_main_process:
 
             update_val_result = update_best_results(criterion, best_metrics, val_loss, epoch)
 
@@ -414,19 +425,30 @@ def _train(args):
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, train_loss)
 
+            accelerator.log({"train_loss": train_loss['total'].avg}, step=epoch)
+
             info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=epoch)
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
 
+            accelerator.log({"val_loss": val_loss['total'].avg}, step=epoch)
+
     if test_loader is not None:
         # evaluate on the whole testing set
         test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader)
  
-        info_str_prefix  = 'Test -- '
-        info_str_postfix = None
+        if accelerator.is_main_process:
 
-        log_metrics(args, logger, info_str_prefix, info_str_postfix, test_loss)
+            info_str_prefix  = 'Test -- '
+            info_str_postfix = None
+
+            log_metrics(args, logger, info_str_prefix, info_str_postfix, test_loss)
+
+            accelerator.log({"test_loss": test_loss['total'].avg}, step=epoch)
+
+    if accelerator.is_main_process:
+        accelerator.end_training()
 
 
 def train(args):
