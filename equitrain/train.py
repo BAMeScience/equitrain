@@ -290,8 +290,9 @@ def train_one_epoch(args,
 
             if accelerator.is_main_process:
 
-                if args.verbose == 1:
-                    # logging
+                # Print intermediate performance statistics only for higher verbose levels
+                if args.verbose > 2:
+
                     if step % print_freq == 0 or step == len(data_loader) - 1:
                         w = time.perf_counter() - start_time
                         e = (step + 1) / len(data_loader)
@@ -304,7 +305,7 @@ def train_one_epoch(args,
 
                         log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
 
-                if args.verbose > 1:
+                if args.tqdm > 1:
                     pbar.set_description(f"Training (loss={loss_metrics['total'].avg:.04f})")
 
 
