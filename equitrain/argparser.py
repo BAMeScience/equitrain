@@ -114,11 +114,11 @@ def get_args_parser_train():
                         help='Path to a model file')
     parser.add_argument('--model-wrapper', type=str, default=None,
                         help='Model wrapper classe [mace]')
+    parser.add_argument('--model-checkpoint', type=str, default=None,
+                        help="Load model from checkpoint")
     # checkpoints
     parser.add_argument('--load-checkpoint', type=str, default=None,
-                        help="Load full checkpoint including optimizer and random state (for resuming training exactly where it stopped)")
-    parser.add_argument('--load-checkpoint-model', type=str, default=None,
-                        help="Load model checkpoint")
+                        help="Load full checkpoint including model, optimizer and random state")
     # optimizer parameters
     parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
                         help='Optimizer (default: "adamw"')
