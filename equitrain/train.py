@@ -312,22 +312,7 @@ def train_one_epoch(args,
     return loss_metrics
 
 
-def _train(args):
-
-    set_seeds(args.seed)
-    set_dtype(args.dtype)
-
-    if args.energy_weight == 0.0:
-        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-    else:
-        ddp_kwargs = DistributedDataParallelKwargs()
-
-    if args.wandb_project is not None:
-        log_with = "wandb"
-    else:
-        log_with = None
-
-    accelerator = Accelerator(log_with = log_with, kwargs_handlers=[ddp_kwargs])
+def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Only main process should output information
     logger = FileLogger(is_master=True, is_rank0=accelerator.is_main_process, output_dir=args.output_dir)
@@ -357,8 +342,10 @@ def _train(args):
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
     if args.load_checkpoint is not None:
+
         if args.verbose > 0:
             logger.info(f'Loading checkpoint {args.load_checkpoint}...')
+
         accelerator.load_state(args.load_checkpoint)
     
     # record the best validation and testing loss and corresponding epochs
@@ -367,13 +354,15 @@ def _train(args):
         'test_energy_loss': float('inf'), 'test_forces_loss': float('inf'), 'test_stress_loss': float('inf'),
     }
 
-    if args.wandb_project is not None and accelerator.is_main_process:
+    if args.wandb_project is not None:
         accelerator.init_trackers(args.wandb_project, config=ArgsFilterSimple().filter(args))
 
     # Evaluate model before training
     if True:
 
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
+
+        accelerator.log({"val_loss": val_loss['total'].avg}, step=0)
 
         if accelerator.is_main_process:
 
@@ -382,8 +371,6 @@ def _train(args):
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
-
-            accelerator.log({"val_loss": val_loss['total'].avg}, step=0)
 
     for epoch in range(1, args.epochs+1):
         
@@ -402,6 +389,9 @@ def _train(args):
         
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
+        accelerator.log({"train_loss": train_loss['total'].avg}, step=epoch)
+        accelerator.log({  "val_loss":   val_loss['total'].avg}, step=epoch)
+
         if lr_scheduler is not None:
             lr_scheduler.step(best_metrics['val_epoch'], epoch)
 
@@ -415,7 +405,7 @@ def _train(args):
                 filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
 
                 if args.verbose > 0:
-                    logger.info(f'Validation error decreased. Saving model to `{filename}`...')
+                    logger.info(f'Validation error decreased. Saving checkpoint to `{filename}`...')
 
                 accelerator.save_state(
                     os.path.join(args.output_dir, filename),
@@ -426,19 +416,17 @@ def _train(args):
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, train_loss)
 
-            accelerator.log({"train_loss": train_loss['total'].avg}, step=epoch)
-
             info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=epoch)
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
 
-            accelerator.log({"val_loss": val_loss['total'].avg}, step=epoch)
-
     if test_loader is not None:
         # evaluate on the whole testing set
         test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader)
  
+        accelerator.log({"test_loss": test_loss['total'].avg}, step=epoch)
+
         if accelerator.is_main_process:
 
             info_str_prefix  = 'Test -- '
@@ -446,9 +434,28 @@ def _train(args):
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, test_loss)
 
-            accelerator.log({"test_loss": test_loss['total'].avg}, step=epoch)
 
-    if accelerator.is_main_process:
+def _train(args):
+
+    set_seeds(args.seed)
+    set_dtype(args.dtype)
+
+    if args.energy_weight == 0.0:
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    else:
+        ddp_kwargs = DistributedDataParallelKwargs()
+
+    if args.wandb_project is not None:
+        log_with = "wandb"
+    else:
+        log_with = None
+
+    accelerator = Accelerator(log_with = log_with, kwargs_handlers=[ddp_kwargs])
+
+    try:
+        _train_with_accelerator(args, accelerator)
+
+    finally:
         accelerator.end_training()
 
 
