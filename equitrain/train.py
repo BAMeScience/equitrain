@@ -336,7 +336,8 @@ def _train(args):
 
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        logger.info('Number of params: {}'.format(n_parameters))
+        if args.verbose > 0:
+            logger.info('Number of params: {}'.format(n_parameters))
     
     ''' Optimizer and LR Scheduler '''
     optimizer    = create_optimizer(args, model)
@@ -347,7 +348,8 @@ def _train(args):
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
     if args.load_checkpoint is not None:
-        logger.info(f'Loading checkpoint {args.load_checkpoint}...')
+        if args.verbose > 0:
+            logger.info(f'Loading checkpoint {args.load_checkpoint}...')
         accelerator.load_state(args.load_checkpoint)
     
     # record the best validation and testing loss and corresponding epochs
@@ -397,7 +399,8 @@ def _train(args):
 
                 filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
 
-                logger.info(f'Validation error decreased. Saving model to `{filename}`...')
+                if args.verbose > 0
+                    logger.info(f'Validation error decreased. Saving model to `{filename}`...')
 
                 accelerator.save_state(
                     os.path.join(args.output_dir, filename),
