@@ -26,7 +26,10 @@ from equitrain.train_scheduler import create_scheduler
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
 
-
+# TODO:
+# - Clean up code (i.e. is_rank0 is not a good name)
+# - Implement output depending on verbosity level
+# - Use logger also in predict and preprocess code
 class FileLogger:
     def __init__(self, is_master=False, is_rank0=False, output_dir=None, logger_name='training'):
         # only call by master 
