@@ -175,6 +175,9 @@ class AtomsToGraphs:
         # optionally include other properties
         if self.r_edges:
             if False:
+                # TODO: This is old code which uses pymatgen to compute graphs.
+                #  Check if this is useful. Should we have multiple backends for
+                #  computing graphs?
                 # run internal functions to get padded indices and distances
                 split_idx_dist = self._get_neighbors_pymatgen(atoms)
                 edge_index, edge_distances, cell_offsets = self._reshape_features(
