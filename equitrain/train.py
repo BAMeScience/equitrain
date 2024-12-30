@@ -13,115 +13,16 @@ from typing  import Iterable
 
 from equitrain.argparser       import ArgumentError, ArgsFormatter, ArgsFilterSimple
 from equitrain.data.loaders    import get_dataloaders
+from equitrain.logger          import FileLogger
 from equitrain.model           import get_model
 from equitrain.loss            import GenericLoss
 from equitrain.utility         import set_dtype, set_seeds
 from equitrain.train_optimizer import create_optimizer
 from equitrain.train_scheduler import create_scheduler
+from equitrain.train_metrics   import AverageMeter, log_metrics, update_best_results
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
-
-# TODO:
-# - Clean up code (i.e. is_rank0 is not a good name)
-# - Implement output depending on verbosity level
-# - Use logger also in predict and preprocess code
-class FileLogger:
-    def __init__(self, is_master=False, is_rank0=False, output_dir=None, logger_name='training'):
-        # only call by master 
-        # checked outside the class
-        self.output_dir = output_dir
-        if is_rank0:
-            self.logger_name = logger_name
-            self.logger = self.get_logger(output_dir, log_to_file=is_master)
-        else:
-            self.logger_name = None
-            self.logger = NoOp()
-        
-        
-    def get_logger(self, output_dir, log_to_file):
-        logger = logging.getLogger(self.logger_name)
-        logger.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(message)s')
-
-        if output_dir and log_to_file:
-            
-            time_formatter = logging.Formatter('%(asctime)s - %(filename)s:%(lineno)d - %(message)s')
-            debuglog = logging.FileHandler(output_dir+'/debug.log')
-            debuglog.setLevel(logging.DEBUG)
-            debuglog.setFormatter(time_formatter)
-            logger.addHandler(debuglog)
-
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        console.setLevel(logging.DEBUG)
-        logger.addHandler(console)
-        
-        # Reference: https://stackoverflow.com/questions/21127360/python-2-7-log-displayed-twice-when-logging-module-is-used-in-two-python-scri
-        logger.propagate = False
-
-        return logger
-
-    def console(self, *args):
-        self.logger.debug(*args)
-
-    def event(self, *args):
-        self.logger.warn(*args)
-
-    def verbose(self, *args):
-        self.logger.info(*args)
-
-    def info(self, *args):
-        self.logger.info(*args)
-
-
-# no_op method/object that accept every signature
-class NoOp:
-    def __getattr__(self, *args):
-        def no_op(*args, **kwargs): pass
-        return no_op
-
-
-class AverageMeter:
-    """Computes and stores the average and current value"""
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val   = 0
-        self.avg   = 0
-        self.sum   = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val    = val
-        self.sum   += val * n
-        self.count += n
-        self.avg    = self.sum / self.count
-
-
-def log_metrics(args, logger, prefix, postfix, loss_metrics):
-
-    info_str  = prefix
-    info_str += 'loss: {loss:.5f}'.format(loss=loss_metrics['total'].avg)
-
-    if args.energy_weight > 0.0:
-        info_str += ', loss_e: {loss_e:.5f}'.format(
-            loss_e=loss_metrics['energy'].avg,
-        )
-    if args.force_weight > 0.0:
-        info_str += ', loss_f: {loss_f:.5f}'.format(
-            loss_f=loss_metrics['forces'].avg,
-        )
-    if args.stress_weight > 0.0:
-        info_str += ', loss_s: {loss_f:.5f}'.format(
-            loss_f=loss_metrics['stress'].avg,
-        )
-
-    if postfix is not None:
-        info_str += postfix
-
-    logger.info(info_str)
 
 
 def evaluate(args,
@@ -161,34 +62,6 @@ def evaluate(args,
             break
 
     return loss_metrics
-
-
-def update_best_results(criterion, best_metrics, val_loss, epoch):
-
-    update_result = False
-
-    loss_new = criterion.compute_weighted_loss(
-            val_loss['energy'].avg,
-            val_loss['forces'].avg,
-            val_loss['stress'].avg)
-    loss_old = criterion.compute_weighted_loss(
-            best_metrics['val_energy_loss'],
-            best_metrics['val_forces_loss'],
-            best_metrics['val_stress_loss'])
-
-    if loss_new < loss_old:
-        if criterion.energy_weight > 0.0:
-            best_metrics['val_energy_loss'] = val_loss['energy'].avg
-        if criterion.force_weight > 0.0:
-            best_metrics['val_forces_loss'] = val_loss['forces'].avg
-        if criterion.stress_weight > 0.0:
-            best_metrics['val_stress_loss'] = val_loss['stress'].avg
-
-        best_metrics['val_epoch'] = epoch
-
-        update_result = True
-
-    return update_result
 
 
 def train_one_epoch(args, 
