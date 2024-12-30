@@ -22,7 +22,7 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
         info_str += ', loss_e: {loss_e:.5f}'.format(
             loss_e=loss_metrics['energy'].avg,
         )
-    if args.force_weight > 0.0:
+    if args.forces_weight > 0.0:
         info_str += ', loss_f: {loss_f:.5f}'.format(
             loss_f=loss_metrics['forces'].avg,
         )
@@ -105,8 +105,8 @@ def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
     # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
     if energy_loss is not None and (not math.isinf(energy_loss) or args.energy_weight > 0.0):
         result += args.energy_weight * energy_loss
-    if force_loss is not None and (not math.isinf(force_loss) or args.force_weight > 0.0):
-        result += args.force_weight * force_loss
+    if force_loss is not None and (not math.isinf(force_loss) or args.forces_weight > 0.0):
+        result += args.forces_weight * force_loss
     if stress_loss is not None and (not math.isinf(stress_loss) or args.stress_weight > 0.0):
         result += args.stress_weight * stress_loss
 
@@ -249,7 +249,7 @@ class EquiTrainModule(pl.LightningModule):
         loss_e, loss_f, loss_s = None, None, None
         if self.args.energy_weight > 0.0:
             loss_e = self.criterion(e_pred, e_true)
-        if self.args.force_weight > 0.0:
+        if self.args.forces_weight > 0.0:
             loss_f = self.criterion(f_pred, f_true)
         if self.args.stress_weight > 0.0:
             loss_s = self.criterion(s_pred, s_true)
@@ -272,7 +272,7 @@ class EquiTrainModule(pl.LightningModule):
         self.train_loss_metrics['total'].update(loss.item(), n=e_pred.shape[0])
         if self.args.energy_weight > 0.0:
             self.train_loss_metrics['energy'].update(loss_e.item(), n=e_pred.shape[0])
-        if self.args.force_weight > 0.0:
+        if self.args.forces_weight > 0.0:
             self.train_loss_metrics['forces'].update(loss_f.item(), n=f_pred.shape[0])
         if self.args.stress_weight > 0.0:
             self.train_loss_metrics['stress'].update(loss_s.item(), n=s_pred.shape[0])
@@ -301,7 +301,7 @@ class EquiTrainModule(pl.LightningModule):
         self.val_loss_metrics['total'].update(loss.item(), n=pred_e.shape[0])
         if self.args.energy_weight > 0.0:
             self.val_loss_metrics['energy'].update(loss_e.item(), n=pred_e.shape[0])
-        if self.args.force_weight > 0.0:
+        if self.args.forces_weight > 0.0:
             self.val_loss_metrics['forces'].update(loss_f.item(), n=pred_e.shape[0])
         if self.args.stress_weight > 0.0:
             self.val_loss_metrics['stress'].update(loss_s.item(), n=pred_s.shape[0])
@@ -372,7 +372,7 @@ def _train(args):
     train_loader, val_loader, test_loader, r_max = get_dataloaders(args, logger=logger)
     
     ''' Network '''
-    model = get_model(r_max, args, compute_force=args.force_weight > 0.0, compute_stress=args.stress_weight > 0.0, logger=logger)
+    model = get_model(r_max, args, compute_force=args.forces_weight > 0.0, compute_stress=args.stress_weight > 0.0, logger=logger)
     
     # Create Criterion
     criterion = torch.nn.L1Loss()
@@ -418,7 +418,7 @@ def train_lightning(args):
     if args.output_dir is None:
         raise ValueError("--output-dir is a required argument")
 
-    if args.energy_weight == 0.0 and args.force_weight == 0.0 and args.stress_weight == 0.0:
+    if args.energy_weight == 0.0 and args.forces_weight == 0.0 and args.stress_weight == 0.0:
         raise ValueError("at least one non-zero loss weight is required")
 
     if args.output_dir:

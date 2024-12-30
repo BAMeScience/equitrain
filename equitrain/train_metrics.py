@@ -25,7 +25,7 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
         info_str += ', loss_e: {loss_e:.5f}'.format(
             loss_e=loss_metrics['energy'].avg,
         )
-    if args.force_weight > 0.0:
+    if args.forces_weight > 0.0:
         info_str += ', loss_f: {loss_f:.5f}'.format(
             loss_f=loss_metrics['forces'].avg,
         )
@@ -55,7 +55,7 @@ def update_best_results(criterion, best_metrics, val_loss, epoch):
     if loss_new < loss_old:
         if criterion.energy_weight > 0.0:
             best_metrics['val_energy_loss'] = val_loss['energy'].avg
-        if criterion.force_weight > 0.0:
+        if criterion.forces_weight > 0.0:
             best_metrics['val_forces_loss'] = val_loss['forces'].avg
         if criterion.stress_weight > 0.0:
             best_metrics['val_stress_loss'] = val_loss['stress'].avg

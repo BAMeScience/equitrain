@@ -18,7 +18,7 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
         info_str += ', loss_e: {loss_e:.5f}'.format(
             loss_e=loss_metrics['energy'].avg,
         )
-    if args.force_weight > 0.0:
+    if args.forces_weight > 0.0:
         info_str += ', loss_f: {loss_f:.5f}'.format(
             loss_f=loss_metrics['forces'].avg,
         )
@@ -79,8 +79,8 @@ def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
     result = 0.0
     if energy_loss is not None and (not math.isinf(energy_loss) or args.energy_weight > 0.0):
         result += args.energy_weight * energy_loss
-    if force_loss is not None and (not math.isinf(force_loss) or args.force_weight > 0.0):
-        result += args.force_weight * force_loss
+    if force_loss is not None and (not math.isinf(force_loss) or args.forces_weight > 0.0):
+        result += args.forces_weight * force_loss
     if stress_loss is not None and (not math.isinf(stress_loss) or args.stress_weight > 0.0):
         result += args.stress_weight * stress_loss
     return result
@@ -179,7 +179,7 @@ def _train(args):
     train_loader, val_loader, test_loader, r_max = get_dataloaders(args, logger=logger)
 
     ''' Network '''
-    model = get_model(r_max, args, compute_force=args.force_weight > 0.0, compute_stress=args.stress_weight > 0.0,
+    model = get_model(r_max, args, compute_force=args.forces_weight > 0.0, compute_stress=args.stress_weight > 0.0,
                       logger=logger)
 
     # Create Criterion
@@ -209,7 +209,7 @@ def _train(args):
             loss_e, loss_f, loss_s = None, None, None
             if args.energy_weight > 0.0:
                 loss_e = criterion(e_pred, e_true)
-            if args.force_weight > 0.0:
+            if args.forces_weight > 0.0:
                 loss_f = criterion(f_pred, f_true)
             if args.stress_weight > 0.0:
                 loss_s = criterion(s_pred, s_true)
@@ -232,7 +232,7 @@ def _train(args):
                 loss_e, loss_f, loss_s = None, None, None
                 if args.energy_weight > 0.0:
                     loss_e = criterion(e_pred, e_true)
-                if args.force_weight > 0.0:
+                if args.forces_weight > 0.0:
                     loss_f = criterion(f_pred, f_true)
                 if args.stress_weight > 0.0:
                     loss_s = criterion(s_pred, s_true)
@@ -250,7 +250,7 @@ def train_fabric(args):
         raise ValueError("--statistics-file is a required argument")
     if args.output_dir is None:
         raise ValueError("--output-dir is a required argument")
-    if args.energy_weight == 0.0 and args.force_weight == 0.0 and args.stress_weight == 0.0:
+    if args.energy_weight == 0.0 and args.forces_weight == 0.0 and args.stress_weight == 0.0:
         raise ValueError("at least one non-zero loss weight is required")
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)

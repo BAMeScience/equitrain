@@ -154,7 +154,7 @@ def get_args_parser_train():
     parser.add_argument("--print-freq", type=int, default=100)
     # weights
     parser.add_argument('--energy-weight', help='Weight for the energy loss term (default: 0.2)', type=float, default=0.2)
-    parser.add_argument('--force-weight' , help='Weight for the forces loss term (default: 0.8)', type=float, default=0.8)
+    parser.add_argument('--forces-weight' , help='Weight for the forces loss term (default: 0.8)', type=float, default=0.8)
     parser.add_argument('--stress-weight', help='Weight for the stress loss term (default: 0.0)', type=float, default=0.0)
     # random
     parser.add_argument("--seed", type=int, default=1)

@@ -113,7 +113,7 @@ def train_one_epoch(args,
 
             if args.energy_weight > 0.0:
                 loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
-            if args.force_weight > 0.0:
+            if args.forces_weight > 0.0:
                 loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
             if args.stress_weight > 0.0:
                 loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
@@ -308,7 +308,7 @@ def train(args):
     if args.model is None:
         raise ArgumentError("--model is a required argument")
 
-    if args.energy_weight == 0.0 and args.force_weight == 0.0 and args.stress_weight == 0.0:
+    if args.energy_weight == 0.0 and args.forces_weight == 0.0 and args.stress_weight == 0.0:
         raise ArgumentError("at least one non-zero loss weight is required")
 
     if args.output_dir:

@@ -65,7 +65,7 @@ class GenericLoss(torch.nn.Module):
     def __init__(
         self,
         energy_weight = 1.0,
-        force_weight  = 1.0,
+        forces_weight = 1.0,
         stress_weight = 0.0,
         # As opposed to forces, energy is predicted per material. By normalizing
         # the energy by the number of atoms, forces and energy become comparable
@@ -82,19 +82,19 @@ class GenericLoss(torch.nn.Module):
 
         # TODO: Use register_buffer instead
         self.energy_weight = energy_weight
-        self.force_weight  = force_weight
+        self.forces_weight = forces_weight
         self.stress_weight = stress_weight
 
         self.loss_energy_per_atom = loss_energy_per_atom
 
 
-    def compute_weighted_loss(self, energy_loss, force_loss, stress_loss):
+    def compute_weighted_loss(self, energy_loss, forces_loss, stress_loss):
         result = 0.0
         # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
         if energy_loss is not None and (not math.isinf(energy_loss) or self.energy_weight > 0.0):
             result += self.energy_weight * energy_loss
-        if force_loss is not None and (not math.isinf(force_loss) or self.force_weight > 0.0):
-            result += self.force_weight * force_loss
+        if forces_loss is not None and (not math.isinf(forces_loss) or self.forces_weight > 0.0):
+            result += self.forces_weight * forces_loss
         if stress_loss is not None and (not math.isinf(stress_loss) or self.stress_weight > 0.0):
             result += self.stress_weight * stress_loss
 
@@ -123,7 +123,7 @@ class GenericLoss(torch.nn.Module):
 
         if self.energy_weight > 0.0:
             loss_e = self.loss_energy(e_pred, e_true, weights=energy_weights)
-        if self.force_weight > 0.0:
+        if self.forces_weight > 0.0:
             loss_f = self.loss_forces(f_pred, f_true)
         if self.stress_weight > 0.0:
             loss_s = self.loss_stress(s_pred, s_true)
