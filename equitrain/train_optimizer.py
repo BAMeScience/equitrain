@@ -1,7 +1,7 @@
 
 import torch
 
-def add_weight_decay(model, weight_decay=1e-5, skip_list=[]):
+def add_weight_decay(model, weight_decay, skip_list = []):
     decay = []
     no_decay = []
     for name, param in model.named_parameters():
@@ -54,7 +54,9 @@ def create_optimizer_impl(
 
     opt_lower = optimizer_name.lower()
 
-    if weight_decay and filter_bias_and_bn:
+    if filter_bias_and_bn:
+        # Always split parameters to allow checkpointing
+        # with modified weight_decay
         parameters = add_weight_decay(model, weight_decay, skip_list)
         weight_decay = 0.0
     else:
