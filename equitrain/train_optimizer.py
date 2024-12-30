@@ -49,6 +49,7 @@ def create_optimizer_impl(
         alpha             : float = None,
         momentum          : float = None,
         filter_bias_and_bn: bool  = True,
+        skip              : list  = None,
     )  -> torch.optim.Optimizer:
 
     opt_lower = optimizer_name.lower()
