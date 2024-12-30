@@ -1,8 +1,7 @@
 import logging
 import time
+import re
 import torch
-import math
-import numpy as np
 import os
 import torch_geometric
 
@@ -10,8 +9,8 @@ from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
 
 from pathlib import Path
-from tqdm import tqdm
-from typing  import Iterable, Optional
+from tqdm    import tqdm
+from typing  import Iterable
 
 from torch_cluster import radius_graph
 
@@ -347,7 +346,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             logger.info(f'Loading checkpoint {args.load_checkpoint}...')
 
         accelerator.load_state(args.load_checkpoint)
-    
+
+    # Check and update epochs arguments
+    if (m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)) is not None:
+        args.epochs_start = int(m[1])+1
+    if args.epochs_start < 0:
+        args.epochs_start = 1
+
     # record the best validation and testing loss and corresponding epochs
     best_metrics = {'val_epoch': 0, 'test_epoch': 0, 
          'val_energy_loss': float('inf'),  'val_forces_loss': float('inf'),  'val_stress_loss': float('inf'),
@@ -362,17 +367,17 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
-        accelerator.log({"val_loss": val_loss['total'].avg}, step=0)
+        accelerator.log({"val_loss": val_loss['total'].avg}, step=args.epochs_start-1)
 
         if accelerator.is_main_process:
 
             # Print validation loss
-            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=0)
+            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=args.epochs_start-1)
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
 
-    for epoch in range(1, args.epochs+1):
+    for epoch in range(args.epochs_start, args.epochs_start+args.epochs):
         
         epoch_start_time = time.perf_counter()
 

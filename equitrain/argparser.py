@@ -105,6 +105,7 @@ def get_args_parser_train():
     parser.add_argument('--output-dir', type=str, default=None)
     # training hyper-parameters
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs_start", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--batch-edge-limit", type=int, default=0,
                         help='Skip batches with too many connections, used to prevent out of memory errors')
