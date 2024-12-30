@@ -3,7 +3,6 @@ import time
 import re
 import torch
 import os
-import torch_geometric
 
 from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
@@ -11,8 +10,6 @@ from accelerate import DistributedDataParallelKwargs
 from pathlib import Path
 from tqdm    import tqdm
 from typing  import Iterable
-
-from torch_cluster import radius_graph
 
 from equitrain.argparser       import ArgumentError, ArgsFormatter, ArgsFilterSimple
 from equitrain.data.loaders    import get_dataloaders
@@ -101,45 +98,6 @@ class AverageMeter:
         self.sum   += val * n
         self.count += n
         self.avg    = self.sum / self.count
-
-
-def compute_stats(data_loader, max_radius, logger, print_freq=1000):
-    '''
-        Compute mean of numbers of nodes and edges
-    '''
-    log_str = '\nCalculating statistics with '
-    log_str = log_str + 'max_radius={}\n'.format(max_radius)
-    logger.info(log_str)
-        
-    avg_node   = AverageMeter()
-    avg_edge   = AverageMeter()
-    avg_degree = AverageMeter()
-    
-    for step, data in enumerate(data_loader):
-        
-        pos   = data.pos
-        batch = data.batch
-        edge_src, edge_dst = radius_graph(
-            pos,
-            r=max_radius,
-            batch=batch,
-            max_num_neighbors=1000)
-
-        batch_size = float(batch.max() + 1)
-        num_nodes  = pos.shape[0]
-        num_edges  = edge_src.shape[0]
-        num_degree = torch_geometric.utils.degree(edge_src, num_nodes)
-        num_degree = torch.sum(num_degree)
-            
-        avg_node  .update(num_nodes  / batch_size, batch_size)
-        avg_edge  .update(num_edges  / batch_size, batch_size)
-        avg_degree.update(num_degree / num_nodes, num_nodes)
-            
-        if step % print_freq == 0 or step == (len(data_loader) - 1):
-            log_str = '[{}/{}]\tavg node: {}, '.format(step, len(data_loader), avg_node.avg)
-            log_str += 'avg edge: {}, '.format(avg_edge.avg)
-            log_str += 'avg degree: {}, '.format(avg_degree.avg)
-            logger.info(log_str)
 
 
 def log_metrics(args, logger, prefix, postfix, loss_metrics):
