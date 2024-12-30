@@ -186,14 +186,15 @@ class AtomsToGraphs:
                 if self.r_distances:
                     data.distances = edge_distances
             else:
-                edge_index, shifts, _unit_shifts, cell = self._get_neighbors(atoms)
+                edge_index, shifts, unit_shifts, cell = self._get_neighbors(atoms)
 
                 if cell is None:
                     cell = 3 * [0.0, 0.0, 0.0]
 
-                data.edge_index = torch.tensor(edge_index, dtype=torch.long)
-                data.shifts     = torch.tensor(shifts,     dtype=torch.get_default_dtype())
-                data.cell       = torch.tensor(cell,       dtype=torch.get_default_dtype())
+                data.edge_index  = torch.tensor(edge_index,  dtype=torch.long)
+                data.shifts      = torch.tensor(shifts,      dtype=torch.get_default_dtype())
+                data.unit_shifts = torch.tensor(unit_shifts, dtype=torch.get_default_dtype())
+                data.cell        = torch.tensor(cell,        dtype=torch.get_default_dtype())
 
 
         if self.r_energy:
