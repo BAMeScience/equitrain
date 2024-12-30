@@ -1,7 +1,7 @@
 
 import torch
 
-def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
+def add_weight_decay(model, weight_decay=1e-5, skip_list=[]):
     decay = []
     no_decay = []
     for name, param in model.named_parameters():
@@ -49,13 +49,13 @@ def create_optimizer_impl(
         alpha             : float = None,
         momentum          : float = None,
         filter_bias_and_bn: bool  = True,
-        skip              : list  = None,
+        skip_list         : list  = [],
     )  -> torch.optim.Optimizer:
 
     opt_lower = optimizer_name.lower()
 
     if weight_decay and filter_bias_and_bn:
-        parameters = add_weight_decay(model, weight_decay, skip)
+        parameters = add_weight_decay(model, weight_decay, skip_list)
         weight_decay = 0.0
     else:
         parameters = model.parameters()
