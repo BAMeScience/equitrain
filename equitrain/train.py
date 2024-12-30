@@ -179,7 +179,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         accelerator.load_state(args.load_checkpoint)
 
     # Check and update epochs arguments
-    if (m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)) is not None:
+    if args.load_checkpoint is not None and (m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)) is not None:
         args.epochs_start = int(m[1])+1
     if args.epochs_start < 0:
         args.epochs_start = 1
