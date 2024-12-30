@@ -56,7 +56,6 @@ This directory contains scripts and configuration files for running distributed 
 2. Run on each node, specifying `NODE_RANK` (e.g., `0` for primary node):
    ```bash
    bash mace-alex-mptraj-multinode.sh
-Copy code
 
 
 ### **3. SLURM Multi-Node Training**
@@ -64,7 +63,6 @@ Copy code
 2. Submit the script to the SLURM scheduler:
    ```bash
    sbatch mace-alex-mptraj-multinode-slurm.sh
-Copy code
 
 
 ## Troubleshooting
