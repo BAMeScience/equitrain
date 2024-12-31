@@ -27,6 +27,9 @@ def _find_best_checkpoint(base_path : Path | str, monitor_target : str):
 
     dirs, vals = _list_checkpoint_directories(base_path, monitor_target)
 
+    if len(dirs) == 0:
+        return None
+
     min_index = vals.index(min(vals))
 
     return dirs[min_index]
