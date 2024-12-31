@@ -79,7 +79,7 @@ equitrain \
 #### Python Script:
 ```python
 from equitrain import get_args_parser_train, train
-from equitrain.utility_test import MaceWrapper
+from equitrain.model_wrappers import MaceWrapper
 
 def test_train_mace():
     args = get_args_parser_train().parse_args()
@@ -109,7 +109,7 @@ Use a trained model to make predictions on new data:
 #### Python Script:
 ```python
 from equitrain import get_args_parser_predict, predict
-from equitrain.utility_test import MaceWrapper
+from equitrain.model_wrappers import MaceWrapper
 
 def test_mace_predict():
     args = get_args_parser_predict().parse_args()
