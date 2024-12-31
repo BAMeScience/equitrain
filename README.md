@@ -1,3 +1,8 @@
+# Equitrain: A Unified Framework for Training and Fine-tuning Machine Learning Interatomic Potentials
+
+Equitrain is an open-source software package designed to simplify the training and fine-tuning of machine learning universal interatomic potentials (MLIPs). Equitrain addresses the challenges posed by the diverse and often complex training codes specific to each MLIP by providing a unified and efficient framework. This allows researchers to focus on model development rather than implementation details.
+
+
 ## Installation
 
 ```sh
