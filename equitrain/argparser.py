@@ -176,6 +176,10 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_data_args(parser)
         add_model_args      (parser)
         add_optimizer_args  (parser)
+        parser.add_argument("--resume",
+            help    = "Resume training from best checkpoint",
+            action  = "store_true",
+            default = False)
         parser.add_argument("--epochs",
             help    = "Number of epochs",
             type    = int,

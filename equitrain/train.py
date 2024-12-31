@@ -1,6 +1,4 @@
-import logging
 import time
-import re
 import torch
 import os
 
@@ -11,15 +9,16 @@ from pathlib import Path
 from tqdm    import tqdm
 from typing  import Iterable
 
-from equitrain.argparser       import ArgumentError, ArgsFormatter, ArgsFilterSimple
-from equitrain.data.loaders    import get_dataloaders
-from equitrain.logger          import FileLogger
-from equitrain.model           import get_model
-from equitrain.loss            import GenericLoss
-from equitrain.utility         import set_dtype, set_seeds
-from equitrain.train_optimizer import create_optimizer
-from equitrain.train_scheduler import create_scheduler
-from equitrain.train_metrics   import AverageMeter, log_metrics, update_best_results
+from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterSimple
+from equitrain.data.loaders     import get_dataloaders
+from equitrain.logger           import FileLogger
+from equitrain.model            import get_model
+from equitrain.loss             import GenericLoss
+from equitrain.utility          import set_dtype, set_seeds
+from equitrain.train_checkpoint import load_checkpoint
+from equitrain.train_optimizer  import create_optimizer
+from equitrain.train_scheduler  import create_scheduler
+from equitrain.train_metrics    import AverageMeter, log_metrics, update_best_results
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
@@ -165,18 +164,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
-    if args.load_checkpoint is not None:
-
-        if args.verbose > 0:
-            logger.info(f'Loading checkpoint {args.load_checkpoint}...')
-
-        accelerator.load_state(args.load_checkpoint)
-
-    # Check and update epochs arguments
-    if args.load_checkpoint is not None and (m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)) is not None:
-        args.epochs_start = int(m[1])+1
-    if args.epochs_start < 0:
-        args.epochs_start = 1
+    load_checkpoint(args, logger, accelerator)
 
     # record the best validation and testing loss and corresponding epochs
     best_metrics = {'val_epoch': 0, 'test_epoch': 0, 
