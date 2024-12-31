@@ -157,6 +157,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     ''' Optimizer and LR Scheduler '''
     optimizer    = create_optimizer(args, model)
     lr_scheduler = create_scheduler(args, optimizer)
+    last_lr      = None
 
     criterion = GenericLoss(**vars(args))
 
@@ -210,6 +211,11 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if lr_scheduler is not None:
             lr_scheduler.step(best_metrics['val_epoch'], epoch)
+
+            if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
+                logger.log(1, f'New learning rate: {lr_scheduler.get_last_lr()[0]}')
+
+            last_lr = lr_scheduler.get_last_lr()[0]
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
