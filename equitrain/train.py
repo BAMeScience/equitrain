@@ -29,7 +29,6 @@ def evaluate(args,
              accelerator : Accelerator,
              criterion   : torch.nn.Module,
              data_loader : Iterable,
-             max_iter    = -1
     ):
 
     model.eval()
@@ -56,9 +55,6 @@ def evaluate(args,
             loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
         if y_pred['stress'] is not None:
             loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
-
-        if ((step + 1) >= max_iter) and (max_iter != -1):
-            break
 
     return loss_metrics
 
@@ -166,9 +162,8 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     load_checkpoint(args, logger, accelerator)
 
     # record the best validation and testing loss and corresponding epochs
-    best_metrics = {'val_epoch': 0, 'test_epoch': 0, 
-         'val_energy_loss': float('inf'),  'val_forces_loss': float('inf'),  'val_stress_loss': float('inf'),
-        'test_energy_loss': float('inf'), 'test_forces_loss': float('inf'), 'test_stress_loss': float('inf'),
+    best_metrics = {'epoch': 0,
+        'loss': float('inf'), 'energy_loss': float('inf'),  'forces_loss': float('inf'),  'stress_loss': float('inf'),
     }
 
     if args.wandb_project is not None:
@@ -179,12 +174,14 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
+        update_best_results(criterion, best_metrics, val_loss, args.epochs_start-1)
+
         accelerator.log({"val_loss": val_loss['total'].avg}, step=args.epochs_start-1)
 
         if accelerator.is_main_process:
 
             # Print validation loss
-            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=args.epochs_start-1)
+            info_str_prefix  = 'Epoch [{epoch:>4}] --   val '.format(epoch=args.epochs_start-1)
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
@@ -206,42 +203,42 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         
         val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
+        update_val_result = update_best_results(criterion, best_metrics, val_loss, epoch)
+
         accelerator.log({"train_loss": train_loss['total'].avg}, step=epoch)
         accelerator.log({  "val_loss":   val_loss['total'].avg}, step=epoch)
-
-        if lr_scheduler is not None:
-            lr_scheduler.step(best_metrics['val_epoch'], epoch)
-
-            if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
-                logger.log(1, f'New learning rate: {lr_scheduler.get_last_lr()[0]}')
-
-            last_lr = lr_scheduler.get_last_lr()[0]
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
 
-            update_val_result = update_best_results(criterion, best_metrics, val_loss, epoch)
-
-            if update_val_result:
-
-                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
-
-                logger.log(1, f'Validation error decreased. Saving checkpoint to `{filename}`...')
-
-                accelerator.save_state(
-                    os.path.join(args.output_dir, filename),
-                    safe_serialization=False)
-
-            info_str_prefix  = 'Epoch [{epoch:>4}] Train -- '.format(epoch=epoch)
+            info_str_prefix  = 'Epoch [{epoch:>4}] -- train '.format(epoch=epoch)
             info_str_postfix = ', time: {:.2f}s'.format(time.perf_counter() - epoch_start_time)
             info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, train_loss)
 
-            info_str_prefix  = 'Epoch [{epoch:>4}] Val   -- '.format(epoch=epoch)
+            info_str_prefix  = 'Epoch [{epoch:>4}] --   val '.format(epoch=epoch)
             info_str_postfix = None
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, val_loss)
+
+            if update_val_result:
+
+                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
+
+                logger.log(1, f'Epoch [{epoch:>4}] -- Validation error decreased. Saving checkpoint to `{filename}`...')
+
+                accelerator.save_state(
+                    os.path.join(args.output_dir, filename),
+                    safe_serialization=False)
+
+        if lr_scheduler is not None:
+            lr_scheduler.step(train_loss['total'].avg)
+
+            if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
+                logger.log(1, f'Epoch [{epoch:>4}] -- New learning rate: {lr_scheduler.get_last_lr()[0]}')
+
+            last_lr = lr_scheduler.get_last_lr()[0]
 
     if test_loader is not None:
         # evaluate on the whole testing set
@@ -272,7 +269,7 @@ def _train(args):
     else:
         log_with = None
 
-    accelerator = Accelerator(log_with = log_with, kwargs_handlers=[ddp_kwargs])
+    accelerator = Accelerator(step_scheduler_with_optimizer = False, log_with = log_with, kwargs_handlers=[ddp_kwargs])
 
     try:
         _train_with_accelerator(args, accelerator)

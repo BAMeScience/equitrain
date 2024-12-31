@@ -188,6 +188,10 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help    = "Number of epochs",
             type    = int,
             default = 100)
+        parser.add_argument("--epochs-start",
+            help    = "Number of starting epoch",
+            type    = int,
+            default = 1)
         parser.add_argument("--scheduler",
             help    = "LR scheduler type",
             type    = str,

@@ -39,28 +39,26 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
 
     logger.log(1, info_str)
 
+
 def update_best_results(criterion, best_metrics, val_loss, epoch):
 
     update_result = False
 
-    loss_new = criterion.compute_weighted_loss(
-            val_loss['energy'].avg,
-            val_loss['forces'].avg,
-            val_loss['stress'].avg)
-    loss_old = criterion.compute_weighted_loss(
-            best_metrics['val_energy_loss'],
-            best_metrics['val_forces_loss'],
-            best_metrics['val_stress_loss'])
+    loss_new = val_loss['total'].avg
+    loss_old = best_metrics['loss']
 
     if loss_new < loss_old:
-        if criterion.energy_weight > 0.0:
-            best_metrics['val_energy_loss'] = val_loss['energy'].avg
-        if criterion.forces_weight > 0.0:
-            best_metrics['val_forces_loss'] = val_loss['forces'].avg
-        if criterion.stress_weight > 0.0:
-            best_metrics['val_stress_loss'] = val_loss['stress'].avg
 
-        best_metrics['val_epoch'] = epoch
+        best_metrics['loss'] = val_loss['total'].avg
+
+        if criterion.energy_weight > 0.0:
+            best_metrics['energy_loss'] = val_loss['energy'].avg
+        if criterion.forces_weight > 0.0:
+            best_metrics['forces_loss'] = val_loss['forces'].avg
+        if criterion.stress_weight > 0.0:
+            best_metrics['stress_loss'] = val_loss['stress'].avg
+
+        best_metrics['epoch'] = epoch
 
         update_result = True
 

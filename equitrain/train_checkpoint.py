@@ -48,5 +48,5 @@ def load_checkpoint(args, logger, accelerator: Accelerator):
         if (m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)) is not None:
             args.epochs_start = int(m[1])+1
 
-    if args.epochs_start < 0:
+    if args.epochs_start < 1:
         args.epochs_start = 1
