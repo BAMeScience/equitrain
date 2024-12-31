@@ -19,7 +19,7 @@ def get_model(args, logger=None):
     if args.load_checkpoint_model is not None:
 
         if logger is not None:
-            logger.info(f'Loading model checkpoint {args.load_checkpoint_model}...')
+            logger.log(1, f'Loading model checkpoint {args.load_checkpoint_model}...')
 
         model.load_state_dict(torch.load(args.load_checkpoint_model))
 

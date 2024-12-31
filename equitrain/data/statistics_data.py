@@ -5,7 +5,7 @@ import logging
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterable
+from typing import Dict
 
 from .atomic import AtomicNumberTable
 from .statistics import compute_average_atomic_energies
@@ -47,11 +47,11 @@ class Statistics:
 
 def get_atomic_energies(E0s, dataset, z_table) -> dict:
     if E0s is not None:
-        logging.info(
+        logging.log(1,
             "Atomic Energies not in training file, using command line argument E0s"
         )
         if E0s.lower() == "average":
-            logging.info(
+            logging.log(1,
                 "Computing average Atomic Energies using least squares regression"
             )
             # catch if colections.train not defined above

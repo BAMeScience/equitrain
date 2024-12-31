@@ -41,7 +41,7 @@ def load_checkpoint(args, logger, accelerator: Accelerator):
     if args.load_checkpoint is not None:
 
         if args.verbose > 0:
-            logger.info(f'Loading checkpoint {args.load_checkpoint}...')
+            logger.log(1, f'Loading checkpoint {args.load_checkpoint}...')
 
         accelerator.load_state(args.load_checkpoint)
 

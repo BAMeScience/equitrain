@@ -1,60 +1,104 @@
 import logging
+import os
 
-# TODO:
-# - Clean up code (i.e. is_rank0 is not a good name)
-# - Implement output depending on verbosity level
-# - Use logger also in predict and preprocess code
+from contextlib import contextmanager
+
 class FileLogger:
-    def __init__(self, is_master=False, is_rank0=False, output_dir=None, logger_name='training'):
-        # only call by master 
-        # checked outside the class
-        self.output_dir = output_dir
-        if is_rank0:
+    LOG_LEVELS = {
+        2: logging.INFO,
+        1: logging.WARNING,
+        0: logging.ERROR,
+    }
+
+    def __init__(
+        self,
+        enable_logging = False,
+        log_to_file    = False,
+        output_dir     = None,
+        logger_name    = 'EqLog',
+        verbosity      = 0
+        ):
+        """
+        Initialize the FileLogger.
+
+        Parameters:
+            enable_logging (bool): Flag to enable or disable logging for this instance.
+            log_to_file (bool): Indicates if this instance should write logs to file.
+            output_dir (str): Directory to store log files.
+            logger_name (str): Name for the logger.
+            verbosity (int): Verbosity level (0 = minimal, 1 = normal, 2 = warning).
+        """
+        self.enable_logging = enable_logging
+        self.output_dir     = output_dir
+        self.verbosity      = verbosity
+
+        if enable_logging:
             self.logger_name = logger_name
-            self.logger = self.get_logger(output_dir, log_to_file=is_master)
+            self.logger = self._setup_logger(log_to_file)
         else:
             self.logger_name = None
             self.logger = NoOp()
-        
-        
-    def get_logger(self, output_dir, log_to_file):
+
+
+    def _setup_logger(self, log_to_file):
         logger = logging.getLogger(self.logger_name)
-        logger.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(message)s')
+        log_level =self.LOG_LEVELS.get(self.verbosity, logging.INFO)
+        logger.setLevel(log_level)
 
-        if output_dir and log_to_file:
-            
-            time_formatter = logging.Formatter('%(asctime)s - %(filename)s:%(lineno)d - %(message)s')
-            debuglog = logging.FileHandler(output_dir+'/debug.log')
-            debuglog.setLevel(logging.DEBUG)
-            debuglog.setFormatter(time_formatter)
-            logger.addHandler(debuglog)
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
 
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        console.setLevel(logging.DEBUG)
-        logger.addHandler(console)
-        
-        # Reference: https://stackoverflow.com/questions/21127360/python-2-7-log-displayed-twice-when-logging-module-is-used-in-two-python-scri
+        if self.output_dir and log_to_file:
+            os.makedirs(self.output_dir, exist_ok=True)
+            file_handler = logging.FileHandler(os.path.join(self.output_dir, 'trainer.log'))
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+
         logger.propagate = False
-
         return logger
 
-    def console(self, *args):
-        self.logger.debug(*args)
 
-    def event(self, *args):
-        self.logger.warning(*args)
+    def log(self, level, message):
+        """
+        Log a message based on the verbosity level.
 
-    def verbose(self, *args):
-        self.logger.info(*args)
+        Parameters:
+            level (int): Verbosity level (0 = INFO, 1 = WARNING, 2 = DEBUG).
+            message (str): Message to log.
+        """
+        if self.enable_logging and level in self.LOG_LEVELS:
+            log_method = {
+                logging.INFO   : self.logger.info,
+                logging.WARNING: self.logger.warning,
+                logging.ERROR  : self.logger.error,
+            }.get(self.LOG_LEVELS[level], self.logger.info)
+            log_method(message)
 
-    def info(self, *args):
-        self.logger.info(*args)
+
+    @contextmanager
+    def use(self):
+        """Context manager for FileLogger."""
+        try:
+            yield self
+        finally:
+            self._cleanup()
 
 
-# no_op method/object that accept every signature
+    def _cleanup(self):
+        """Clean up handlers to avoid duplication or memory leaks."""
+        if self.enable_logging:
+            for handler in self.logger.handlers:
+                handler.close()
+            self.logger.handlers.clear()
+
+
 class NoOp:
-    def __getattr__(self, *args):
-        def no_op(*args, **kwargs): pass
+    def __getattr__(self, name):
+        def no_op(*args, **kwargs):
+            pass
         return no_op

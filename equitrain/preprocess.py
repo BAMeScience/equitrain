@@ -68,17 +68,17 @@ def _preprocess(args):
 
     # Read atomic numbers from arguments if available
     if args.atomic_numbers is not None:
-        logging.info("Using atomic numbers from command line argument")
+        logging.log(1, "Using atomic numbers from command line argument")
         statistics.atomic_numbers = AtomicNumberTable.from_str(args.atomic_numbers)
 
     # Convert training file and obtain z_table and atomit_energies if required
     if args.train_file:
 
         if Path(filename_train).exists():
-            logging.info("Train file exists. Skipping...")
+            logging.log(1, "Train file exists. Skipping...")
 
         else:
-            logging.info("Converting train file")
+            logging.log(1, "Converting train file")
             atomic_numbers, atomic_energies = _convert_xyz_to_hdf5(
                 args,
                 args.train_file,
@@ -97,25 +97,25 @@ def _preprocess(args):
     if args.valid_file:
 
         if Path(filename_valid).exists():
-            logging.info("Validation file exists. Skipping...")
+            logging.log(1, "Validation file exists. Skipping...")
 
         else:
-            logging.info("Converting valid file")
+            logging.log(1, "Converting valid file")
             _convert_xyz_to_hdf5(args, args.valid_file, filename_valid)
 
     # Convert test file
     if args.test_file:
 
         if Path(filename_test).exists():
-            logging.info("Test file exists. Skipping...")
+            logging.log(1, "Test file exists. Skipping...")
 
         else:
-            logging.info("Converting test file")
+            logging.log(1, "Converting test file")
             _convert_xyz_to_hdf5(args, args.test_file, filename_test)
 
     if Path(filename_train).exists() and args.compute_statistics:
 
-        logging.info("Computing statistics")
+        logging.log(1, "Computing statistics")
 
         # Compute statistics
         with HDF5Dataset(filename_train) as train_dataset:
@@ -126,7 +126,7 @@ def _preprocess(args):
 
             # If training set did not contain any single atom entries, estimate E0s...
             if statistics.atomic_energies is None or len(statistics.atomic_energies) == 0:
-                statistics.atomic_energies = get_atomic_energies(args.E0s, train_dataset, statistics.atomic_numbers)
+                statistics.atomic_energies = get_atomic_energies(args.atomic_energies, train_dataset, statistics.atomic_numbers)
 
 
         with HDF5GraphDataset(filename_train, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers) as train_dataset:
@@ -141,7 +141,7 @@ def _preprocess(args):
                 train_loader, statistics.atomic_energies, statistics.atomic_numbers,
             )
 
-            logging.info(f"Final statistics to be saved: {statistics}")
+            logging.log(1, f"Final statistics to be saved: {statistics}")
 
             statistics.dump(os.path.join(args.output_dir, "statistics.json"))
 

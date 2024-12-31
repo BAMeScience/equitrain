@@ -95,7 +95,7 @@ def train_one_epoch(args,
             loss = criterion(y_pred, data)
 
             if torch.isnan(loss['total']):
-                logger.info(f'Nan value detected. Skipping batch...')
+                logger.log(1, f'Nan value detected. Skipping batch...')
                 continue
 
             optimizer.zero_grad()
@@ -114,7 +114,7 @@ def train_one_epoch(args,
             if accelerator.is_main_process:
 
                 # Print intermediate performance statistics only for higher verbose levels
-                if args.verbose > 2:
+                if args.verbose > 1:
 
                     if step % print_freq == 0 or step == len(data_loader) - 1:
                         w = time.perf_counter() - start_time
@@ -138,9 +138,8 @@ def train_one_epoch(args,
 def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Only main process should output information
-    logger = FileLogger(is_master=True, is_rank0=accelerator.is_main_process, output_dir=args.output_dir)
-    if args.verbose > 0:
-        logger.info(ArgsFormatter(args))
+    logger = FileLogger(log_to_file=True, enable_logging=accelerator.is_main_process, output_dir=args.output_dir, verbosity=args.verbose)
+    logger.log(1, ArgsFormatter(args))
 
     ''' Data Loader '''
     train_loader, val_loader, test_loader = get_dataloaders(args, logger=logger)
@@ -153,8 +152,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        if args.verbose > 0:
-            logger.info('Number of params: {}'.format(n_parameters))
+        logger.log(1, 'Number of params: {}'.format(n_parameters))
     
     ''' Optimizer and LR Scheduler '''
     optimizer    = create_optimizer(args, model)
@@ -222,15 +220,15 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
                 filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
 
-                if args.verbose > 0:
-                    logger.info(f'Validation error decreased. Saving checkpoint to `{filename}`...')
+                logger.log(1, f'Validation error decreased. Saving checkpoint to `{filename}`...')
 
                 accelerator.save_state(
                     os.path.join(args.output_dir, filename),
                     safe_serialization=False)
 
             info_str_prefix  = 'Epoch [{epoch:>4}] Train -- '.format(epoch=epoch)
-            info_str_postfix = ', Time: {:.2f}s'.format(time.perf_counter() - epoch_start_time)
+            info_str_postfix = ', time: {:.2f}s'.format(time.perf_counter() - epoch_start_time)
+            info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
 
             log_metrics(args, logger, info_str_prefix, info_str_postfix, train_loss)
 

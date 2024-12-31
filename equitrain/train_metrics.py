@@ -37,7 +37,7 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
     if postfix is not None:
         info_str += postfix
 
-    logger.info(info_str)
+    logger.log(1, info_str)
 
 def update_best_results(criterion, best_metrics, val_loss, epoch):
 

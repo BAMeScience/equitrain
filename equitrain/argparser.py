@@ -103,6 +103,10 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default = 0.0,
         type    = float,
         help    = 'A lower bound on the learning rate of all param groups or each group respectively (default: 0.0)')
+    parser.add_argument('--step-size',
+        default = 5,
+        type    = int,
+        help    = 'Period of learning rate decay for the StepLR scheduler')
     parser.add_argument('--eps',
         default = 1e-8,
         type    = float,
