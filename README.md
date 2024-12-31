@@ -33,11 +33,12 @@ Preprocess data files to compute necessary statistics and prepare for training:
 #### Command Line:
 ```bash
 equitrain-preprocess \
-    --train_file="data-train.xyz" \
-    --valid_file="data-valid.xyz" \
-    --compute_statistics \
+    --train-file="data-train.xyz" \
+    --valid-file="data-valid.xyz" \
+    --compute-statistics \
     --atomic-energies="average" \
-    --output-dir="data/"
+    --output-dir="data" \
+    --r-max 4.5
 ```
 
 #### Python Script:
@@ -46,11 +47,13 @@ from equitrain import get_args_parser_preprocess, preprocess
 
 def test_preprocess():
     args = get_args_parser_preprocess().parse_args()
-    args.train_file = 'data.xyz'
-    args.valid_file = 'data.xyz'
-    args.output_dir = 'test_preprocess/'
+    args.train_file         = 'data.xyz'
+    args.valid_file         = 'data.xyz'
+    args.output_dir         = 'test_preprocess/'
     args.compute_statistics = True
-    args.atomic_energies = "average"
+    # Compute atomic energies
+    args.atomic_energies    = "average"
+    # Cutoff radius for computing graphs
     args.r_max = 4.5
 
     preprocess(args)
@@ -67,13 +70,15 @@ Train a model using the prepared dataset and specify the MLIP wrapper:
 
 #### Command Line:
 ```bash
-equitrain \
+equitrain -v \
     --train-file data/train.h5 \
     --valid-file data/valid.h5 \
     --statistics-file data/statistics.json \
     --output-dir result \
     --model mace.model \
-    --model-wrapper 'mace'
+    --model-wrapper 'mace' \
+    --epochs 10 \
+    --tqdm
 ```
 
 #### Python Script:
@@ -83,16 +88,16 @@ from equitrain.model_wrappers import MaceWrapper
 
 def test_train_mace():
     args = get_args_parser_train().parse_args()
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
+    args.train_file      = 'data/train.h5'
+    args.valid_file      = 'data/valid.h5'
     args.statistics_file = 'data/statistics.json'
-    args.output_dir = 'test_train_mace'
-    args.model = MaceWrapper(args)
-    args.epochs = 10
-    args.batch_size = 64
-    args.lr = 0.01
-    args.verbose = 2
-    args.tqdm = True
+    args.output_dir      = 'test_train_mace'
+    args.epochs          = 10
+    args.batch_size      = 64
+    args.lr              = 0.01
+    args.verbose         = 1
+    args.tqdm            = True
+    args.model           = MaceWrapper(args, "mace.model")
 
     train(args)
 
@@ -113,10 +118,10 @@ from equitrain.model_wrappers import MaceWrapper
 
 def test_mace_predict():
     args = get_args_parser_predict().parse_args()
-    args.predict_file = 'data/valid.h5'
+    args.predict_file    = 'data/valid.h5'
     args.statistics_file = 'data/statistics.json'
-    args.batch_size = 5
-    args.model = MaceWrapper(args)
+    args.batch_size      = 64
+    args.model           = MaceWrapper(args, "mace.model")
 
     energy_pred, forces_pred, stress_pred = predict(args)
 

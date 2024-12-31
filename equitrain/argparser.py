@@ -202,6 +202,11 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_data_args(parser)
         add_model_args(parser)
 
+    parser.add_argument("-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity level (e.g., -v, -vv, -vvv)")
+
     return parser
 
 
