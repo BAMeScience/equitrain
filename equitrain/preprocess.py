@@ -17,8 +17,8 @@ from equitrain.utility import set_dtype, set_seeds
 
 def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_atomic_numbers = False, extract_atomic_energies = False):
 
-    z_table = None
-    atomic_energies_dict = None
+    atomic_numbers  = None
+    atomic_energies = None
 
     reader = XYZReader(
         filename                = filename_xyz,

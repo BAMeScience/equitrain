@@ -14,7 +14,7 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
         logger.info(f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
 
     data_set = HDF5GraphDataset(
-        data_file, r_max=statistics.r_max, z_table=statistic.atomic_numbers
+        data_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
     )
     data_loader = torch_geometric.loader.DataLoader(
         dataset     = data_set,

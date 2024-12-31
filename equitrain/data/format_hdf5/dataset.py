@@ -159,7 +159,7 @@ class HDF5GraphDataset(HDF5Dataset):
         super().__init__(filename, mode = "r", **kwargs)
 
         # TODO: Allow users to control what data is returned (i.e. forces, stress)
-        self.converter = AtomsToGraphs(atomic_numbers, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
+        self.converter = AtomsToGraphs(atomic_numbers, r_edges=True, r_energy=True, r_forces=True, r_stress=True, r_pbc=True, radius=r_max)
 
 
     def __getitem__(self, index):

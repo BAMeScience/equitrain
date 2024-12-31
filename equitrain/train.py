@@ -91,12 +91,6 @@ def train_one_epoch(args,
 
         for step, data in pbar:
 
-            # prevent out of memory error
-            if args.batch_edge_limit > 0:
-                if data.edge_index.shape[1] > args.batch_edge_limit:
-                    logger.info(f'Batch edge limit violated. Batch has {data.edge_index.shape[1]} edges. Skipping batch...')
-                    continue
-
             y_pred = model(data)
 
             loss = criterion(y_pred, data)

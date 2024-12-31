@@ -15,7 +15,7 @@ def test_mace_predict():
     args.predict_file    = f'data/valid.h5'
     args.statistics_file = f'data/statistics.json'
     args.batch_size      = 5
-    args.model           = MaceWrapper()
+    args.model           = MaceWrapper(args)
 
     energy_pred, forces_pred, stress_pred = predict(args)
 

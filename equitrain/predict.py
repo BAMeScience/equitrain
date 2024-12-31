@@ -41,15 +41,15 @@ def predict_graphs(
 
     for data in data_loader:
 
-        energy, force, stress = model(data)
+        y_pred = model(data)
 
-        r_energy = torch.cat((r_energy, energy), dim=0)
+        r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
 
-        if force is not None:
-            r_force  = torch.cat((r_force , force ), dim=0)
+        if y_pred['forces'] is not None:
+            r_force  = torch.cat((r_force , y_pred['forces']), dim=0)
 
-        if stress is not None:
-            r_stress = torch.cat((r_stress, stress), dim=0)
+        if y_pred['stress'] is not None:
+            r_stress = torch.cat((r_stress, y_pred['stress']), dim=0)
 
     if r_force.shape[0] == 0:
         r_force = None
@@ -121,17 +121,17 @@ def _predict(args, device=None):
 
     model = get_model(args)
 
-    for step, data in enumerate(data_loader):
+    for data in data_loader:
 
-        energy, force, stress = model(data)
+        y_pred = model(data)
 
-        r_energy = torch.cat((r_energy, energy), dim=0)
+        r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
 
-        if force is not None:
-            r_force  = torch.cat((r_force , force ), dim=0)
+        if y_pred['forces'] is not None:
+            r_force  = torch.cat((r_force , y_pred['forces']), dim=0)
 
-        if stress is not None:
-            r_stress = torch.cat((r_stress, stress), dim=0)
+        if y_pred['stress'] is not None:
+            r_stress = torch.cat((r_stress, y_pred['stress']), dim=0)
 
     if r_force.shape[0] == 0:
         r_force = None
