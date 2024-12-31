@@ -2,65 +2,151 @@
 
 Equitrain is an open-source software package designed to simplify the training and fine-tuning of machine learning universal interatomic potentials (MLIPs). Equitrain addresses the challenges posed by the diverse and often complex training codes specific to each MLIP by providing a unified and efficient framework. This allows researchers to focus on model development rather than implementation details.
 
+---
+
+## Key Features
+
+- **Unified Framework**: Train and fine-tune MLIPs using a consistent interface.
+- **Flexible Model Wrappers**: Support for different MLIP architectures through model-specific wrappers.
+- **Efficient Preprocessing**: Automated preprocessing with options for computing statistics and managing data.
+- **GPU/Node Scalability**: Seamless integration with multi-GPU and multi-node environments using `accelerate`.
+- **Extensive Resources**: Includes scripts for dataset preparation, initial model setup, and training workflows.
+
+---
 
 ## Installation
 
-```sh
-pip install torch==2.3.0 torchvision torchaudio -f https://download.pytorch.org/whl/cu121
-pip install torch-cluster torch-scatter -f https://data.pyg.org/whl/torch-2.3.0+cu121.html
-pip install -e .
+Install Equitrain via pip within the `equitrain` package directory:
+
+```bash
+pip install .
 ```
 
-## Execution
+---
 
-```sh
-    mkdir data
+## Quickstart Guide
 
-    equitrain-preprocess \
-           --train_file="data-train.xyz" \
-           --valid_file="data-valid.xyz" \
-           --atomic_numbers="[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 89, 90, 91, 92, 93, 94]" \
-           --r_max=4.5 \
-           --h5_prefix="data/" \
-           --compute_statistics \
-           --E0s="average" \
-           --seed=42
+### 1. Preprocessing Data
 
+Preprocess data files to compute necessary statistics and prepare for training:
+
+#### Command Line:
+```bash
+equitrain-preprocess \
+    --train_file="data-train.xyz" \
+    --valid_file="data-valid.xyz" \
+    --compute_statistics \
+    --atomic-energies="average" \
+    --output-dir="data/"
 ```
 
-Execute a mace model:
-```sh
-    mkdir result
-    equitrain --train-file data/train.h5 --valid-file data/valid.h5  --statistics-file data/statistics.json --output-dir result --model mace.model
-```
-
-## Multi-GPU execution
-
-*train_equiformer.py*
+#### Python Script:
 ```python
-from equitrain import get_args_parser
-from equitrain import train
+from equitrain import get_args_parser_preprocess, preprocess
 
-def main():
+def test_preprocess():
+    args = get_args_parser_preprocess().parse_args()
+    args.train_file = 'data.xyz'
+    args.valid_file = 'data.xyz'
+    args.output_dir = 'test_preprocess/'
+    args.compute_statistics = True
+    args.atomic_energies = "average"
+    args.r_max = 4.5
 
-    r = 4.5
+    preprocess(args)
 
-    args = get_args_parser().parse_args()
-    args.train_file = f'data-r{r}/train.h5'
-    args.valid_file = f'data-r{r}/valid.h5'
-    args.statistics_file = f'data-r{r}/statistics.json'
-    args.output_dir = 'result-test'
+if __name__ == "__main__":
+    test_preprocess()
+```
+
+---
+
+### 2. Training a Model
+
+Train a model using the prepared dataset and specify the MLIP wrapper:
+
+#### Command Line:
+```bash
+equitrain \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --statistics-file data/statistics.json \
+    --output-dir result \
+    --model mace.model \
+    --model-wrapper 'mace'
+```
+
+#### Python Script:
+```python
+from equitrain import get_args_parser_train, train
+from equitrain.utility_test import MaceWrapper
+
+def test_train_mace():
+    args = get_args_parser_train().parse_args()
+    args.train_file = 'data/train.h5'
+    args.valid_file = 'data/valid.h5'
+    args.statistics_file = 'data/statistics.json'
+    args.output_dir = 'test_train_mace'
+    args.model = MaceWrapper(args)
+    args.epochs = 10
+    args.batch_size = 64
+    args.lr = 0.01
+    args.verbose = 2
+    args.tqdm = True
 
     train(args)
 
 if __name__ == "__main__":
-    main()
+    test_train_mace()
 ```
 
-```sh
-    accelerate launch --num-processes=2 train_equiformer.py
+---
+
+### 3. Making Predictions
+
+Use a trained model to make predictions on new data:
+
+#### Python Script:
+```python
+from equitrain import get_args_parser_predict, predict
+from equitrain.utility_test import MaceWrapper
+
+def test_mace_predict():
+    args = get_args_parser_predict().parse_args()
+    args.predict_file = 'data/valid.h5'
+    args.statistics_file = 'data/statistics.json'
+    args.batch_size = 5
+    args.model = MaceWrapper(args)
+
+    energy_pred, forces_pred, stress_pred = predict(args)
+
+    print(energy_pred)
+    print(forces_pred)
+    print(stress_pred)
+
+if __name__ == "__main__":
+    test_mace_predict()
 ```
 
-## TODO
+---
 
-* Implement stress predictions
+## Advanced Features
+
+### Multi-GPU and Multi-Node Training
+Equitrain supports multi-GPU and multi-node training using `accelerate`. Example scripts are available in the `resources/training` directory.
+
+### Dataset Preparation
+Equitrain provides scripts for downloading and preparing popular datasets such as Alexandria and MPTraj. These scripts can be found in the `resources/data` directory.
+
+### Pretrained Models
+Initial model examples and configurations can be accessed in the `resources/models` directory.
+
+---
+
+## License
+Equitrain is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+---
+
+## Acknowledgments
+We thank the open-source community for supporting the development of machine learning interatomic potentials and related tools.
