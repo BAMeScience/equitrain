@@ -157,15 +157,15 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help    = "Cutoff radius for graphs",
             type    = float,
             default = 4.5)
-        parser.add_argument("--energy_key",
+        parser.add_argument("--energy-key",
             help    = "Key of reference energies in training xyz",
             type    = str,
             default = "energy")
-        parser.add_argument("--forces_key",
+        parser.add_argument("--forces-key",
             help    = "Key of reference forces in training xyz",
             type    = str,
             default = "forces")
-        parser.add_argument("--stress_key",
+        parser.add_argument("--stress-key",
             help    = "Key of reference stress in training xyz",
             type    = str,
             default = "stress")
