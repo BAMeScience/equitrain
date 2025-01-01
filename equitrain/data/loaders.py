@@ -1,9 +1,7 @@
-import ast
-import json
-import torch_geometric
-
 from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
 from equitrain.data.statistics_data     import Statistics
+
+from .loaders_dynamic import DynamicGraphLoader
 
 
 def get_dataloader(data_file, args, statistics = None, logger=None):
@@ -21,13 +19,16 @@ def get_dataloader(data_file, args, statistics = None, logger=None):
     data_set = HDF5GraphDataset(
         data_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
     )
-    data_loader = torch_geometric.loader.DataLoader(
+    data_loader = DynamicGraphLoader(
         dataset     = data_set,
         batch_size  = args.batch_size,
         shuffle     = args.shuffle,
         drop_last   = False,
         pin_memory  = args.pin_memory,
         num_workers = args.workers,
+        max_nodes   = args.batch_max_nodes,
+        max_edges   = args.batch_max_edges,
+        drop        = args.batch_drop,
     )
 
     return data_loader

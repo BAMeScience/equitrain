@@ -62,7 +62,6 @@ def predict_atoms(
     atoms_list    : List[ase.Atoms],
     z_table       : AtomicNumberTable,
     r_max         : float,
-    max_neighbors = 200,
     num_workers   = 1,
     pin_memory    = False,
     batch_size    = 12,
@@ -73,7 +72,6 @@ def predict_atoms(
 
     atoms_to_graphs = AtomsToGraphs(
         z_table,
-        max_neigh   = max_neighbors,
         radius      = r_max,
         r_energy    = False,
         r_forces    = False,
@@ -94,7 +92,6 @@ def predict_structures(
     structure_list: List[Structure],
     z_table       : AtomicNumberTable,
     r_max         : float,
-    max_neighbors = 200,
     num_workers   = 1,
     pin_memory    = False,
     batch_size    = 12,
@@ -104,7 +101,7 @@ def predict_structures(
 
     atoms_list = [ AseAtomsAdaptor.get_atoms(structure) for structure in structure_list ]
 
-    return predict_atoms(model, atoms_list, z_table, r_max, max_neighbors = max_neighbors, num_workers = num_workers, pin_memory = pin_memory, batch_size = batch_size, device = device)
+    return predict_atoms(model, atoms_list, z_table, r_max, num_workers = num_workers, pin_memory = pin_memory, batch_size = batch_size, device = device)
 
 
 def _predict(args, device=None):
@@ -119,17 +116,19 @@ def _predict(args, device=None):
 
     model = get_model(args)
 
-    for data in data_loader:
+    for data_list in data_loader:
 
-        y_pred = model(data)
+        for data in data_list:
 
-        r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
+            y_pred = model(data)
 
-        if y_pred['forces'] is not None:
-            r_force  = torch.cat((r_force , y_pred['forces']), dim=0)
+            r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
 
-        if y_pred['stress'] is not None:
-            r_stress = torch.cat((r_stress, y_pred['stress']), dim=0)
+            if y_pred['forces'] is not None:
+                r_force  = torch.cat((r_force , y_pred['forces']), dim=0)
+
+            if y_pred['stress'] is not None:
+                r_stress = torch.cat((r_stress, y_pred['stress']), dim=0)
 
     if r_force.shape[0] == 0:
         r_force = None

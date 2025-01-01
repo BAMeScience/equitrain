@@ -37,6 +37,18 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         help    = "Batch size for computation",
         type    = int,
         default = 16)
+    parser.add_argument("--batch-max-nodes",
+        help    = "Maximum number of nodes per batch",
+        type    = int,
+        default = None)
+    parser.add_argument("--batch-max-edges",
+        help    = "Maximum number of edges per batch",
+        type    = int,
+        default = None)
+    parser.add_argument("--batch-drop",
+        help    = "Drop graphs if node or edge limit is reached",
+        action  = "store_true",
+        default = False)
     parser.add_argument("--dtype",
         help    = "Set default dtype [float16, float32, float64]",
         type    = str,

@@ -24,7 +24,7 @@ def test_predict_mace_atoms():
 
     args = get_args_parser_predict().parse_args()
 
-    args.model = MaceWrapper()
+    args.model = MaceWrapper(args)
 
     atoms_list = ase.io.read(filename, index=":")
     z_table = AtomicNumberTable(list(args.model.model.atomic_numbers.numpy()))

@@ -41,20 +41,22 @@ def evaluate(args,
         'stress': AverageMeter(),
     }
 
-    for step, data in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
+    for step, data_list in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
 
-        y_pred = model(data)
+        for data in data_list:
 
-        loss = criterion(y_pred, data)
+            y_pred = model(data)
 
-        loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
+            loss = criterion(y_pred, data)
 
-        if y_pred['energy'] is not None:
-            loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
-        if y_pred['forces'] is not None:
-            loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
-        if y_pred['stress'] is not None:
-            loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
+            loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
+
+            if y_pred['energy'] is not None:
+                loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
+            if y_pred['forces'] is not None:
+                loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
+            if y_pred['stress'] is not None:
+                loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
 
     return loss_metrics
 
@@ -84,49 +86,49 @@ def train_one_epoch(args,
 
     with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Training") as pbar:
 
-        for step, data in pbar:
+        for step, data_list in pbar:
 
-            y_pred = model(data)
+            for data in data_list:
+                y_pred = model(data)
 
-            loss = criterion(y_pred, data)
+                loss = criterion(y_pred, data)
 
-            if torch.isnan(loss['total']):
-                logger.log(1, f'Nan value detected. Skipping batch...')
-                continue
+                if torch.isnan(loss['total']):
+                    logger.log(1, f'Nan value detected. Skipping batch...')
+                    continue
 
-            optimizer.zero_grad()
-            accelerator.backward(loss['total'])
-            optimizer.step()
+                optimizer.zero_grad()
+                accelerator.backward(loss['total'])
+                optimizer.step()
 
-            loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
+                loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
 
-            if args.energy_weight > 0.0:
-                loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
-            if args.forces_weight > 0.0:
-                loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
-            if args.stress_weight > 0.0:
-                loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
+                if args.energy_weight > 0.0:
+                    loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
+                if args.forces_weight > 0.0:
+                    loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
+                if args.stress_weight > 0.0:
+                    loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
 
-            if accelerator.is_main_process:
+                if accelerator.is_main_process:
 
-                # Print intermediate performance statistics only for higher verbose levels
-                if args.verbose > 1:
+                    # Print intermediate performance statistics only for higher verbose levels
+                    if args.verbose > 1:
 
-                    if step % print_freq == 0 or step == len(data_loader) - 1:
-                        w = time.perf_counter() - start_time
-                        e = (step + 1) / len(data_loader)
+                        if step % print_freq == 0 or step == len(data_loader) - 1:
+                            w = time.perf_counter() - start_time
+                            e = (step + 1) / len(data_loader)
 
-                        info_str_prefix  = 'Epoch [{epoch:>4}][{step:>6}/{length}] -- '.format(epoch=epoch, step=step, length=len(data_loader))
-                        info_str_postfix = ', time/step={time_per_step:.0f}ms'.format(
-                            time_per_step=(1e3 * w / e / len(data_loader))
-                        )
-                        info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
+                            info_str_prefix  = 'Epoch [{epoch:>4}][{step:>6}/{length}] -- '.format(epoch=epoch, step=step, length=len(data_loader))
+                            info_str_postfix = ', time/step={time_per_step:.0f}ms'.format(
+                                time_per_step=(1e3 * w / e / len(data_loader))
+                            )
+                            info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
 
-                        log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
+                            log_metrics(args, logger, info_str_prefix, info_str_postfix, loss_metrics)
 
-                if args.tqdm:
-                    pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics['total'].avg:.04f})")
-
+                    if args.tqdm:
+                        pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics['total'].avg:.04f})")
 
     return loss_metrics
 
