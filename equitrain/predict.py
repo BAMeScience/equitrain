@@ -148,4 +148,7 @@ def predict(args):
     if args.statistics_file is None:
         raise ValueError("--statistics-file is a required argument")
 
+    # Never shuffle data
+    args.shuffle = False
+
     return _predict(args)

@@ -1,6 +1,17 @@
 import argparse
 
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ('true', 'yes', '1'):
+        return True
+    elif value.lower() in ('false', 'no', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
 def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--train-file",
         help    = "Training set xyz file",
@@ -36,8 +47,8 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default = 4)
     parser.add_argument('--pin-memory',
         help    = 'Pin CPU memory in DataLoader.',
-        action  = 'store_true')
-    parser.set_defaults(pin_mem=True)
+        type    = str2bool,
+        default = True)
     parser.add_argument("--seed",
         help    = "Random seed for splits",
         type    = int,
@@ -198,7 +209,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default = "plateau")
         parser.add_argument("--shuffle",
             help    = "Shuffle the training dataset",
-            type    = bool,
+            type    = str2bool,
             default = True)
         parser.add_argument("--print-freq",
             type    = int,

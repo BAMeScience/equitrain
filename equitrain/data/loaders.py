@@ -6,12 +6,17 @@ from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
 from equitrain.data.statistics_data     import Statistics
 
 
-def get_dataloader(data_file, args, shuffle=False, logger=None):
+def get_dataloader(data_file, args, statistics = None, logger=None):
 
-    statistics = Statistics.load(args.statistics_file)
+    if data_file is None:
+        return None
 
-    if logger is not None and args.verbose > 0:
-        logger.log(1, f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
+    if statistics is None:
+
+        statistics = Statistics.load(args.statistics_file)
+
+        if logger is not None:
+            logger.log(1, f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
 
     data_set = HDF5GraphDataset(
         data_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
@@ -19,9 +24,9 @@ def get_dataloader(data_file, args, shuffle=False, logger=None):
     data_loader = torch_geometric.loader.DataLoader(
         dataset     = data_set,
         batch_size  = args.batch_size,
-        shuffle     = shuffle,
+        shuffle     = args.shuffle,
         drop_last   = False,
-        pin_memory  = args.pin_mem,
+        pin_memory  = args.pin_memory,
         num_workers = args.workers,
     )
 
@@ -32,52 +37,11 @@ def get_dataloaders(args, logger=None):
 
     statistics = Statistics.load(args.statistics_file)
 
-    if logger is not None and args.verbose > 0:
+    if logger is not None:
         logger.log(1, f'Using r_max={statistics.r_max} from statistics file `{args.statistics_file}`')
 
-    if args.train_file is None:
-        train_loader = None
-    else:
-        train_set = HDF5GraphDataset(
-            args.train_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
-        )
-        train_loader = torch_geometric.loader.DataLoader(
-            dataset     = train_set,
-            batch_size  = args.batch_size,
-            shuffle     = args.shuffle,
-            drop_last   = False,
-            pin_memory  = args.pin_mem,
-            num_workers = args.workers,
-        )
-
-    if args.valid_file is None:
-        valid_loader = None
-    else:
-        valid_set = HDF5GraphDataset(
-            args.valid_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
-        )
-        valid_loader = torch_geometric.loader.DataLoader(
-            dataset     = valid_set,
-            batch_size  = args.batch_size,
-            shuffle     = False,
-            drop_last   = False,
-            pin_memory  = args.pin_mem,
-            num_workers = args.workers,
-        )
-
-    if args.test_file is None:
-        test_loader = None
-    else:
-        test_set = HDF5GraphDataset(
-            args.test_file, r_max=statistics.r_max, atomic_numbers=statistics.atomic_numbers
-        )
-        test_loader = torch_geometric.loader.DataLoader(
-            dataset     = test_set,
-            batch_size  = args.batch_size,
-            shuffle     = False,
-            drop_last   = False,
-            pin_memory  = args.pin_mem,
-            num_workers = args.workers,
-        )
+    train_loader = get_dataloader(args.train_file, args, statistics = statistics, logger=logger)
+    valid_loader = get_dataloader(args.valid_file, args, statistics = statistics, logger=logger)
+    test_loader  = get_dataloader(args.test_file , args, statistics = statistics, logger=logger)
 
     return train_loader, valid_loader, test_loader
