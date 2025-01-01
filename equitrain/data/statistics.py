@@ -103,7 +103,7 @@ def compute_atomic_numbers(
         # Convert from int64 to int32, which is json serializable
         z_set.update([ int(z) for z in batch[0].get_atomic_numbers() ])
 
-    return AtomicNumberTable(sorted(list(z_set)))
+    return AtomicNumberTable(z_set)
 
 
 def compute_average_atomic_energies(

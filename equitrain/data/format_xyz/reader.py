@@ -41,7 +41,7 @@ class XYZReader():
         for i, atoms in enumerate(ase.io.iread(self.filename, index=":")):
 
             if self.extract_atomic_numbers:
-                self.z_set.update(atoms.get_atomic_numbers())
+                self.z_set.update([ int(z) for z in atoms.get_atomic_numbers() ])
 
             # Do not forward isolated atoms but use this information
             # to update the atomic energies dictionary
