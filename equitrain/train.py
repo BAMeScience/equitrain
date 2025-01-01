@@ -88,7 +88,7 @@ def train_one_epoch(args,
 
         for step, data_list in pbar:
 
-            for data in data_list:
+            for i_, data in enumerate(data_list):
                 y_pred = model(data)
 
                 loss = criterion(y_pred, data)
@@ -113,7 +113,7 @@ def train_one_epoch(args,
                 if accelerator.is_main_process:
 
                     # Print intermediate performance statistics only for higher verbose levels
-                    if args.verbose > 1:
+                    if i_ == 0 and args.verbose > 1:
 
                         if step % print_freq == 0 or step == len(data_loader) - 1:
                             w = time.perf_counter() - start_time
