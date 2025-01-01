@@ -5,8 +5,6 @@ import torch_geometric
 
 from typing import List
 
-from torch_geometric.data.collate import collate
-
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 

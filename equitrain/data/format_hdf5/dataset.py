@@ -13,7 +13,7 @@ from equitrain.data.graphs import AtomsToGraphs
 class HDF5Dataset:
     MAGIC_STRING = "ZVNjaWVuY2UgRXF1aXRyYWlu"
 
-    def __init__(self, filename: Path | str, mode="r"):
+    def __init__(self, filename: Path | str, mode : str = "r"):
         filename = Path(filename)
 
         if filename.exists():
@@ -52,20 +52,33 @@ class HDF5Dataset:
         )
 
 
-    # Allow `with` notation, just syntactic sugar in this case
+    def open(self, filename: Path | str, mode: str = "r"):
+        """Manually open the dataset file."""
+        self.__init__(filename, mode)
+
+
+    def close(self):
+        """Manually close the dataset file."""
+        self.file.close()
+
+
     def __enter__(self):
+        """Enter the runtime context."""
         return self
 
 
-    # Allow `with` notation, just syntactic sugar in this case
     def __exit__(self, exc_type, exc_value, traceback):
-        pass
+        """Exit the runtime context."""
+        self.close()
 
 
     def __del__(self):
         """Ensure the file is closed when the object is deleted."""
-        if self.file:
-            self.file.close()
+        try:
+            self.close()
+        except:
+            # Object was already deleted or invalid
+            pass
 
 
     def __getstate__(self):
@@ -164,6 +177,6 @@ class HDF5GraphDataset(HDF5Dataset):
 
     def __getitem__(self, index):
 
-        atoms = super(HDF5GraphDataset, self).__getitem__(index)
+        atoms = super().__getitem__(index)
 
         return self.converter.convert(atoms)
