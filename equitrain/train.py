@@ -34,12 +34,7 @@ def evaluate(args,
     model.eval()
     criterion.eval()
 
-    loss_metrics = {
-        'total' : AverageMeter(),
-        'energy': AverageMeter(),
-        'forces': AverageMeter(),
-        'stress': AverageMeter(),
-    }
+    loss_metrics = LossMetric(args)
 
     for step, data_list in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
 
@@ -49,14 +44,7 @@ def evaluate(args,
 
             loss = criterion(y_pred, data)
 
-            loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
-
-            if y_pred['energy'] is not None:
-                loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
-            if y_pred['forces'] is not None:
-                loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
-            if y_pred['stress'] is not None:
-                loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
+            loss_metrics.update(loss, n = y_pred['energy'].shape[0])
 
     return loss_metrics
 
@@ -75,12 +63,7 @@ def train_one_epoch(args,
     model.train()
     criterion.train()
 
-    loss_metrics = {
-        'total' : AverageMeter(),
-        'energy': AverageMeter(),
-        'forces': AverageMeter(),
-        'stress': AverageMeter(),
-    }
+    loss_metrics = LossMetric(args)
 
     start_time = time.perf_counter()
 
@@ -89,6 +72,7 @@ def train_one_epoch(args,
         for step, data_list in pbar:
 
             for i_, data in enumerate(data_list):
+
                 y_pred = model(data)
 
                 loss = criterion(y_pred, data)
@@ -101,14 +85,7 @@ def train_one_epoch(args,
                 accelerator.backward(loss['total'])
                 optimizer.step()
 
-                loss_metrics['total'].update(loss['total'].item(), n=y_pred['energy'].shape[0])
-
-                if args.energy_weight > 0.0:
-                    loss_metrics['energy'].update(loss['energy'].item(), n=y_pred['energy'].shape[0])
-                if args.forces_weight > 0.0:
-                    loss_metrics['forces'].update(loss['forces'].item(), n=y_pred['forces'].shape[0])
-                if args.stress_weight > 0.0:
-                    loss_metrics['stress'].update(loss['stress'].item(), n=y_pred['stress'].shape[0])
+                loss_metrics.update(loss, n = y_pred['energy'].shape[0])
 
                 if accelerator.is_main_process:
 
