@@ -176,6 +176,6 @@ class GenericLossFn(torch.nn.Module):
             loss_s = self.loss_stress(s_pred, s_true)
 
         loss = self.compute_weighted_loss(loss_e, loss_f, loss_s)
+        n    = torch.tensor(y_true.natoms.shape[0], device=y_true.natoms.device, requires_grad = False)
 
-        # TODO: Energy might not be computed, we need to obtain n from another source
-        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = torch.tensor(y_pred['energy'].shape[0], device=y_true.y.device, requires_grad = False))
+        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = n)
