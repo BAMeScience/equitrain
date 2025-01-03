@@ -42,7 +42,7 @@ class LossMetric:
             self.metrics['stress'].update(loss['stress'].item(), n=n)
 
 
-    def log(self, args, logger, prefix="", postfix=None):
+    def log(self, logger, prefix="", postfix=None):
         """Log the current loss metrics."""
         info_str = prefix
         info_str += f'loss: {self.metrics["total"].avg:.5f}'
@@ -62,75 +62,39 @@ class LossMetric:
         logger.log(1, info_str)
 
 
-    def update_best(self, criterion, best_metrics, epoch):
+class BestMetric:
+
+    def __init__(self, args)
+
+        self.metrics = {
+            'total' : float('inf'),
+            'energy': float('inf') if args.energy_weight > 0.0 else None,
+            'forces': float('inf') if args.forces_weight > 0.0 else None,
+            'stress': float('inf') if args.stress_weight > 0.0 else None,
+            'epoch' : None,
+        }
+
+    def update(self, metrics, epoch):
         """Update the best results if the current losses are better."""
         update_result = False
 
-        loss_new = self.metrics['total'].avg
-        loss_old = best_metrics['loss']
+        loss_new = metrics['total'].avg
+        loss_old = self.metrics['total']
 
         if loss_new < loss_old:
 
-            best_metrics['loss'] = self.metrics['total'].avg
+            self.metrics['total'] = metrics['total'].avg
 
             if self.metrics['energy'] is not None:
-                best_metrics['energy_loss'] = self.metrics['energy'].avg
+                self.metrics['energy'] = metrics['energy'].avg
 
             if self.metrics['forces'] is not None:
-                best_metrics['forces_loss'] = self.metrics['forces'].avg
+                self.metrics['forces'] = metrics['forces'].avg
 
             if self.metrics['stress'] is not None:
-                best_metrics['stress_loss'] = self.metrics['stress'].avg
+                self.metrics['stress'] = metrics['stress'].avg
 
-            best_metrics['epoch'] = epoch
+            self.metrics['epoch'] = epoch
             update_result = True
 
         return update_result
-
-def log_metrics(args, logger, prefix, postfix, loss_metrics):
-
-    info_str  = prefix
-    info_str += 'loss: {loss:.5f}'.format(loss=loss_metrics['total'].avg)
-
-    if args.energy_weight > 0.0:
-        info_str += ', loss_e: {loss_e:.5f}'.format(
-            loss_e=loss_metrics['energy'].avg,
-        )
-    if args.forces_weight > 0.0:
-        info_str += ', loss_f: {loss_f:.5f}'.format(
-            loss_f=loss_metrics['forces'].avg,
-        )
-    if args.stress_weight > 0.0:
-        info_str += ', loss_s: {loss_f:.5f}'.format(
-            loss_f=loss_metrics['stress'].avg,
-        )
-
-    if postfix is not None:
-        info_str += postfix
-
-    logger.log(1, info_str)
-
-
-def update_best_results(criterion, best_metrics, val_loss, epoch):
-
-    update_result = False
-
-    loss_new = val_loss['total'].avg
-    loss_old = best_metrics['loss']
-
-    if loss_new < loss_old:
-
-        best_metrics['loss'] = val_loss['total'].avg
-
-        if criterion.energy_weight > 0.0:
-            best_metrics['energy_loss'] = val_loss['energy'].avg
-        if criterion.forces_weight > 0.0:
-            best_metrics['forces_loss'] = val_loss['forces'].avg
-        if criterion.stress_weight > 0.0:
-            best_metrics['stress_loss'] = val_loss['stress'].avg
-
-        best_metrics['epoch'] = epoch
-
-        update_result = True
-
-    return update_result
