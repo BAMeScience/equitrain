@@ -74,25 +74,25 @@ class BestMetric:
             'epoch' : None,
         }
 
-    def update(self, metrics, epoch):
+    def update(self, loss, epoch):
         """Update the best results if the current losses are better."""
         update_result = False
 
-        loss_new = metrics['total'].avg
+        loss_new = loss.metrics['total'].avg
         loss_old = self.metrics['total']
 
         if loss_new < loss_old:
 
-            self.metrics['total'] = metrics['total'].avg
+            self.metrics['total'] = loss.metrics['total'].avg
 
             if self.metrics['energy'] is not None:
-                self.metrics['energy'] = metrics['energy'].avg
+                self.metrics['energy'] = loss.metrics['energy'].avg
 
             if self.metrics['forces'] is not None:
-                self.metrics['forces'] = metrics['forces'].avg
+                self.metrics['forces'] = loss.metrics['forces'].avg
 
             if self.metrics['stress'] is not None:
-                self.metrics['stress'] = metrics['stress'].avg
+                self.metrics['stress'] = loss.metrics['stress'].avg
 
             self.metrics['epoch'] = epoch
             update_result = True

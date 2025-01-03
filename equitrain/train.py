@@ -18,7 +18,7 @@ from equitrain.utility          import set_dtype, set_seeds
 from equitrain.train_checkpoint import load_checkpoint
 from equitrain.train_optimizer  import create_optimizer
 from equitrain.train_scheduler  import create_scheduler
-from equitrain.train_metrics    import AverageMeter, log_metrics, update_best_results
+from equitrain.train_metrics    import AverageMeter, LossMetric, BestMetric
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
@@ -105,7 +105,7 @@ def train_one_epoch(args,
                             loss_metrics.log(logger, info_str_prefix, info_str_postfix)
 
                     if args.tqdm:
-                        pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics['total'].avg:.04f})")
+                        pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})")
 
     return loss_metrics
 
@@ -153,7 +153,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         best_metrics.update(val_loss, args.epochs_start-1)
 
-        accelerator.log({"val_loss": val_loss['total'].avg}, step=args.epochs_start-1)
+        accelerator.log({"val_loss": val_loss.metrics['total'].avg}, step=args.epochs_start-1)
 
         if accelerator.is_main_process:
 
@@ -182,8 +182,8 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         update_val_result = best_metrics.update(val_loss, epoch)
 
-        accelerator.log({"train_loss": train_loss['total'].avg}, step=epoch)
-        accelerator.log({  "val_loss":   val_loss['total'].avg}, step=epoch)
+        accelerator.log({"train_loss": train_loss.metrics['total'].avg}, step=epoch)
+        accelerator.log({  "val_loss":   val_loss.metrics['total'].avg}, step=epoch)
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
@@ -201,7 +201,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
             if update_val_result:
 
-                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss['total'].avg)
+                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss.metrics['total'].avg)
 
                 logger.log(1, f'Epoch [{epoch:>4}] -- Validation error decreased. Saving checkpoint to `{filename}`...')
 
@@ -211,7 +211,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if lr_scheduler is not None:
 
-            lr_scheduler.step(train_loss['total'].avg)
+            lr_scheduler.step(train_loss.metrics['total'].avg)
 
             if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
                 logger.log(1, f'Epoch [{epoch:>4}] -- New learning rate: {lr_scheduler.get_last_lr()[0]}')
@@ -222,7 +222,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         # evaluate on the whole testing set
         test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader)
  
-        accelerator.log({"test_loss": test_loss['total'].avg}, step=epoch)
+        accelerator.log({"test_loss": test_loss.metrics['total'].avg}, step=epoch)
 
         if accelerator.is_main_process:
 
