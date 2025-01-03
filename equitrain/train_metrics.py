@@ -30,16 +30,16 @@ class LossMetric:
 
     def update(self, loss):
         """Update the loss metrics based on the current batch."""
-        self.metrics['total'].update(loss['total'].detach().item(), n = loss['n'])
+        self.metrics['total'].update(loss['total'].detach().item(), n = loss.n)
 
         if self.metrics['energy'] is not None:
-            self.metrics['energy'].update(loss['energy'].detach().item(), n = loss['n'])
+            self.metrics['energy'].update(loss['energy'].detach().item(), n = loss.n)
 
         if self.metrics['forces'] is not None:
-            self.metrics['forces'].update(loss['forces'].detach().item(), n = loss['n'])
+            self.metrics['forces'].update(loss['forces'].detach().item(), n = loss.n)
 
         if self.metrics['stress'] is not None:
-            self.metrics['stress'].update(loss['stress'].detach().item(), n = loss['n'])
+            self.metrics['stress'].update(loss['stress'].detach().item(), n = loss.n)
 
 
     def log(self, logger, mode : str, epoch = None, step = None, time = None, lr = None):

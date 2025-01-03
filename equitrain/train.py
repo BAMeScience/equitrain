@@ -38,7 +38,7 @@ def evaluate(args,
 
     for step, data_list in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
 
-        loss_sum = Loss()
+        loss_sum = Loss(device = accelerator.device)
 
         with accelerator.no_sync(model):
 
@@ -54,11 +54,14 @@ def evaluate(args,
 
                 loss_sum += loss
 
+        # Gather loss across processes for computing metrics
+        loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
+
         # Check if loss was NaN for all iterations
-        if loss_sum['n'] == 0:
+        if loss_for_metrics.n == 0:
             continue
 
-        loss_metrics.update(loss_sum)
+        loss_metrics.update(loss_for_metrics)
 
     return loss_metrics
 
@@ -85,7 +88,7 @@ def train_one_epoch(args,
 
         for step, data_list in pbar:
 
-            loss_sum = Loss()
+            loss_sum = Loss(device = accelerator.device)
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
             # processes. We need to loop over sub-batches withouth sync
@@ -103,8 +106,11 @@ def train_one_epoch(args,
 
                     loss_sum += loss
 
+            # Gather loss across processes for computing metrics
+            loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
+
             # Check if loss was NaN for all iterations
-            if loss_sum['n'] == 0:
+            if loss_for_metrics.n == 0:
                 continue
 
             # Sync of models across processes occurs here
@@ -112,7 +118,7 @@ def train_one_epoch(args,
             accelerator.backward(loss['total'])
             optimizer.step()
 
-            loss_metrics.update(loss)
+            loss_metrics.update(loss_for_metrics)
 
             if accelerator.is_main_process:
 

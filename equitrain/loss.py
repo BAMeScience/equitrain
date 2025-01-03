@@ -69,28 +69,38 @@ class Loss(dict):
         energy: torch.Tensor = None,
         forces: torch.Tensor = None,
         stress: torch.Tensor = None,
-        n     : int          = 0
+        n     : torch.Tensor = None,
+        device = None
         ):
 
-        self['total' ] = total
-        self['energy'] = energy
-        self['forces'] = forces
-        self['stress'] = stress
-        self['n'     ] = n
+        self['total' ] = total  if total  is not None else torch.tensor(0.0, device=device)
+        self['energy'] = energy if energy is not None else torch.tensor(0.0, device=device)
+        self['forces'] = forces if forces is not None else torch.tensor(0.0, device=device)
+        self['stress'] = stress if stress is not None else torch.tensor(0.0, device=device)
+
+        self.n = n if n is not None else torch.tensor(0, device=device, requires_grad=False)
 
 
     def __add__(self, loss : "Loss"):
 
         for key, value in loss.items():
-            if value is not None:
-                if self[key] is None:
-                    self[key] = value
-                else:
-                    self[key] = (self[key] + value)/2.0
+            self[key] = (self[key] + value)/2.0
 
-        self['n'] += loss['n']
+        self.n += loss.n
 
         return self
+
+
+    def gather_for_metrics(self, accelerator, reduction="mean"):
+
+        result = Loss(device = accelerator.device)
+
+        for key, value in self.items():
+            result[key] = accelerator.gather_for_metrics(value.detach()).mean()
+
+        result.n = accelerator.gather_for_metrics(self.n.detach()).sum()
+
+        return result
 
 
     def isnan(self):
@@ -167,4 +177,5 @@ class GenericLossFn(torch.nn.Module):
 
         loss = self.compute_weighted_loss(loss_e, loss_f, loss_s)
 
-        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = y_pred['energy'].shape[0])
+        # TODO: Energy might not be computed, we need to obtain n from another source
+        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = torch.tensor(y_pred['energy'].shape[0], device=y_true.y.device, requires_grad = False))
