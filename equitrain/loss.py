@@ -1,6 +1,7 @@
 import math
 import torch
 
+
 class WeightedL1Loss(torch.nn.Module):
 
     def __init__(self):
@@ -60,7 +61,43 @@ class ForceAngleLoss(torch.nn.Module):
         return torch.arccos(dp / (n1*n2 + self.epsilon))
 
 
-class GenericLoss(torch.nn.Module):
+class Loss(dict):
+
+    def __init__(
+        self,
+        total : torch.Tensor = None,
+        energy: torch.Tensor = None,
+        forces: torch.Tensor = None,
+        stress: torch.Tensor = None,
+        n     : int          = 0
+        ):
+
+        self['total' ] = total
+        self['energy'] = energy
+        self['forces'] = forces
+        self['stress'] = stress
+        self['n'     ] = n
+
+
+    def __add__(self, loss : "Loss"):
+
+        for key, value in loss.items():
+            if value is not None:
+                if self[key] is None:
+                    self[key] = value
+                else:
+                    self[key] = (self[key] + value)/2.0
+
+        self['n'] += loss['n']
+
+        return self
+
+
+    def isnan(self):
+        return torch.isnan(self['total'])
+
+
+class GenericLossFn(torch.nn.Module):
 
     def __init__(
         self,
@@ -75,7 +112,7 @@ class GenericLoss(torch.nn.Module):
 
         super().__init__()
 
-        # TODO: Allow to select other los functions with args
+        # TODO: Allow to select other loss functions with args
         self.loss_energy = WeightedL1Loss()
         self.loss_forces = torch.nn.L1Loss()
         self.loss_stress = torch.nn.L1Loss()
@@ -130,4 +167,4 @@ class GenericLoss(torch.nn.Module):
 
         loss = self.compute_weighted_loss(loss_e, loss_f, loss_s)
 
-        return { 'total': loss, 'energy': loss_e, 'forces': loss_f, 'stress': loss_s }
+        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = y_pred['energy'].shape[0])

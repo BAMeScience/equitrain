@@ -28,18 +28,18 @@ class LossMetric:
         }
 
 
-    def update(self, loss, n):
+    def update(self, loss):
         """Update the loss metrics based on the current batch."""
-        self.metrics['total'].update(loss['total'].item(), n=n)
+        self.metrics['total'].update(loss['total'].detach().item(), n = loss['n'])
 
         if self.metrics['energy'] is not None:
-            self.metrics['energy'].update(loss['energy'].item(), n=n)
+            self.metrics['energy'].update(loss['energy'].detach().item(), n = loss['n'])
 
         if self.metrics['forces'] is not None:
-            self.metrics['forces'].update(loss['forces'].item(), n=n)
+            self.metrics['forces'].update(loss['forces'].detach().item(), n = loss['n'])
 
         if self.metrics['stress'] is not None:
-            self.metrics['stress'].update(loss['stress'].item(), n=n)
+            self.metrics['stress'].update(loss['stress'].detach().item(), n = loss['n'])
 
 
     def log(self, logger, mode : str, epoch = None, step = None, time = None, lr = None):
@@ -72,6 +72,7 @@ class LossMetric:
         info_str += info_str_postfix
 
         logger.log(1, info_str)
+
 
     def log_step(self, logger, epoch, step, length, time = None, lr = None):
         """Log the current loss metrics."""
@@ -113,6 +114,7 @@ class BestMetric:
             'stress': float('inf') if args.stress_weight > 0.0 else None,
             'epoch' : None,
         }
+
 
     def update(self, loss, epoch):
         """Update the best results if the current losses are better."""

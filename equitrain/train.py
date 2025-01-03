@@ -13,7 +13,7 @@ from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterS
 from equitrain.data.loaders     import get_dataloaders
 from equitrain.logger           import FileLogger
 from equitrain.model            import get_model
-from equitrain.loss             import GenericLoss
+from equitrain.loss             import GenericLossFn, Loss
 from equitrain.utility          import set_dtype, set_seeds
 from equitrain.train_checkpoint import load_checkpoint
 from equitrain.train_optimizer  import create_optimizer
@@ -38,13 +38,27 @@ def evaluate(args,
 
     for step, data_list in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
 
-        for data in data_list:
+        loss_sum = Loss()
 
-            y_pred = model(data)
+        with accelerator.no_sync(model):
 
-            loss = criterion(y_pred, data)
+            for data in data_list:
 
-            loss_metrics.update(loss, n = y_pred['energy'].shape[0])
+                y_pred = model(data)
+
+                loss = criterion(y_pred, data)
+
+                if loss.isnan():
+                    logger.log(1, f'Nan value detected. Skipping batch...')
+                    continue
+
+                loss_sum += loss
+
+        # Check if loss was NaN for all iterations
+        if loss_sum['n'] == 0:
+            continue
+
+        loss_metrics.update(loss_sum)
 
     return loss_metrics
 
@@ -71,35 +85,48 @@ def train_one_epoch(args,
 
         for step, data_list in pbar:
 
-            for i_, data in enumerate(data_list):
+            loss_sum = Loss()
 
-                y_pred = model(data)
+            # Sub-batching causes deadlocks when the number of sub-batches varies between
+            # processes. We need to loop over sub-batches withouth sync
+            with accelerator.no_sync(model):
 
-                loss = criterion(y_pred, data)
+                for i_, data in enumerate(data_list):
 
-                if torch.isnan(loss['total']):
-                    logger.log(1, f'Nan value detected. Skipping batch...')
-                    continue
+                    y_pred = model(data)
 
-                optimizer.zero_grad()
-                accelerator.backward(loss['total'])
-                optimizer.step()
+                    loss = criterion(y_pred, data)
 
-                loss_metrics.update(loss, n = y_pred['energy'].shape[0])
+                    if loss.isnan():
+                        logger.log(1, f'Nan value detected. Skipping batch...')
+                        continue
 
-                if accelerator.is_main_process:
+                    loss_sum += loss
 
-                    # Print intermediate performance statistics only for higher verbose levels
-                    if i_ == 0 and args.verbose > 1:
+            # Check if loss was NaN for all iterations
+            if loss_sum['n'] == 0:
+                continue
 
-                        if step % print_freq == 0 or step == len(data_loader) - 1:
-                            w = time.perf_counter() - start_time
-                            e = (step + 1) / len(data_loader)
+            # Sync of models across processes occurs here
+            optimizer.zero_grad()
+            accelerator.backward(loss['total'])
+            optimizer.step()
 
-                            loss_metrics.log_step(logger, epoch, step, len(data_loader), time = (1e3 * w / e / len(data_loader)), lr = optimizer.param_groups[0]["lr"])
+            loss_metrics.update(loss)
 
-                    if args.tqdm:
-                        pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})")
+            if accelerator.is_main_process:
+
+                # Print intermediate performance statistics only for higher verbose levels
+                if i_ == 0 and args.verbose > 1:
+
+                    if step % print_freq == 0 or step == len(data_loader) - 1:
+                        w = time.perf_counter() - start_time
+                        e = (step + 1) / len(data_loader)
+
+                        loss_metrics.log_step(logger, epoch, step, len(data_loader), time = (1e3 * w / e / len(data_loader)), lr = optimizer.param_groups[0]["lr"])
+
+                if args.tqdm:
+                    pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})")
 
     return loss_metrics
 
@@ -128,7 +155,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     lr_scheduler = create_scheduler(args, optimizer)
     last_lr      = None
 
-    criterion = GenericLoss(**vars(args))
+    criterion = GenericLossFn(**vars(args))
 
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
