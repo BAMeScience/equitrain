@@ -2,19 +2,6 @@
 requires = [
     'setuptools>=42',
     'wheel',
-    'ase',
-    'h5py',
-    'numpy',
-    'pymatgen',
-    'torch',
-    'torch_ema',
-    'torch_geometric',
-    'torch_scatter',
-    'torch_cluster',
-    'torchmetrics',
-    'tqdm',
-    'accelerate',
-    'e3nn',
 ]
 build-backend = "setuptools.build_meta"
 
@@ -33,6 +20,21 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
+]
+dependencies = [
+    'ase',
+    'h5py',
+    'numpy',
+    'pymatgen',
+    'torch',
+    'torch_ema',
+    'torch_geometric',
+    'torch_scatter',
+    'torch_cluster',
+    'torchmetrics',
+    'tqdm',
+    'accelerate',
+    'e3nn',
 ]
 
 [project.scripts]

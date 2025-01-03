@@ -64,7 +64,7 @@ class LossMetric:
 
 class BestMetric:
 
-    def __init__(self, args)
+    def __init__(self, args):
 
         self.metrics = {
             'total' : float('inf'),
