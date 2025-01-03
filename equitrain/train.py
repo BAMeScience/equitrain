@@ -96,13 +96,7 @@ def train_one_epoch(args,
                             w = time.perf_counter() - start_time
                             e = (step + 1) / len(data_loader)
 
-                            info_str_prefix  = 'Epoch [{epoch:>4}][{step:>6}/{length}] -- '.format(epoch=epoch, step=step, length=len(data_loader))
-                            info_str_postfix = ', time/step={time_per_step:.0f}ms'.format(
-                                time_per_step=(1e3 * w / e / len(data_loader))
-                            )
-                            info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
-
-                            loss_metrics.log(logger, info_str_prefix, info_str_postfix)
+                            loss_metrics.log_step(logger, epoch, step, len(data_loader), time = (1e3 * w / e / len(data_loader)), lr = optimizer.param_groups[0]["lr"])
 
                     if args.tqdm:
                         pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})")
@@ -157,11 +151,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if accelerator.is_main_process:
 
-            # Print validation loss
-            info_str_prefix  = 'Epoch [{epoch:>4}] --   val '.format(epoch=args.epochs_start-1)
-            info_str_postfix = None
-
-            val_loss.log(logger, info_str_prefix, info_str_postfix)
+            val_loss.log(logger, 'val', epoch = args.epochs_start-1)
 
     for epoch in range(args.epochs_start, args.epochs_start+args.epochs):
         
@@ -178,30 +168,22 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             print_freq  = args.print_freq,
             logger      = logger)
         
-        val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
+        valid_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
 
-        update_val_result = best_metrics.update(val_loss, epoch)
+        update_val_result = best_metrics.update(valid_loss, epoch)
 
         accelerator.log({"train_loss": train_loss.metrics['total'].avg}, step=epoch)
-        accelerator.log({  "val_loss":   val_loss.metrics['total'].avg}, step=epoch)
+        accelerator.log({  "val_loss": valid_loss.metrics['total'].avg}, step=epoch)
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
 
-            info_str_prefix  = 'Epoch [{epoch:>4}] -- train '.format(epoch=epoch)
-            info_str_postfix = ', time: {:.2f}s'.format(time.perf_counter() - epoch_start_time)
-            info_str_postfix += ', lr={:.2e}'.format(optimizer.param_groups[0]["lr"])
-
-            train_loss.log(logger, info_str_prefix, info_str_postfix)
-
-            info_str_prefix  = 'Epoch [{epoch:>4}] --   val '.format(epoch=epoch)
-            info_str_postfix = None
-
-            val_loss.log(logger, info_str_prefix, info_str_postfix)
+            train_loss.log(logger, 'train', epoch = epoch, time = time.perf_counter() - epoch_start_time, lr = optimizer.param_groups[0]["lr"])
+            valid_loss.log(logger, 'val'  , epoch = epoch)
 
             if update_val_result:
 
-                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, val_loss.metrics['total'].avg)
+                filename = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, valid_loss.metrics['total'].avg)
 
                 logger.log(1, f'Epoch [{epoch:>4}] -- Validation error decreased. Saving checkpoint to `{filename}`...')
 
@@ -226,10 +208,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if accelerator.is_main_process:
 
-            info_str_prefix  = 'Test -- '
-            info_str_postfix = None
-
-            test_loss.log(logger, info_str_prefix, info_str_postfix)
+            test_loss.log(logger, 'Test')
 
 
 def _train(args):

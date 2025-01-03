@@ -42,24 +42,64 @@ class LossMetric:
             self.metrics['stress'].update(loss['stress'].item(), n=n)
 
 
-    def log(self, logger, prefix="", postfix=None):
+    def log(self, logger, mode : str, epoch = None, step = None, time = None, lr = None):
         """Log the current loss metrics."""
-        info_str = prefix
+
+        if epoch is None:
+            info_str_prefix = f'{mode:>5} '
+        else:
+            info_str_prefix = f'Epoch [{epoch:>4}] -- {mode:>5} '
+
+        info_str_postfix = ''
+
+        if time is not None:
+            info_str_postfix += f', time: {time:.2f}s'
+        if lr is not None:
+            info_str_postfix += f', lr={lr:.2e}'
+
+        info_str  = info_str_prefix
         info_str += f'loss: {self.metrics["total"].avg:.5f}'
 
         if self.metrics['energy'] is not None:
-            info_str += f', loss_e: {self.metrics["energy"].avg:.5f}'
+            info_str += f', energy: {self.metrics["energy"].avg:.5f}'
 
         if self.metrics['forces'] is not None:
-            info_str += f', loss_f: {self.metrics["forces"].avg:.5f}'
+            info_str += f', forces: {self.metrics["forces"].avg:.5f}'
 
         if self.metrics['stress'] is not None:
-            info_str += f', loss_s: {self.metrics["stress"].avg:.5f}'
+            info_str += f', stress: {self.metrics["stress"].avg:.5f}'
 
-        if postfix is not None:
-            info_str += postfix
+        info_str += info_str_postfix
 
         logger.log(1, info_str)
+
+    def log_step(self, logger, epoch, step, length, time = None, lr = None):
+        """Log the current loss metrics."""
+
+        info_str_prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- '
+        info_str_postfix = ''
+
+        if time is not None:
+            info_str_postfix += f', time: {time:.2f}s'
+        if lr is not None:
+            info_str_postfix += f', lr={lr:.2e}'
+
+        info_str  = info_str_prefix
+        info_str += f'loss: {self.metrics["total"].avg:.5f}'
+
+        if self.metrics['energy'] is not None:
+            info_str += f', energy: {self.metrics["energy"].avg:.5f}'
+
+        if self.metrics['forces'] is not None:
+            info_str += f', forces: {self.metrics["forces"].avg:.5f}'
+
+        if self.metrics['stress'] is not None:
+            info_str += f', stress: {self.metrics["stress"].avg:.5f}'
+
+        info_str += info_str_postfix
+
+        logger.log(1, info_str)
+
 
 
 class BestMetric:
