@@ -39,6 +39,7 @@ dependencies = [
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
+equitrain-predict    = "equitrain.scripts.equitrain_predict:main"
 equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
 
 [tool.setuptools.packages.find]
