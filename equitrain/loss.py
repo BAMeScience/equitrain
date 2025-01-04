@@ -81,14 +81,39 @@ class Loss(dict):
         self.n = n if n is not None else torch.tensor(0, device=device, requires_grad=False)
 
 
-    def __add__(self, loss : "Loss"):
+    def __iadd__(self, loss : "Loss"):
 
         for key, value in loss.items():
-            self[key] = (self[key] + value)/2.0
+            self[key] += value
 
         self.n += loss.n
 
         return self
+
+
+    def __itruediv__(self, x):
+
+        for key in self:
+            self[key] /= x
+
+        return self
+
+
+    def isnan(self):
+        return torch.isnan(self['total'])
+
+
+    def detach(self):
+
+        r = Loss()
+
+        for key, value in self.items():
+
+            r[key] = value.detach()
+
+        r.n = self.n.detach()
+
+        return r
 
 
     def gather_for_metrics(self, accelerator, reduction="mean"):
@@ -101,10 +126,6 @@ class Loss(dict):
         result.n = accelerator.gather_for_metrics(self.n.detach()).sum()
 
         return result
-
-
-    def isnan(self):
-        return torch.isnan(self['total'])
 
 
 class GenericLossFn(torch.nn.Module):

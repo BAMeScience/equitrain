@@ -36,32 +36,39 @@ def evaluate(args,
 
     loss_metrics = LossMetric(args)
 
-    for step, data_list in tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating"):
+    with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating") as pbar:
 
-        loss_sum = Loss(device = accelerator.device)
+        for step, data_list in pbar:
 
-        with accelerator.no_sync(model):
+            loss_sum = Loss(device = accelerator.device)
 
-            for data in data_list:
+            with accelerator.no_sync(model):
 
-                y_pred = model(data)
+                for data in data_list:
 
-                loss = criterion(y_pred, data)
+                    y_pred = model(data)
 
-                if loss.isnan():
-                    logger.log(1, f'Nan value detected. Skipping batch...')
-                    continue
+                    loss  = criterion(y_pred, data)
+                    loss /= float(len(data_list))
 
-                loss_sum += loss
+                    if loss.isnan():
+                        logger.log(1, f'Nan value detected. Skipping batch...')
+                        continue
 
-        # Gather loss across processes for computing metrics
-        loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
+                    loss_sum += loss.detach()
 
-        # Check if loss was NaN for all iterations
-        if loss_for_metrics.n == 0:
-            continue
+            # Gather loss across processes for computing metrics
+            loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
 
-        loss_metrics.update(loss_for_metrics)
+            # Check if loss was NaN for all iterations
+            if loss_for_metrics.n == 0:
+                continue
+
+            loss_metrics.update(loss_for_metrics)
+
+            if accelerator.is_main_process and args.tqdm:
+
+                pbar.set_description(f"Evaluating (loss={loss_metrics.metrics['total'].avg:.04f})")
 
     return loss_metrics
 
@@ -98,13 +105,20 @@ def train_one_epoch(args,
 
                     y_pred = model(data)
 
-                    loss = criterion(y_pred, data)
+                    loss  = criterion(y_pred, data)
+                    # Since we accumulate gradients over sub-batches, we have to
+                    # rescale here before the backward pass
+                    loss /= float(len(data_list))
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
                         continue
 
-                    loss_sum += loss
+                    # Backpropagate here to prevent out-of-memory errors, gradients
+                    # will be accumulated
+                    accelerator.backward(loss['total'])
+
+                    loss_sum += loss.detach()
 
             # Gather loss across processes for computing metrics
             loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
@@ -113,23 +127,20 @@ def train_one_epoch(args,
             if loss_for_metrics.n == 0:
                 continue
 
-            # Sync of models across processes occurs here
-            optimizer.zero_grad()
-            accelerator.backward(loss['total'])
+            # Sync of gradients across processes occurs here
             optimizer.step()
+            optimizer.zero_grad()
 
             loss_metrics.update(loss_for_metrics)
 
             if accelerator.is_main_process:
 
                 # Print intermediate performance statistics only for higher verbose levels
-                if i_ == 0 and args.verbose > 1:
+                if args.verbose > 1 and (step % print_freq == 0 or step == len(data_loader) - 1):
+                    w = time.perf_counter() - start_time
+                    e = (step + 1) / len(data_loader)
 
-                    if step % print_freq == 0 or step == len(data_loader) - 1:
-                        w = time.perf_counter() - start_time
-                        e = (step + 1) / len(data_loader)
-
-                        loss_metrics.log_step(logger, epoch, step, len(data_loader), time = (1e3 * w / e / len(data_loader)), lr = optimizer.param_groups[0]["lr"])
+                    loss_metrics.log_step(logger, epoch, step, len(data_loader), time = (1e3 * w / e / len(data_loader)), lr = optimizer.param_groups[0]["lr"])
 
                 if args.tqdm:
                     pbar.set_description(f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})")
