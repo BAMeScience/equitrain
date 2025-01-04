@@ -17,6 +17,7 @@ def test_preprocess():
     args.compute_statistics = True
     args.atomic_energies    = "average"
     args.r_max              = 4.5
+    args.verbose            = 1
 
     preprocess(args)
 

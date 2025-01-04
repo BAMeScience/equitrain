@@ -8,11 +8,12 @@ import os
 
 from pathlib import Path
 
-from equitrain.argparser import ArgumentError
-from equitrain.data import AtomicNumberTable, Statistics, compute_statistics, compute_atomic_numbers, get_atomic_energies
+from equitrain.argparser        import ArgumentError, check_args_complete
+from equitrain.data             import AtomicNumberTable, Statistics, compute_statistics, compute_atomic_numbers, get_atomic_energies
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
-from equitrain.data.format_xyz import XYZReader
-from equitrain.utility import set_dtype, set_seeds
+from equitrain.data.format_xyz  import XYZReader
+from equitrain.logger           import FileLogger
+from equitrain.utility          import set_dtype, set_seeds
 
 
 def _convert_xyz_to_hdf5(args, filename_xyz, filename_hdf5, extract_atomic_numbers = False, extract_atomic_energies = False):
@@ -49,16 +50,10 @@ def _preprocess(args):
     This script loads an xyz dataset and prepares
     new hdf5 file that is ready for training with on-the-fly dataloading
     """
+    logger = FileLogger(log_to_file=False, enable_logging=True, output_dir=None, verbosity=args.verbose)
 
     set_seeds(args.seed)
     set_dtype(args.dtype)
-
-    logging.basicConfig(
-        level    = logging.INFO,
-        format   = "%(asctime)s %(levelname)-8s %(message)s",
-        datefmt  = "%Y-%m-%d %H:%M:%S",
-        handlers = [logging.StreamHandler()],
-    )
 
     filename_train = os.path.join(args.output_dir, "train.h5")
     filename_valid = os.path.join(args.output_dir, "valid.h5")
@@ -68,17 +63,17 @@ def _preprocess(args):
 
     # Read atomic numbers from arguments if available
     if args.atomic_numbers is not None:
-        logging.log(1, "Using atomic numbers from command line argument")
+        logger.log(1, "Using atomic numbers from command line argument")
         statistics.atomic_numbers = AtomicNumberTable.from_str(args.atomic_numbers)
 
     # Convert training file and obtain z_table and atomit_energies if required
     if args.train_file:
 
         if Path(filename_train).exists():
-            logging.log(1, "Train file exists. Skipping...")
+            logger.log(1, "Train file exists. Skipping...")
 
         else:
-            logging.log(1, "Converting train file")
+            logger.log(1, "Converting train file")
             atomic_numbers, atomic_energies = _convert_xyz_to_hdf5(
                 args,
                 args.train_file,
@@ -97,25 +92,25 @@ def _preprocess(args):
     if args.valid_file:
 
         if Path(filename_valid).exists():
-            logging.log(1, "Validation file exists. Skipping...")
+            logger.log(1, "Validation file exists. Skipping...")
 
         else:
-            logging.log(1, "Converting valid file")
+            logger.log(1, "Converting valid file")
             _convert_xyz_to_hdf5(args, args.valid_file, filename_valid)
 
     # Convert test file
     if args.test_file:
 
         if Path(filename_test).exists():
-            logging.log(1, "Test file exists. Skipping...")
+            logger.log(1, "Test file exists. Skipping...")
 
         else:
-            logging.log(1, "Converting test file")
+            logger.log(1, "Converting test file")
             _convert_xyz_to_hdf5(args, args.test_file, filename_test)
 
     if Path(filename_train).exists() and args.compute_statistics:
 
-        logging.log(1, "Computing statistics")
+        logger.log(1, "Computing statistics")
 
         # Compute statistics
         with HDF5Dataset(filename_train) as train_dataset:
@@ -141,12 +136,15 @@ def _preprocess(args):
                 train_loader, statistics.atomic_energies, statistics.atomic_numbers,
             )
 
-            logging.log(1, f"Final statistics to be saved: {statistics}")
+            logger.log(1, f"Final statistics to be saved: {statistics}")
 
             statistics.dump(os.path.join(args.output_dir, "statistics.json"))
 
 
 def preprocess(args):
+
+    check_args_complete(args, 'preprocess')
+
     if args.train_file is None:
         raise ArgumentError("--train-file is a required argument")
     if args.output_dir is None:

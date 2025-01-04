@@ -8,6 +8,7 @@ from typing import List
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
+from equitrain.argparser       import check_args_complete
 from equitrain.model           import get_model
 from equitrain.data.loaders    import get_dataloader
 from equitrain.data.graphs     import AtomsToGraphs
@@ -139,6 +140,8 @@ def _predict(args, device=None):
 
 
 def predict(args):
+
+    check_args_complete(args, 'predict')
 
     if args.predict_file is None:
         raise ValueError("--predict-file is a required argument")

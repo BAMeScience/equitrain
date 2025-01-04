@@ -9,7 +9,7 @@ from pathlib import Path
 from tqdm    import tqdm
 from typing  import Iterable
 
-from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterSimple
+from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterSimple, check_args_complete
 from equitrain.data.loaders     import get_dataloaders
 from equitrain.logger           import FileLogger
 from equitrain.model            import get_model
@@ -280,6 +280,8 @@ def _train(args):
 
 
 def train(args):
+
+    check_args_complete(args, 'train')
 
     if args.train_file is None:
         raise ArgumentError("--train-file is a required argument")

@@ -22,24 +22,6 @@ def to_numpy(t: torch.Tensor) -> np.ndarray:
     return t.cpu().detach().numpy()
 
 
-def random_train_valid_split(
-    items: Sequence, valid_fraction: float, seed: int
-) -> Tuple[List, List]:
-    assert 0.0 < valid_fraction < 1.0
-
-    size = len(items)
-    train_size = size - int(valid_fraction * size)
-
-    indices = list(range(size))
-    rng = np.random.default_rng(seed)
-    rng.shuffle(indices)
-
-    return (
-        [items[i] for i in indices[:train_size]],
-        [items[i] for i in indices[train_size:]],
-    )
-
-
 def atomic_numbers_to_indices(
     atomic_numbers_tensor: torch.Tensor,
     atomic_numbers       : AtomicNumberTable

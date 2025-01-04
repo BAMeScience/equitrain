@@ -13,6 +13,3 @@ from .statistics_data import (
     Statistics,
     get_atomic_energies,
 )
-from .utility import (
-    random_train_valid_split,
-)

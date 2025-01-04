@@ -14,15 +14,19 @@ def str2bool(value):
 
 def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--train-file",
-        help    = "Training set xyz file",
+        help    = "Training data",
         type    = str,
         default = None)
     parser.add_argument("--valid-file",
-        help    = "Validation set xyz file",
+        help    = "Validation data",
         type    = str,
         default = None)
     parser.add_argument("--test-file",
-        help    = "Test set xyz file",
+        help    = "Test data",
+        type    = str,
+        default = None)
+    parser.add_argument("--statistics-file",
+        help    = "Statistics file in JSON format",
         type    = str,
         default = None)
     parser.add_argument("--output-dir",
@@ -231,11 +235,19 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help    = "Wandb project name",
             type    = str,
             default = None)
+        parser.add_argument("--tqdm",
+            help    = "Show TQDM status bar",
+            action  = "store_true",
+            default = False)
 
     elif script_type == "predict":
         add_common_file_args(parser)
         add_common_data_args(parser)
         add_model_args(parser)
+        parser.add_argument("--predict-file",
+            help    = "File with data for which predictions should be computed",
+            type    = str,
+            default = None)
 
     parser.add_argument("-v", "--verbose",
         action="count",
@@ -255,6 +267,21 @@ def get_args_parser_train() -> argparse.ArgumentParser:
 
 def get_args_parser_predict() -> argparse.ArgumentParser:
     return get_args_parser('predict')
+
+
+def check_args_complete(args : argparse.ArgumentParser, script_type : str):
+    expected_args = set(vars(get_args_parser(script_type).parse_args([])))
+    # Get the actual arguments from the Namespace
+    actual_args   = set(vars(args).keys())
+
+    # Check if all expected arguments are present and there are no extras
+    if expected_args != actual_args:
+        missing = expected_args - actual_args
+        extra   =   actual_args - expected_args
+        if missing:
+            raise ValueError(f"Missing arguments: {missing}")
+        if extra:
+            raise ValueError(f"Unexpected arguments: {extra}")
 
 
 class ArgumentError(ValueError):
