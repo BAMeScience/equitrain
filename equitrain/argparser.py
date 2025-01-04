@@ -114,6 +114,10 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help    = "Learning rate",
         type    = float,
         default = 0.01)
+    parser.add_argument("--gradient-clipping",
+        help    = "Gradient clipping before optimization",
+        type    = float,
+        default = 10.0)
     parser.add_argument("--weight-decay",
         help    = "Weight decay",
         type    = float,

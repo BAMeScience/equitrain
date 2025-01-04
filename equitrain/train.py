@@ -127,6 +127,10 @@ def train_one_epoch(args,
             if loss_for_metrics.n == 0:
                 continue
 
+            # Clip gradients before optimization step
+            if args.gradient_clipping is not None and args.gradient_clipping > 0:
+                accelerator.clip_grad_value_(model.parameters(), args.gradient_clipping)
+
             # Sync of gradients across processes occurs here
             optimizer.step()
             optimizer.zero_grad()
