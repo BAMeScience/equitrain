@@ -5,13 +5,11 @@ class AverageMeter:
         self.reset()
 
     def reset(self):
-        self.val   = 0
-        self.avg   = 0
         self.sum   = 0
         self.count = 0
+        self.avg   = 0
 
     def update(self, val, n=1):
-        self.val    = val
         self.sum   += val * n
         self.count += n
         self.avg    = self.sum / self.count
@@ -30,16 +28,16 @@ class LossMetric:
 
     def update(self, loss):
         """Update the loss metrics based on the current batch."""
-        self.metrics['total'].update(loss['total'].detach().item(), n = loss.n)
+        self.metrics['total'].update(loss['total'].value.detach().item(), n = loss['total'].n.detach().item())
 
         if self.metrics['energy'] is not None:
-            self.metrics['energy'].update(loss['energy'].detach().item(), n = loss.n)
+            self.metrics['energy'].update(loss['energy'].value.detach().item(), n = loss['energy'].n.detach().item())
 
         if self.metrics['forces'] is not None:
-            self.metrics['forces'].update(loss['forces'].detach().item(), n = loss.n)
+            self.metrics['forces'].update(loss['forces'].value.detach().item(), n = loss['forces'].n.detach().item())
 
         if self.metrics['stress'] is not None:
-            self.metrics['stress'].update(loss['stress'].detach().item(), n = loss.n)
+            self.metrics['stress'].update(loss['stress'].value.detach().item(), n = loss['stress'].n.detach().item())
 
 
     def log(self, logger, mode : str, epoch = None, step = None, time = None, lr = None):

@@ -61,46 +61,86 @@ class ForceAngleLoss(torch.nn.Module):
         return torch.arccos(dp / (n1*n2 + self.epsilon))
 
 
-class Loss(dict):
+class LossComponent:
 
     def __init__(
         self,
-        total : torch.Tensor = None,
-        energy: torch.Tensor = None,
-        forces: torch.Tensor = None,
-        stress: torch.Tensor = None,
+        value : torch.Tensor = None,
         n     : torch.Tensor = None,
-        device = None
-        ):
+        device = None):
 
-        self['total' ] = total  if total  is not None else torch.tensor(0.0, device=device)
-        self['energy'] = energy if energy is not None else torch.tensor(0.0, device=device)
-        self['forces'] = forces if forces is not None else torch.tensor(0.0, device=device)
-        self['stress'] = stress if stress is not None else torch.tensor(0.0, device=device)
+        self.value = value
+        self.n     = n
 
-        self.n = n if n is not None else torch.tensor(0, device=device, requires_grad=False)
+        if value is None:
+            self.value = torch.tensor(0.0, device=device)
+
+        if n is None:
+            self.n     = torch.tensor(0.0, device=device)
 
 
-    def __iadd__(self, loss : "Loss"):
+    def __iadd__(self, component : "LossComponent"):
 
-        for key, value in loss.items():
-            self[key] += value
-
-        self.n += loss.n
+        self.value  = (self.value*self.n + component.value*component.n) / (self.n + component.n)
+        self.n     += component.n
 
         return self
 
 
-    def __itruediv__(self, x):
+    def detach(self):
 
-        for key in self:
-            self[key] /= x
+        r = LossComponent()
+
+        r.value = self.value.detach()
+        r.n     = self.n    .detach()
+
+        return r
+
+
+    def gather_for_metrics(self, accelerator):
+
+        r = LossComponent(device = accelerator.device)
+
+        values = accelerator.gather_for_metrics(self.value.detach())
+        ns     = accelerator.gather_for_metrics(self.n    .detach())
+
+        if len(values.shape) == 0:
+            # Single processing context
+            r += LossComponent(value = values, n = ns)
+
+        else:
+            # Multi-processing context
+            assert len(values) == len(ns)
+
+            for i in range(len(values)):
+                r += LossComponent(value = values[i], n = ns[i])
+
+        return r
+
+
+class Loss(dict):
+
+    def __init__(
+        self,
+        device = None
+        ):
+
+        self['total' ] = LossComponent(device=device)
+        self['energy'] = LossComponent(device=device)
+        self['forces'] = LossComponent(device=device)
+        self['stress'] = LossComponent(device=device)
+
+
+    def __iadd__(self, loss : "Loss"):
+
+        for key, component in loss.items():
+            self[key] += component
 
         return self
 
 
     def isnan(self):
-        return torch.isnan(self['total'])
+        return torch.isnan(self['total'].value)
 
 
     def detach(self):
@@ -111,8 +151,6 @@ class Loss(dict):
 
             r[key] = value.detach()
 
-        r.n = self.n.detach()
-
         return r
 
 
@@ -120,10 +158,8 @@ class Loss(dict):
 
         result = Loss(device = accelerator.device)
 
-        for key, value in self.items():
-            result[key] = accelerator.gather_for_metrics(value.detach()).mean()
-
-        result.n = accelerator.gather_for_metrics(self.n.detach()).sum()
+        for key, component in self.items():
+            result[key] = component.gather_for_metrics(accelerator)
 
         return result
 
@@ -171,6 +207,8 @@ class GenericLossFn(torch.nn.Module):
 
     def forward(self, y_pred, y_true):
 
+        loss = Loss(device=y_true.batch.device)
+
         energy_weights = None
 
         if self.loss_energy_per_atom:
@@ -189,6 +227,7 @@ class GenericLossFn(torch.nn.Module):
         loss_f = None
         loss_s = None
 
+        # Evaluate every loss component
         if self.energy_weight > 0.0:
             loss_e = self.loss_energy(e_pred, e_true, weights=energy_weights)
         if self.forces_weight > 0.0:
@@ -196,7 +235,18 @@ class GenericLossFn(torch.nn.Module):
         if self.stress_weight > 0.0:
             loss_s = self.loss_stress(s_pred, s_true)
 
-        loss = self.compute_weighted_loss(loss_e, loss_f, loss_s)
-        n    = torch.tensor(y_true.natoms.shape[0], device=y_true.natoms.device, requires_grad = False)
+        # Move results to loss object
+        loss['total'].value += self.compute_weighted_loss(loss_e, loss_f, loss_s)
+        loss['total'].n     += y_true.batch.max()+1
 
-        return Loss(loss, energy = loss_e, forces = loss_f, stress = loss_s, n = n)
+        if self.energy_weight > 0.0:
+            loss['energy'].value += loss_e
+            loss['energy'].n     += e_true.numel()
+        if self.forces_weight > 0.0:
+            loss['forces'].value += loss_f
+            loss['forces'].n     += f_true.numel()
+        if self.stress_weight > 0.0:
+            loss['stress'].value += loss_s
+            loss['stress'].n     += s_true.numel()
+
+        return loss

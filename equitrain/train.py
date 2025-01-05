@@ -50,8 +50,7 @@ def evaluate(
 
                     y_pred = model(data)
 
-                    loss  = criterion(y_pred, data)
-                    loss /= float(len(data_list))
+                    loss = criterion(y_pred, data)
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
@@ -63,7 +62,7 @@ def evaluate(
             loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations
-            if loss_for_metrics.n == 0:
+            if loss_for_metrics['total'].n == 0.0:
                 continue
 
             loss_metrics.update(loss_for_metrics)
@@ -107,18 +106,16 @@ def train_one_epoch(args,
 
                     y_pred = model(data)
 
-                    loss  = criterion(y_pred, data)
-                    # Since we accumulate gradients over sub-batches, we have to
-                    # rescale here before the backward pass
-                    loss /= float(len(data_list))
+                    loss = criterion(y_pred, data)
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
                         continue
 
                     # Backpropagate here to prevent out-of-memory errors, gradients
-                    # will be accumulated
-                    accelerator.backward(loss['total'])
+                    # will be accumulated. Since we accumulate gradients over sub-batches,
+                    # we have to rescale before the backward pass
+                    accelerator.backward(loss['total'].value / float(len(data_list)))
 
                     loss_sum += loss.detach()
 
@@ -126,7 +123,7 @@ def train_one_epoch(args,
             loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations
-            if loss_for_metrics.n == 0:
+            if loss_for_metrics['total'].n == 0.0:
                 continue
 
             # Clip gradients before optimization step
