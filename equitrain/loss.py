@@ -42,7 +42,7 @@ class ForceAngleLoss(torch.nn.Module):
         n1 = torch.norm(target, dim=1)
         n2 = torch.norm(input , dim=1)
         # Compute angle between force vectors
-        angle = compute_angle(target, input, n1=n1, n2=n2)
+        angle = self.compute_angle(target, input, n1=n1, n2=n2)
 
         # Loss is the sum of normalized length mismath and angle discrepancy
         return torch.mean(
@@ -116,7 +116,7 @@ class Loss(dict):
         return r
 
 
-    def gather_for_metrics(self, accelerator, reduction="mean"):
+    def gather_for_metrics(self, accelerator):
 
         result = Loss(device = accelerator.device)
 
