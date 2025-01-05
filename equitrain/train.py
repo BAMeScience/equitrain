@@ -18,17 +18,19 @@ from equitrain.utility          import set_dtype, set_seeds
 from equitrain.train_checkpoint import load_checkpoint
 from equitrain.train_optimizer  import create_optimizer
 from equitrain.train_scheduler  import create_scheduler
-from equitrain.train_metrics    import AverageMeter, LossMetric, BestMetric
+from equitrain.train_metrics    import LossMetric, BestMetric
 
 import warnings
 warnings.filterwarnings("ignore", message=r".*TorchScript type system.*")
 
 
-def evaluate(args,
-             model       : torch.nn.Module,
-             accelerator : Accelerator,
-             criterion   : torch.nn.Module,
-             data_loader : Iterable,
+def evaluate(
+        args,
+        model       : torch.nn.Module,
+        accelerator : Accelerator,
+        criterion   : torch.nn.Module,
+        data_loader : Iterable,
+        logger      : FileLogger,
     ):
 
     model.eval()
@@ -36,9 +38,9 @@ def evaluate(args,
 
     loss_metrics = LossMetric(args)
 
-    with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating") as pbar:
+    with tqdm(data_loader, total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating") as pbar:
 
-        for step, data_list in pbar:
+        for data_list in pbar:
 
             loss_sum = Loss(device = accelerator.device)
 
@@ -80,8 +82,8 @@ def train_one_epoch(args,
                     data_loader : Iterable,
                     optimizer   : torch.optim.Optimizer,
                     epoch       : int,
-                    print_freq  : int = 100,
-                    logger            = None,
+                    print_freq  : int,
+                    logger      : FileLogger,
     ):
 
     model.train()
@@ -191,7 +193,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     # Evaluate model before training
     if True:
 
-        val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
+        val_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader, logger=logger)
 
         best_metrics.update(val_loss, args.epochs_start-1)
 
@@ -216,7 +218,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             print_freq  = args.print_freq,
             logger      = logger)
         
-        valid_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader)
+        valid_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=val_loader, logger=logger)
 
         update_val_result = best_metrics.update(valid_loss, epoch)
 
@@ -250,7 +252,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     if test_loader is not None:
         # evaluate on the whole testing set
-        test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader)
+        test_loss = evaluate(args, model=model, accelerator=accelerator, criterion=criterion, data_loader=test_loader, logger=logger)
  
         accelerator.log({"test_loss": test_loss.metrics['total'].avg}, step=epoch)
 
