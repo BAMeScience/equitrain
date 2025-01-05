@@ -12,7 +12,7 @@ def main():
     args.statistics_file    = 'statistics.json'
     args.output_dir         = 'mptraj'
     args.compute_statistics = True
-    args.E0s                = "average"
+    args.atomic_energies    = "average"
     args.r_max              = 6.0
 
     preprocess(args)
