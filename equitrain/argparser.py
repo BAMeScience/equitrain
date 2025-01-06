@@ -231,6 +231,10 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help    = "Shuffle the training dataset",
             type    = str2bool,
             default = True)
+        parser.add_argument("--mixed-precision",
+            help    = "Train in mixed precision mode",
+            action  = "store_true",
+            default = False)
         parser.add_argument("--print-freq",
             type    = int,
             default = 100,

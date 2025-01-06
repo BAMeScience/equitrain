@@ -5,9 +5,10 @@ import os
 from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
 
-from pathlib import Path
-from tqdm    import tqdm
-from typing  import Iterable
+from pathlib   import Path
+from tqdm      import tqdm
+from typing    import Iterable
+from torch.amp import GradScaler, autocast
 
 from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterSimple, check_args_complete
 from equitrain.data.loaders     import get_dataloaders
@@ -38,6 +39,8 @@ def evaluate(
 
     loss_metrics = LossMetric(args)
 
+    scaler = GradScaler() if args.mixed_precision else None
+
     with tqdm(data_loader, total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating") as pbar:
 
         for data_list in pbar:
@@ -48,9 +51,20 @@ def evaluate(
 
                 for data in data_list:
 
-                    y_pred = model(data)
+                    if args.mixed_precision:
 
-                    loss = criterion(y_pred, data)
+                        with autocast('cuda', dtype=torch.float16):
+
+                            y_pred = model(data)
+
+                            loss = criterion(y_pred, data)
+
+                    else:
+
+                        y_pred = model(data)
+
+                        loss = criterion(y_pred, data)
+
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
@@ -90,6 +104,8 @@ def train_one_epoch(args,
 
     loss_metrics = LossMetric(args)
 
+    scaler = GradScaler() if args.mixed_precision else None
+
     start_time = time.perf_counter()
 
     with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Training") as pbar:
@@ -104,9 +120,29 @@ def train_one_epoch(args,
 
                 for i_, data in enumerate(data_list):
 
-                    y_pred = model(data)
+                    try:
+                        # Mixed precision forward pass
+                        if args.mixed_precision:
 
-                    loss = criterion(y_pred, data)
+                            with autocast('cuda', dtype=torch.float16):
+
+                                y_pred = model(data)
+
+                                loss = criterion(y_pred, data)
+
+                        else:
+
+                            y_pred = model(data)
+
+                            loss = criterion(y_pred, data)
+
+                    except RuntimeError as e:
+                        if "out of memory" in str(e):
+                            logger.log(1, f'OOM error on graph {i_} in batch {step}. Skipping...')
+                            torch.cuda.empty_cache()
+                            continue
+                        else:
+                            raise e
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
@@ -115,7 +151,12 @@ def train_one_epoch(args,
                     # Backpropagate here to prevent out-of-memory errors, gradients
                     # will be accumulated. Since we accumulate gradients over sub-batches,
                     # we have to rescale before the backward pass
-                    accelerator.backward(loss['total'].value / float(len(data_list)))
+                    if args.mixed_precision:
+                        # Unscale gradients, then backward with Accelerator
+                        scaled_loss = scaler.scale(loss['total'].value / len(data_list))
+                        accelerator.backward(scaled_loss)
+                    else:
+                        accelerator.backward(loss['total'].value / len(data_list))
 
                     loss_sum += loss.detach()
 
@@ -126,6 +167,10 @@ def train_one_epoch(args,
             if loss_for_metrics['total'].n == 0.0:
                 continue
 
+            # Unscale gradients if using mixed precision
+            if args.mixed_precision:
+                scaler.unscale_(optimizer)
+
             # Clip gradients before optimization step
             if args.gradient_clipping is not None and args.gradient_clipping > 0:
                 accelerator.clip_grad_value_(model.parameters(), args.gradient_clipping)
@@ -133,6 +178,10 @@ def train_one_epoch(args,
             # Sync of gradients across processes occurs here
             optimizer.step()
             optimizer.zero_grad()
+
+            # Update GradScaler if mixed precision is enabled
+            if args.mixed_precision:
+                scaler.update()
 
             loss_metrics.update(loss_for_metrics)
 
