@@ -1,40 +1,52 @@
 [build-system]
 requires = [
-    'setuptools>=42',
-    'wheel',
+    "setuptools>=61.0.0",
+    "setuptools-scm>=8.0",
+    "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "equitrain"
-version = "0.0.1"
+dynamic = ["version"]
 description = "A training framework for machine learning interatomic potentials (MLIPs)"
 authors = [
-    {name = "Carlos Madariaga"},
-    {name = "Philipp Benner"},
+    {name = "Carlos Madariaga", email = "carlos.madariaga@bam.de"},
+    {name = "Jose M. Pizarro", email = "jose.pizarro-blanco@bam.de"},
+    {name = "Janosh Riebesell"},
+    {name = "Philipp Benner", email = "philipp.benner@bam.de"},
 ]
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["MLIP", "machine learning", "materials"]
+license = { file = "LICENSE" }
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    'ase',
-    'h5py',
-    'numpy',
-    'pymatgen',
-    'torch',
-    'torch_ema',
-    'torch_geometric',
-    'torch_scatter',
-    'torch_cluster',
-    'torchmetrics',
-    'tqdm',
-    'accelerate',
-    'e3nn',
+    "ase",
+    "h5py",
+    "pymatgen",
+    "torch",
+    "torch_geometric",
+    "tqdm",
+    "accelerate",
+    "e3nn",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.0.1",
+  "ruff",
+  "pytest",
+]
+docu = [
+  "mkdocs",
+  "mkdocs-material",
+  "pymdown-extensions",
+  "mkdocs-click",
 ]
 
 [project.scripts]
@@ -42,9 +54,88 @@ equitrain            = "equitrain.scripts.equitrain:main"
 equitrain-predict    = "equitrain.scripts.equitrain_predict:main"
 equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
 
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+include = ["equitrain/*.py", "tests/*.py"]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "dependencies",
+]
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "PL", # pylint
+    "F", # Pyflakes
+    "UP", # pyupgrade
+    "I", # isort
+]
+ignore = [
+    "F401", # Module imported but unused
+    "E501", # Line too long ({width} > {limit} characters)
+    "E701", # Multiple statements on one line (colon)
+    "E731", # Do not assign a lambda expression, use a def
+    "E402",  # Module level import not at top of file
+    "PLR0911", # Too many return statements
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments in function definition
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used instead of constant
+    "PLW0603", # Using the global statement
+    "PLW2901", # redefined-loop-name
+    "PLR1714", # consider-using-in
+    "PLR5501", # else-if-used
+]
+fixable = ["ALL"]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+# this is entirely optional, you can remove this if you wish to
+[tool.ruff.format]
+# use single quotes for strings.
+quote-style = "single"
+# indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.mypy]
+strict = false
+ignore_missing_imports = true
+follow_imports = "silent"
+no_strict_optional = true
+disable_error_code = "import, annotation-unchecked"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["equitrain"]
 
 [tool.equitrain]
 conda_env_file = "environment.yml"
+
+[tool.setuptools_scm]
+write_to = "equitrain/_version.py"

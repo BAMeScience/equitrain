@@ -9,3 +9,14 @@ __pycache__
 *.aselmdb
 *.npz
 *.aselmdb
+
+# environments
+.venv/
+.pyenv/
+.env/
+
+# VSCode debugger
+.vscode/launch.json
+
+# versions
+_version.py
