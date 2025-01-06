@@ -18,4 +18,4 @@ class MaceWrapper(MaceWrapper):
                 for data in tqdm(response.iter_content(), desc="Downloading MACE"):
                     handle.write(data)
 
-        super().__init__(args, torch.load(filename_model))
+        super().__init__(args, torch.load(filename_model, weights_only=False))
