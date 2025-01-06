@@ -1,0 +1,55 @@
+{
+  "python.defaultInterpreterPath": ".venv/bin/python",
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "editor.rulers": [90],
+  "editor.renderWhitespace": "all",
+  "editor.tabSize": 4,
+  "[javascript]": {
+      "editor.tabSize": 2
+  },
+  "files.trimTrailingWhitespace": true,
+  "files.watcherExclude": {
+      "${workspaceFolder}/.venv/**": true
+  },
+  "files.exclude": {
+      "\"**/*.pyc\": {\"when\": \"$(basename).py\"}": true,
+      "**/__pycache__": true,
+      "**/node_modules": true
+  },
+  "python.testing.pytestPath": "pytest",
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.unittestEnabled": false,
+  "editor.defaultFormatter": "charliermarsh.ruff",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports.ruff": "always",
+    "source.fixAll.ruff": "always",
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+          "name": "equitrain Python",
+          "type": "debugpy",
+          "request": "launch",
+          "console": "integratedTerminal",
+          "program": "${workspaceFolder}/equitrain/train.py",  // path to your entry point Python module
+      },
+      {
+          "name": "equitrain tests",
+          "type": "debugpy",
+          "request": "launch",
+          "console": "integratedTerminal",
+          "program": "${workspaceFolder}/.venv/bin/pytest",  // path to your virtual environment
+          "justMyCode": false,
+          "env": {
+          "_PYTEST_RAISE": "1"
+          },
+          "args": [
+              "-sv",
+              "${workspaceFolder}/tests/"  // path to your testing module
+          ]
+      },
+    ]
+  },
+}
