@@ -11,7 +11,8 @@ def get_model(args, logger=None):
 
     else:
 
-        model = torch.load(args.model)
+        # TODO: Check if file exists. Through a meaningful error if not
+        model = torch.load(args.model, weights_only=False)
 
     if args.model_wrapper == "mace":
         model = MaceWrapper(args, model)
