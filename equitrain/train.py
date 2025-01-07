@@ -68,8 +68,6 @@ def evaluate(
 
             loss_metrics.update(loss_for_metrics)
 
-            return loss_metrics
-
             if accelerator.is_main_process and args.tqdm:
 
                 pbar.set_description(f"Evaluating (loss={loss_metrics.metrics['total'].avg:.04f})")
