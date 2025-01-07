@@ -1,46 +1,51 @@
-
 class AverageMeter:
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
     def reset(self):
-        self.sum   = 0
+        self.sum = 0
         self.count = 0
-        self.avg   = 0
+        self.avg = 0
 
     def update(self, val, n=1):
-        self.sum   += val * n
+        self.sum += val * n
         self.count += n
-        self.avg    = self.sum / self.count
+        self.avg = self.sum / self.count
 
 
 class LossMetric:
-
     def __init__(self, args):
         self.metrics = {
-            'total' : AverageMeter(),
+            'total': AverageMeter(),
             'energy': AverageMeter() if args.energy_weight > 0.0 else None,
             'forces': AverageMeter() if args.forces_weight > 0.0 else None,
             'stress': AverageMeter() if args.stress_weight > 0.0 else None,
         }
 
-
     def update(self, loss):
         """Update the loss metrics based on the current batch."""
-        self.metrics['total'].update(loss['total'].value.detach().item(), n = loss['total'].n.detach().item())
+        self.metrics['total'].update(
+            loss['total'].value.detach().item(), n=loss['total'].n.detach().item()
+        )
 
         if self.metrics['energy'] is not None:
-            self.metrics['energy'].update(loss['energy'].value.detach().item(), n = loss['energy'].n.detach().item())
+            self.metrics['energy'].update(
+                loss['energy'].value.detach().item(), n=loss['energy'].n.detach().item()
+            )
 
         if self.metrics['forces'] is not None:
-            self.metrics['forces'].update(loss['forces'].value.detach().item(), n = loss['forces'].n.detach().item())
+            self.metrics['forces'].update(
+                loss['forces'].value.detach().item(), n=loss['forces'].n.detach().item()
+            )
 
         if self.metrics['stress'] is not None:
-            self.metrics['stress'].update(loss['stress'].value.detach().item(), n = loss['stress'].n.detach().item())
+            self.metrics['stress'].update(
+                loss['stress'].value.detach().item(), n=loss['stress'].n.detach().item()
+            )
 
-
-    def log(self, logger, mode : str, epoch = None, step = None, time = None, lr = None):
+    def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None):
         """Log the current loss metrics."""
 
         if epoch is None:
@@ -55,7 +60,7 @@ class LossMetric:
         if lr is not None:
             info_str_postfix += f', lr={lr:.2e}'
 
-        info_str  = info_str_prefix
+        info_str = info_str_prefix
         info_str += f'loss: {self.metrics["total"].avg:.5f}'
 
         if self.metrics['energy'] is not None:
@@ -71,8 +76,7 @@ class LossMetric:
 
         logger.log(1, info_str)
 
-
-    def log_step(self, logger, epoch, step, length, time = None, lr = None):
+    def log_step(self, logger, epoch, step, length, time=None, lr=None):
         """Log the current loss metrics."""
 
         info_str_prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- '
@@ -83,7 +87,7 @@ class LossMetric:
         if lr is not None:
             info_str_postfix += f', lr={lr:.2e}'
 
-        info_str  = info_str_prefix
+        info_str = info_str_prefix
         info_str += f'loss: {self.metrics["total"].avg:.5f}'
 
         if self.metrics['energy'] is not None:
@@ -100,19 +104,15 @@ class LossMetric:
         logger.log(1, info_str)
 
 
-
 class BestMetric:
-
     def __init__(self, args):
-
         self.metrics = {
-            'total' : float('inf'),
+            'total': float('inf'),
             'energy': float('inf') if args.energy_weight > 0.0 else None,
             'forces': float('inf') if args.forces_weight > 0.0 else None,
             'stress': float('inf') if args.stress_weight > 0.0 else None,
-            'epoch' : None,
+            'epoch': None,
         }
-
 
     def update(self, loss, epoch):
         """Update the best results if the current losses are better."""
@@ -122,7 +122,6 @@ class BestMetric:
         loss_old = self.metrics['total']
 
         if loss_new < loss_old:
-
             self.metrics['total'] = loss.metrics['total'].avg
 
             if self.metrics['energy'] is not None:
