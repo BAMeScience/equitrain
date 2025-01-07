@@ -1,3 +1,1 @@
-from .reader import (
-    XYZReader,
-)
+from .reader import XYZReader
