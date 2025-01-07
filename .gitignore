@@ -21,5 +21,8 @@ __pycache__
 # versions
 _version.py
 
-# distribution and build
+# cached
+.*_cache/
+
+# distribution
 dist/
