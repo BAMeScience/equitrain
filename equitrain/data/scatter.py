@@ -7,8 +7,6 @@ that don't require installing PyTorch C++ extensions.
 See https://github.com/pytorch/pytorch/issues/63780.
 """
 
-from typing import Optional
-
 import torch
 
 
@@ -29,11 +27,11 @@ def scatter_sum(
     src: torch.Tensor,
     index: torch.Tensor,
     dim: int = -1,
-    out: Optional[torch.Tensor] = None,
-    dim_size: Optional[int] = None,
-    reduce: str = "sum",
+    out: torch.Tensor | None = None,
+    dim_size: int | None = None,
+    reduce: str = 'sum',
 ) -> torch.Tensor:
-    assert reduce == "sum"  # for now, TODO
+    assert reduce == 'sum'  # for now, TODO
     index = _broadcast(index, src, dim)
     if out is None:
         size = list(src.size())
@@ -54,8 +52,8 @@ def scatter_std(
     src: torch.Tensor,
     index: torch.Tensor,
     dim: int = -1,
-    out: Optional[torch.Tensor] = None,
-    dim_size: Optional[int] = None,
+    out: torch.Tensor | None = None,
+    dim_size: int | None = None,
     unbiased: bool = True,
 ) -> torch.Tensor:
     if out is not None:
@@ -92,8 +90,8 @@ def scatter_mean(
     src: torch.Tensor,
     index: torch.Tensor,
     dim: int = -1,
-    out: Optional[torch.Tensor] = None,
-    dim_size: Optional[int] = None,
+    out: torch.Tensor | None = None,
+    dim_size: int | None = None,
 ) -> torch.Tensor:
     out = scatter_sum(src, index, dim, out, dim_size)
     dim_size = out.size(dim)
@@ -111,5 +109,5 @@ def scatter_mean(
     if out.is_floating_point():
         out.true_divide_(count)
     else:
-        out.div_(count, rounding_mode="floor")
+        out.div_(count, rounding_mode='floor')
     return out

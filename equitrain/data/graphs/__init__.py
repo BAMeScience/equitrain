@@ -1,7 +1,5 @@
-from .atoms_to_graphs import (
-    AtomsToGraphs,
-)
+from .atoms_to_graphs import AtomsToGraphs
 
 __all__ = [
-    "AtomsToGraphs",
+    'AtomsToGraphs',
 ]
