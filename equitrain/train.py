@@ -83,6 +83,7 @@ def forward_and_backward(
     criterion   : torch.nn.Module,
     data        : torch_geometric.data.Batch,
     n           : int,
+    logger      : FileLogger,
     ):
 
     y_pred = model(data)
@@ -133,7 +134,7 @@ def train_one_epoch(args,
 
                     try:
 
-                        loss = forward_and_backward(model, accelerator, criterion, data, len(data_list))
+                        loss = forward_and_backward(model, accelerator, criterion, data, len(data_list), logger)
 
                         if loss is not None:
                             loss_sum += loss.detach()
