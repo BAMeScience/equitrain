@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
     "fairchem-core",
     "matscipy",
+    "lightning",
     "ase",
     "h5py",
     "pymatgen",
