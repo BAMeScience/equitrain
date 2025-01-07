@@ -25,7 +25,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
-# Check if fairchem-core is necessary (too big package)
 dependencies = [
     "matscipy",
     "lightning",
