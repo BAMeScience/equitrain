@@ -1,7 +1,7 @@
 import logging
 import os
-
 from contextlib import contextmanager
+
 
 class FileLogger:
     LOG_LEVELS = {
@@ -12,12 +12,12 @@ class FileLogger:
 
     def __init__(
         self,
-        enable_logging = False,
-        log_to_file    = False,
-        output_dir     = None,
-        logger_name    = 'EqLog',
-        verbosity      = 0
-        ):
+        enable_logging=False,
+        log_to_file=False,
+        output_dir=None,
+        logger_name='EqLog',
+        verbosity=0,
+    ):
         """
         Initialize the FileLogger.
 
@@ -29,8 +29,8 @@ class FileLogger:
             verbosity (int): Verbosity level (0 = minimal, 1 = normal, 2 = warning).
         """
         self.enable_logging = enable_logging
-        self.output_dir     = output_dir
-        self.verbosity      = verbosity
+        self.output_dir = output_dir
+        self.verbosity = verbosity
 
         if enable_logging:
             self.logger_name = logger_name
@@ -39,17 +39,18 @@ class FileLogger:
             self.logger_name = None
             self.logger = NoOp()
 
-
     def _setup_logger(self, log_to_file):
         logger = logging.getLogger(self.logger_name)
-        log_level =self.LOG_LEVELS.get(self.verbosity, logging.INFO)
+        log_level = self.LOG_LEVELS.get(self.verbosity, logging.INFO)
         logger.setLevel(log_level)
 
         formatter = logging.Formatter('%(asctime)s - %(message)s')
 
         if self.output_dir and log_to_file:
             os.makedirs(self.output_dir, exist_ok=True)
-            file_handler = logging.FileHandler(os.path.join(self.output_dir, 'trainer.log'))
+            file_handler = logging.FileHandler(
+                os.path.join(self.output_dir, 'trainer.log')
+            )
             file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
@@ -62,7 +63,6 @@ class FileLogger:
         logger.propagate = False
         return logger
 
-
     def log(self, level, message):
         """
         Log a message based on the verbosity level.
@@ -73,12 +73,11 @@ class FileLogger:
         """
         if self.enable_logging and level in self.LOG_LEVELS:
             log_method = {
-                logging.INFO   : self.logger.info,
+                logging.INFO: self.logger.info,
                 logging.WARNING: self.logger.warning,
-                logging.ERROR  : self.logger.error,
+                logging.ERROR: self.logger.error,
             }.get(self.LOG_LEVELS[level], self.logger.info)
             log_method(message)
-
 
     @contextmanager
     def use(self):
@@ -87,7 +86,6 @@ class FileLogger:
             yield self
         finally:
             self._cleanup()
-
 
     def _cleanup(self):
         """Clean up handlers to avoid duplication or memory leaks."""
@@ -101,4 +99,5 @@ class NoOp:
     def __getattr__(self, name):
         def no_op(*args, **kwargs):
             pass
+
         return no_op
