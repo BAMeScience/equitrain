@@ -20,3 +20,6 @@ __pycache__
 
 # versions
 _version.py
+
+# distribution and build
+dist/
