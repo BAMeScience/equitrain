@@ -1,5 +1,6 @@
 import time
 import torch
+import torch_geometric
 import os
 
 from accelerate import Accelerator
@@ -8,7 +9,6 @@ from accelerate import DistributedDataParallelKwargs
 from pathlib   import Path
 from tqdm      import tqdm
 from typing    import Iterable
-from torch.amp import GradScaler, autocast
 
 from equitrain.argparser        import ArgumentError, ArgsFormatter, ArgsFilterSimple, check_args_complete
 from equitrain.data.loaders     import get_dataloaders
@@ -39,8 +39,6 @@ def evaluate(
 
     loss_metrics = LossMetric(args)
 
-    scaler = GradScaler() if args.mixed_precision else None
-
     with tqdm(data_loader, total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Evaluating") as pbar:
 
         for data_list in pbar:
@@ -51,20 +49,9 @@ def evaluate(
 
                 for data in data_list:
 
-                    if args.mixed_precision:
+                    y_pred = model(data)
 
-                        with autocast('cuda', dtype=torch.float16):
-
-                            y_pred = model(data)
-
-                            loss = criterion(y_pred, data)
-
-                    else:
-
-                        y_pred = model(data)
-
-                        loss = criterion(y_pred, data)
-
+                    loss = criterion(y_pred, data)
 
                     if loss.isnan():
                         logger.log(1, f'Nan value detected. Skipping batch...')
@@ -73,19 +60,45 @@ def evaluate(
                     loss_sum += loss.detach()
 
             # Gather loss across processes for computing metrics
-            loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
+            loss_for_metrics, skip = loss_sum.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations
-            if loss_for_metrics['total'].n == 0.0:
+            if skip['total']:
                 continue
 
             loss_metrics.update(loss_for_metrics)
+
+            return loss_metrics
 
             if accelerator.is_main_process and args.tqdm:
 
                 pbar.set_description(f"Evaluating (loss={loss_metrics.metrics['total'].avg:.04f})")
 
     return loss_metrics
+
+
+def forward_and_backward(
+    model       : torch.nn.Module,
+    accelerator : Accelerator,
+    criterion   : torch.nn.Module,
+    data        : torch_geometric.data.Batch,
+    n           : int,
+    ):
+
+    y_pred = model(data)
+
+    loss = criterion(y_pred, data)
+
+    if loss.isnan():
+        logger.log(1, f'Nan value detected. Skipping batch...')
+        return None
+
+    # Backpropagate here to prevent out-of-memory errors, gradients
+    # will be accumulated. Since we accumulate gradients over sub-batches,
+    # we have to rescale before the backward pass
+    accelerator.backward(loss['total'].value / n)
+
+    return loss
 
 
 def train_one_epoch(args, 
@@ -104,8 +117,6 @@ def train_one_epoch(args,
 
     loss_metrics = LossMetric(args)
 
-    scaler = GradScaler() if args.mixed_precision else None
-
     start_time = time.perf_counter()
 
     with tqdm(enumerate(data_loader), total=len(data_loader), disable = not args.tqdm or not accelerator.is_main_process, desc="Training") as pbar:
@@ -121,55 +132,23 @@ def train_one_epoch(args,
                 for i_, data in enumerate(data_list):
 
                     try:
-                        # Mixed precision forward pass
-                        if args.mixed_precision:
 
-                            with autocast('cuda', dtype=torch.float16):
+                        loss = forward_and_backward(model, accelerator, criterion, data, len(data_list))
 
-                                y_pred = model(data)
+                        if loss is not None:
+                            loss_sum += loss.detach()
 
-                                loss = criterion(y_pred, data)
-
-                        else:
-
-                            y_pred = model(data)
-
-                            loss = criterion(y_pred, data)
-
-                    except RuntimeError as e:
-                        if "out of memory" in str(e):
-                            logger.log(1, f'OOM error on graph {i_} in batch {step}. Skipping...')
-                            torch.cuda.empty_cache()
-                            continue
-                        else:
-                            raise e
-
-                    if loss.isnan():
-                        logger.log(1, f'Nan value detected. Skipping batch...')
-                        continue
-
-                    # Backpropagate here to prevent out-of-memory errors, gradients
-                    # will be accumulated. Since we accumulate gradients over sub-batches,
-                    # we have to rescale before the backward pass
-                    if args.mixed_precision:
-                        # Unscale gradients, then backward with Accelerator
-                        scaled_loss = scaler.scale(loss['total'].value / len(data_list))
-                        accelerator.backward(scaled_loss)
-                    else:
-                        accelerator.backward(loss['total'].value / len(data_list))
-
-                    loss_sum += loss.detach()
+                    except torch.OutOfMemoryError:
+                        logger.log(1, f'OOM error on graph {i_} in batch {step}. Skipping...')
+                        torch.cuda.empty_cache()
 
             # Gather loss across processes for computing metrics
-            loss_for_metrics = loss_sum.gather_for_metrics(accelerator)
+            loss_for_metrics, skip = loss_sum.gather_for_metrics(accelerator)
 
-            # Check if loss was NaN for all iterations
-            if loss_for_metrics['total'].n == 0.0:
+            # Check if loss was NaN for all iterations in one of the processes
+            if skip['total']:
+                optimizer.zero_grad()
                 continue
-
-            # Unscale gradients if using mixed precision
-            if args.mixed_precision:
-                scaler.unscale_(optimizer)
 
             # Clip gradients before optimization step
             if args.gradient_clipping is not None and args.gradient_clipping > 0:
@@ -178,10 +157,6 @@ def train_one_epoch(args,
             # Sync of gradients across processes occurs here
             optimizer.step()
             optimizer.zero_grad()
-
-            # Update GradScaler if mixed precision is enabled
-            if args.mixed_precision:
-                scaler.update()
 
             loss_metrics.update(loss_for_metrics)
 

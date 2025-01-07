@@ -103,6 +103,7 @@ class LossComponent:
 
         values = accelerator.gather_for_metrics(self.value.detach())
         ns     = accelerator.gather_for_metrics(self.n    .detach())
+        skip   = (ns == 0.0).any().item()
 
         if len(values.shape) == 0:
             # Single processing context
@@ -115,7 +116,7 @@ class LossComponent:
             for i in range(len(values)):
                 r += LossComponent(value = values[i], n = ns[i])
 
-        return r
+        return r, skip
 
 
 class Loss(dict):
@@ -157,11 +158,12 @@ class Loss(dict):
     def gather_for_metrics(self, accelerator):
 
         result = Loss(device = accelerator.device)
+        skip   = {}
 
         for key, component in self.items():
-            result[key] = component.gather_for_metrics(accelerator)
+            result[key], skip[key] = component.gather_for_metrics(accelerator)
 
-        return result
+        return result, skip
 
 
 class GenericLossFn(torch.nn.Module):
