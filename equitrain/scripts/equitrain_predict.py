@@ -1,14 +1,10 @@
-#! /usr/bin/env python
-
 import sys
 
-from equitrain import get_args_parser_predict
-from equitrain import predict
+from equitrain import get_args_parser_predict, predict
+
 
 # %%
-
 def main():
-
     parser = get_args_parser_predict()
 
     try:
@@ -19,8 +15,9 @@ def main():
 
     except ValueError as v:
         print(v, file=sys.stderr)
-        exit(1)
+        sys.exit(1)
+
 
 # %%
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
