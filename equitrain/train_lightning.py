@@ -1,21 +1,19 @@
-import pytorch_lightning as pl
-from accelerate import DistributedDataParallelKwargs, Accelerator
-import torch
-import math
 import logging
-import numpy as np
-
+import math
 from pathlib import Path
 
-from torch.optim import SGD, Adam, AdamW, RMSprop, Adadelta
+import numpy as np
+import pytorch_lightning as pl
+import torch
+from accelerate import Accelerator, DistributedDataParallelKwargs
+from torch.optim import SGD, Adadelta, Adam, AdamW, RMSprop
 
 from equitrain.data.loaders import get_dataloaders
-from equitrain.model        import get_model
+from equitrain.model import get_model
 
 
 def log_metrics(args, logger, prefix, postfix, loss_metrics):
-
-    info_str  = prefix
+    info_str = prefix
     info_str += 'loss: {loss:.5f}'.format(loss=loss_metrics['total'].avg)
 
     if args.energy_weight > 0.0:
@@ -39,23 +37,26 @@ def log_metrics(args, logger, prefix, postfix, loss_metrics):
 
 class AverageMeter:
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.reset()
 
     def reset(self):
-        self.val   = 0
-        self.avg   = 0
-        self.sum   = 0
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
         self.count = 0
 
     def update(self, val, n=1):
-        self.val    = val
-        self.sum   += val * n
+        self.val = val
+        self.sum += val * n
         self.count += n
-        self.avg    = self.sum / self.count
+        self.avg = self.sum / self.count
 
 
-def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=True, lr_groups=None):
+def add_weight_decay_and_groups(
+    model, weight_decay=1e-5, filter_bias_and_bn=True, lr_groups=None
+):
     decay = []
     no_decay = []
 
@@ -68,12 +69,12 @@ def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=Tru
 
         # Apply filtering for biases, batch normalization, affine weights, and affine biases
         if filter_bias_and_bn and (
-            name.endswith(".bias") or 
-            "bn" in name.lower() or
-            name.endswith(".affine_weight") or
-            name.endswith(".affine_bias") or
-            'bias.' in name or
-            'mean_shift' in name
+            name.endswith('.bias')
+            or 'bn' in name.lower()
+            or name.endswith('.affine_weight')
+            or name.endswith('.affine_bias')
+            or 'bias.' in name
+            or 'mean_shift' in name
         ):
             no_decay.append(param)
         else:
@@ -86,28 +87,37 @@ def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=Tru
                     if group_name not in param_groups:
                         param_groups[group_name] = {'params': []}
                     param_groups[group_name]['params'].append(param)
-    
+
     # Build the final parameter group list
     param_group_list = [
         {'params': decay, 'weight_decay': weight_decay},  # Parameters with weight decay
-        {'params': no_decay, 'weight_decay': 0.0},  # Parameters without weight decay (biases, BN layers, etc.)
+        {
+            'params': no_decay,
+            'weight_decay': 0.0,
+        },  # Parameters without weight decay (biases, BN layers, etc.)
     ]
-    
+
     # Include user-defined parameter groups
     for group_name, group_params in param_groups.items():
         param_group_list.append(group_params)
-    
+
     return param_group_list
 
 
 def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
     result = 0.0
     # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
-    if energy_loss is not None and (not math.isinf(energy_loss) or args.energy_weight > 0.0):
+    if energy_loss is not None and (
+        not math.isinf(energy_loss) or args.energy_weight > 0.0
+    ):
         result += args.energy_weight * energy_loss
-    if force_loss is not None and (not math.isinf(force_loss) or args.forces_weight > 0.0):
+    if force_loss is not None and (
+        not math.isinf(force_loss) or args.forces_weight > 0.0
+    ):
         result += args.forces_weight * force_loss
-    if stress_loss is not None and (not math.isinf(stress_loss) or args.stress_weight > 0.0):
+    if stress_loss is not None and (
+        not math.isinf(stress_loss) or args.stress_weight > 0.0
+    ):
         result += args.stress_weight * stress_loss
 
     return result
@@ -116,12 +126,18 @@ def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
 def create_optimizer(args, model, filter_bias_and_bn=True):
     # Example: User-defined learning rate groups based on layer names
     lr_groups = {
-        'group1': lambda name: 'layer1' in name,  # Apply specific criterion for grouping
+        'group1': lambda name: 'layer1'
+        in name,  # Apply specific criterion for grouping
         'group2': lambda name: 'layer2' in name,
     }
 
     # Add weight decay and group parameters based on bias/BN filtering and user-defined groups
-    params = add_weight_decay_and_groups(model, weight_decay=args.weight_decay, filter_bias_and_bn=filter_bias_and_bn, lr_groups=lr_groups)
+    params = add_weight_decay_and_groups(
+        model,
+        weight_decay=args.weight_decay,
+        filter_bias_and_bn=filter_bias_and_bn,
+        lr_groups=lr_groups,
+    )
 
     # Create the optimizer based on user input
     if args.opt == 'sgd':
@@ -135,18 +151,27 @@ def create_optimizer(args, model, filter_bias_and_bn=True):
     elif args.opt == 'adadelta':
         return Adadelta(params, lr=args.lr)
     else:
-        raise ValueError(f"Unsupported optimizer: {args.opt}")
+        raise ValueError(f'Unsupported optimizer: {args.opt}')
 
 
 class NoOp:
     def __getattr__(self, *args):
-        def no_op(*args, **kwargs): pass
+        def no_op(*args, **kwargs):
+            pass
+
         return no_op
 
 
 class FileLogger:
-    def __init__(self, is_master=False, is_rank0=False, output_dir=None, logger_name='training', version='1'):
-        # only call by master 
+    def __init__(
+        self,
+        is_master=False,
+        is_rank0=False,
+        output_dir=None,
+        logger_name='training',
+        version='1',
+    ):
+        # only call by master
         # checked outside the class
         self.output_dir = output_dir
         self.save_dir = output_dir
@@ -159,17 +184,17 @@ class FileLogger:
         else:
             self.logger_name = None
             self.logger = NoOp()
-        
-        
+
     def get_logger(self, output_dir, log_to_file):
         logger = logging.getLogger(self.logger_name)
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(message)s')
 
         if output_dir and log_to_file:
-            
-            time_formatter = logging.Formatter('%(asctime)s - %(filename)s:%(lineno)d - %(message)s')
-            debuglog = logging.FileHandler(output_dir+'/debug.log')
+            time_formatter = logging.Formatter(
+                '%(asctime)s - %(filename)s:%(lineno)d - %(message)s'
+            )
+            debuglog = logging.FileHandler(output_dir + '/debug.log')
             debuglog.setLevel(logging.DEBUG)
             debuglog.setFormatter(time_formatter)
             logger.addHandler(debuglog)
@@ -178,11 +203,11 @@ class FileLogger:
         console.setFormatter(formatter)
         console.setLevel(logging.DEBUG)
         logger.addHandler(console)
-        
+
         logger.propagate = False
 
         return logger
-    
+
     def console(self, *args):
         self.logger.debug(*args)
 
@@ -194,30 +219,30 @@ class FileLogger:
 
     def info(self, *args):
         self.logger.info(*args)
-    
+
     def finalize(self, status):
-        self.logger.info(f"Training finalized with status: {status}")
-    
+        self.logger.info(f'Training finalized with status: {status}')
+
     def log_graph(self, model):
         pass
-    
+
     def save(self):
         pass
-    
+
     def log_metrics(self, metrics, step=None):
         for key, value in metrics.items():
             if step is not None:
-                self.logger.info(f"{key}: {value} at step {step}")
+                self.logger.info(f'{key}: {value} at step {step}')
             else:
-                self.logger.info(f"{key}: {value}")
+                self.logger.info(f'{key}: {value}')
 
     def after_save_checkpoint(self, checkpoint):
-        self.logger.info(f"Checkpoint saved at {checkpoint}")
+        self.logger.info(f'Checkpoint saved at {checkpoint}')
 
 
 class EquiTrainModule(pl.LightningModule):
     def __init__(self, args, model, criterion, logger=None):
-        super(EquiTrainModule, self).__init__()
+        super().__init__()
         self.args = args
         self.model = model
         self.criterion = criterion
@@ -256,17 +281,45 @@ class EquiTrainModule(pl.LightningModule):
 
         loss = compute_weighted_loss(self.args, loss_e, loss_f, loss_s)
         if torch.isnan(loss):
-            self.logger.info(f'NaN value detected. Skipping batch...')
+            self.logger.info('NaN value detected. Skipping batch...')
             return None
-        
+
         # Log the metrics into PyTorch Lightning’s system
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch.num_graphs)
+        self.log(
+            'train_loss',
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            batch_size=batch.num_graphs,
+        )
         if loss_e is not None:
-            self.log('loss_e', loss_e, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch.num_graphs)
+            self.log(
+                'loss_e',
+                loss_e,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                batch_size=batch.num_graphs,
+            )
         if loss_f is not None:
-            self.log('loss_f', loss_f, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch.num_graphs)
+            self.log(
+                'loss_f',
+                loss_f,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                batch_size=batch.num_graphs,
+            )
         if loss_s is not None:
-            self.log('loss_s', loss_s, on_step=True, on_epoch=True, prog_bar=True, batch_size=batch.num_graphs)
+            self.log(
+                'loss_s',
+                loss_s,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                batch_size=batch.num_graphs,
+            )
 
         # Update the training metrics
         self.train_loss_metrics['total'].update(loss.item(), n=e_pred.shape[0])
@@ -276,7 +329,6 @@ class EquiTrainModule(pl.LightningModule):
             self.train_loss_metrics['forces'].update(loss_f.item(), n=f_pred.shape[0])
         if self.args.stress_weight > 0.0:
             self.train_loss_metrics['stress'].update(loss_s.item(), n=s_pred.shape[0])
-        
 
         return loss
 
@@ -317,10 +369,12 @@ class EquiTrainModule(pl.LightningModule):
             self.log('loss_s', loss_s, batch_size=batch.num_graphs)
 
         return loss
-    
+
     def configure_optimizers(self):
         optimizer = create_optimizer(self.args, self.model)
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=self.args.patience_epochs)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', patience=self.args.patience_epochs
+        )
 
         return {
             'optimizer': optimizer,
@@ -329,19 +383,30 @@ class EquiTrainModule(pl.LightningModule):
                 'monitor': 'val_loss',  # The metric to monitor for PlateauLR
                 'interval': 'epoch',
                 'frequency': 1,
-                'reduce_on_plateau': True  # Tell Lightning it's a PlateauLR type scheduler
-            }
+                'reduce_on_plateau': True,  # Tell Lightning it's a PlateauLR type scheduler
+            },
         }
-
 
     def on_train_epoch_end(self):
         # Use the custom logger to log metrics at the end of the training epoch
-        log_metrics(self.args, self.custom_logger, f"Epoch [{self.current_epoch}] Train -- ", None, self.train_loss_metrics)
+        log_metrics(
+            self.args,
+            self.custom_logger,
+            f'Epoch [{self.current_epoch}] Train -- ',
+            None,
+            self.train_loss_metrics,
+        )
         self.reset_train_loss_metrics()
 
     def on_validation_epoch_end(self):
         # Use the custom logger to log metrics at the end of the validation epoch
-        log_metrics(self.args, self.custom_logger, f"Epoch [{self.current_epoch}] Val -- ", None, self.val_loss_metrics)
+        log_metrics(
+            self.args,
+            self.custom_logger,
+            f'Epoch [{self.current_epoch}] Val -- ',
+            None,
+            self.val_loss_metrics,
+        )
         self.reset_val_loss_metrics()
 
     def reset_train_loss_metrics(self):
@@ -363,31 +428,43 @@ def _train(args):
 
     args.batch_size = 32  # Reducing batch size to increase the number of batches
 
+    # ! unused
     # Distributed Data Parallel options
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True) if args.energy_weight == 0.0 else DistributedDataParallelKwargs()
+    # ddp_kwargs = (
+    #     DistributedDataParallelKwargs(find_unused_parameters=True)
+    #     if args.energy_weight == 0.0
+    #     else DistributedDataParallelKwargs()
+    # )
 
-    accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
+    # ! unused
+    # accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
 
-    ''' Data Loader '''
+    """ Data Loader """
     train_loader, val_loader, test_loader, r_max = get_dataloaders(args, logger=logger)
-    
-    ''' Network '''
-    model = get_model(r_max, args, compute_force=args.forces_weight > 0.0, compute_stress=args.stress_weight > 0.0, logger=logger)
-    
+
+    """ Network """
+    model = get_model(
+        r_max,
+        args,
+        compute_force=args.forces_weight > 0.0,
+        compute_stress=args.stress_weight > 0.0,
+        logger=logger,
+    )
+
     # Create Criterion
     criterion = torch.nn.L1Loss()
 
-    ''' Lightning Module '''
+    """ Lightning Module """
     lightning_model = EquiTrainModule(args, model, criterion, logger)
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor='val_loss',  # This is the key you are logging
         save_top_k=1,  # Save the best checkpoint
         mode='min',  # We're minimizing the loss
-        filename='best-checkpoint'
+        filename='best-checkpoint',
     )
 
-    ''' PyTorch Lightning Trainer '''
+    """ PyTorch Lightning Trainer """
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         devices=1,
@@ -396,10 +473,10 @@ def _train(args):
         log_every_n_steps=1,
         logger=logger,  # Integrate your custom logger
         default_root_dir=args.output_dir,
-        callbacks=[checkpoint_callback]
+        callbacks=[checkpoint_callback],
     )
 
-    ''' Start Training '''
+    """ Start Training """
     trainer.fit(lightning_model, train_loader, val_loader)
 
     # Test on the test dataset
@@ -408,18 +485,21 @@ def _train(args):
 
 
 def train_lightning(args):
-
     if args.train_file is None:
-        raise ValueError("--train-file is a required argument")
+        raise ValueError('--train-file is a required argument')
     if args.valid_file is None:
-        raise ValueError("--valid-file is a required argument")
+        raise ValueError('--valid-file is a required argument')
     if args.statistics_file is None:
-        raise ValueError("--statistics-file is a required argument")
+        raise ValueError('--statistics-file is a required argument')
     if args.output_dir is None:
-        raise ValueError("--output-dir is a required argument")
+        raise ValueError('--output-dir is a required argument')
 
-    if args.energy_weight == 0.0 and args.forces_weight == 0.0 and args.stress_weight == 0.0:
-        raise ValueError("at least one non-zero loss weight is required")
+    if (
+        args.energy_weight == 0.0
+        and args.forces_weight == 0.0
+        and args.stress_weight == 0.0
+    ):
+        raise ValueError('at least one non-zero loss weight is required')
 
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)

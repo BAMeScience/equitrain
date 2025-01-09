@@ -16,10 +16,77 @@ Equitrain is an open-source software package designed to simplify the training a
 
 ## Installation
 
-Install Equitrain via pip within the `equitrain` package directory:
+`equitrain` can be installed in your environment by doing:
 
 ```bash
-pip install .
+pip install equitrain
+```
+
+**Note!** Until the package is fully deployed in PyPI, you can only install it by following the instructions below.
+
+
+### Development
+
+To install the package for development purposes, first clone the repository:
+
+```bash
+git clone https://github.com/BAMeScience/equitrain.git
+cd equitrain/
+```
+
+Create a virtual environment (either with `conda` or `virtualenv`). Note we are using Python 3.10 to create the environment.
+
+**Using `virtualenv`**
+
+Create and activate the environment:
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+```
+
+Make sure `pip` is up-to-date:
+
+```bash
+pip install --upgrade pip
+```
+
+We recommend using `uv` for the fast installation of the package:
+
+```bash
+pip install uv
+uv pip install -e '.[dev,docu]'
+```
+
+* The `-e` flag makes sure to install the package in editable mode.
+* The `[dev]` optional dependencies install a set of packages used for formatting, typing, and testing.
+* The `[docu]` optional dependencies install the packages for launching the documentation page.
+
+**Using `conda`**
+
+Create the environment with the settings file `environment.yml`:
+
+```bash
+conda env create -f environment.yml
+```
+
+And activate it:
+
+```bash
+conda activate equitrain
+```
+
+This will automatically install the dependencies. If you want the optional dependencies installed:
+
+```bash
+pip install -e '[dev,docu]'
+```
+
+Alternatively, you can create a `conda` environment with Python 3.10 and follow all the steps in the installation explained above when using `virtualenv`:
+
+```bash
+conda create -n equitrain python=3.10 setuptools pip
+conda activate equitrain
 ```
 
 ---
@@ -31,6 +98,7 @@ pip install .
 Preprocess data files to compute necessary statistics and prepare for training:
 
 #### Command Line:
+
 ```bash
 equitrain-preprocess \
     --train-file="data-train.xyz" \
@@ -41,7 +109,9 @@ equitrain-preprocess \
     --r-max 4.5
 ```
 
+<!-- TODO: change this following a notebook style -->
 #### Python Script:
+
 ```python
 from equitrain import get_args_parser_preprocess, preprocess
 
@@ -69,6 +139,7 @@ if __name__ == "__main__":
 Train a model using the prepared dataset and specify the MLIP wrapper:
 
 #### Command Line:
+
 ```bash
 equitrain -v \
     --train-file data/train.h5 \
@@ -81,7 +152,9 @@ equitrain -v \
     --tqdm
 ```
 
+<!-- TODO: change this following a notebook style -->
 #### Python Script:
+
 ```python
 from equitrain import get_args_parser_train, train
 from equitrain.model_wrappers import MaceWrapper
@@ -111,7 +184,9 @@ if __name__ == "__main__":
 
 Use a trained model to make predictions on new data:
 
+<!-- TODO: change this following a notebook style -->
 #### Python Script:
+
 ```python
 from equitrain import get_args_parser_predict, predict
 from equitrain.model_wrappers import MaceWrapper
@@ -138,20 +213,13 @@ if __name__ == "__main__":
 ## Advanced Features
 
 ### Multi-GPU and Multi-Node Training
+
 Equitrain supports multi-GPU and multi-node training using `accelerate`. Example scripts are available in the `resources/training` directory.
 
 ### Dataset Preparation
+
 Equitrain provides scripts for downloading and preparing popular datasets such as Alexandria and MPTraj. These scripts can be found in the `resources/data` directory.
 
 ### Pretrained Models
+
 Initial model examples and configurations can be accessed in the `resources/models` directory.
-
----
-
-## License
-Equitrain is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
----
-
-## Acknowledgments
-We thank the open-source community for supporting the development of machine learning interatomic potentials and related tools.

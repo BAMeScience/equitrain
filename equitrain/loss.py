@@ -1,12 +1,11 @@
 import math
+
 import torch
 
 
 class WeightedL1Loss(torch.nn.Module):
-
     def __init__(self):
         super().__init__()
-
 
     def forward(self, input, target, weights=None):
         """
@@ -29,28 +28,28 @@ class WeightedL1Loss(torch.nn.Module):
 
 
 class ForceAngleLoss(torch.nn.Module):
-
-    def __init__(self, angle_weight = 1.0, epsilon = 1e-8):
+    def __init__(self, angle_weight=1.0, epsilon=1e-8):
         super().__init__()
 
         self.angle_weight = angle_weight
-        self.epsilon      = epsilon
-
+        self.epsilon = epsilon
 
     def forward(self, input, target, weights=None):
         # Compute lengths of force vectors
         n1 = torch.norm(target, dim=1)
-        n2 = torch.norm(input , dim=1)
+        n2 = torch.norm(input, dim=1)
         # Compute angle between force vectors
         angle = self.compute_angle(target, input, n1=n1, n2=n2)
 
         # Loss is the sum of normalized length mismath and angle discrepancy
         return torch.mean(
-            * (torch.abs(n1 - n2)/(0.5*n1 + 0.5*n2 + self.epsilon) + self.angle_weight*angle)
+            *(
+                torch.abs(n1 - n2) / (0.5 * n1 + 0.5 * n2 + self.epsilon)
+                + self.angle_weight * angle
+            )
         )
 
-
-    def compute_angle(self, s, t, n1 = None, n2 = None):
+    def compute_angle(self, s, t, n1=None, n2=None):
         if n1 is None:
             n1 = torch.norm(s, dim=1)
         if n2 is None:
@@ -58,107 +57,84 @@ class ForceAngleLoss(torch.nn.Module):
         # Compute dot product between force vectors
         dp = torch.einsum('ij,ij->i', s, t)
         # Compute angle, use tanh for numerical stability
-        return torch.arccos(dp / (n1*n2 + self.epsilon))
+        return torch.arccos(dp / (n1 * n2 + self.epsilon))
 
 
 class LossComponent:
-
-    def __init__(
-        self,
-        value : torch.Tensor = None,
-        n     : torch.Tensor = None,
-        device = None):
-
+    def __init__(self, value: torch.Tensor = None, n: torch.Tensor = None, device=None):
         self.value = value
-        self.n     = n
+        self.n = n
 
         if value is None:
             self.value = torch.tensor(0.0, device=device)
 
         if n is None:
-            self.n     = torch.tensor(0.0, device=device)
+            self.n = torch.tensor(0.0, device=device)
 
-
-    def __iadd__(self, component : "LossComponent"):
-
-        self.value  = (self.value*self.n + component.value*component.n) / (self.n + component.n)
-        self.n     += component.n
+    def __iadd__(self, component: 'LossComponent'):
+        self.value = (self.value * self.n + component.value * component.n) / (
+            self.n + component.n
+        )
+        self.n += component.n
 
         return self
 
-
     def detach(self):
-
         r = LossComponent()
 
         r.value = self.value.detach()
-        r.n     = self.n    .detach()
+        r.n = self.n.detach()
 
         return r
 
-
     def gather_for_metrics(self, accelerator):
-
-        r = LossComponent(device = accelerator.device)
+        r = LossComponent(device=accelerator.device)
 
         values = accelerator.gather_for_metrics(self.value.detach())
-        ns     = accelerator.gather_for_metrics(self.n    .detach())
-        skip   = (ns == 0.0).any().item()
+        ns = accelerator.gather_for_metrics(self.n.detach())
+        skip = (ns == 0.0).any().item()
 
         if len(values.shape) == 0:
             # Single processing context
-            r += LossComponent(value = values, n = ns)
+            r += LossComponent(value=values, n=ns)
 
         else:
             # Multi-processing context
             assert len(values) == len(ns)
 
             for i in range(len(values)):
-                r += LossComponent(value = values[i], n = ns[i])
+                r += LossComponent(value=values[i], n=ns[i])
 
         return r, skip
 
 
 class Loss(dict):
-
-    def __init__(
-        self,
-        device = None
-        ):
-
-        self['total' ] = LossComponent(device=device)
+    def __init__(self, device=None):
+        self['total'] = LossComponent(device=device)
         self['energy'] = LossComponent(device=device)
         self['forces'] = LossComponent(device=device)
         self['stress'] = LossComponent(device=device)
 
-
-    def __iadd__(self, loss : "Loss"):
-
+    def __iadd__(self, loss: 'Loss'):
         for key, component in loss.items():
             self[key] += component
 
         return self
 
-
     def isnan(self):
         return torch.isnan(self['total'].value)
 
-
     def detach(self):
-
         r = Loss()
 
         for key, value in self.items():
-
             r[key] = value.detach()
 
         return r
 
-
     def gather_for_metrics(self, accelerator):
-
-        result = Loss(device = accelerator.device)
-        skip   = {}
+        result = Loss(device=accelerator.device)
+        skip = {}
 
         for key, component in self.items():
             result[key], skip[key] = component.gather_for_metrics(accelerator)
@@ -167,18 +143,16 @@ class Loss(dict):
 
 
 class GenericLossFn(torch.nn.Module):
-
     def __init__(
         self,
-        energy_weight = 1.0,
-        forces_weight = 1.0,
-        stress_weight = 0.0,
+        energy_weight=1.0,
+        forces_weight=1.0,
+        stress_weight=0.0,
         # As opposed to forces, energy is predicted per material. By normalizing
         # the energy by the number of atoms, forces and energy become comparable
-        loss_energy_per_atom = True,
-        **args
-        ):
-
+        loss_energy_per_atom=True,
+        **args,
+    ):
         super().__init__()
 
         # TODO: Allow to select other loss functions with args
@@ -193,22 +167,25 @@ class GenericLossFn(torch.nn.Module):
 
         self.loss_energy_per_atom = loss_energy_per_atom
 
-
     def compute_weighted_loss(self, energy_loss, forces_loss, stress_loss):
         result = 0.0
         # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
-        if energy_loss is not None and (not math.isinf(energy_loss) or self.energy_weight > 0.0):
+        if energy_loss is not None and (
+            not math.isinf(energy_loss) or self.energy_weight > 0.0
+        ):
             result += self.energy_weight * energy_loss
-        if forces_loss is not None and (not math.isinf(forces_loss) or self.forces_weight > 0.0):
+        if forces_loss is not None and (
+            not math.isinf(forces_loss) or self.forces_weight > 0.0
+        ):
             result += self.forces_weight * forces_loss
-        if stress_loss is not None and (not math.isinf(stress_loss) or self.stress_weight > 0.0):
+        if stress_loss is not None and (
+            not math.isinf(stress_loss) or self.stress_weight > 0.0
+        ):
             result += self.stress_weight * stress_loss
 
         return result
 
-
     def forward(self, y_pred, y_true):
-
         loss = Loss(device=y_true.batch.device)
 
         energy_weights = None
@@ -239,16 +216,16 @@ class GenericLossFn(torch.nn.Module):
 
         # Move results to loss object
         loss['total'].value += self.compute_weighted_loss(loss_e, loss_f, loss_s)
-        loss['total'].n     += y_true.batch.max()+1
+        loss['total'].n += y_true.batch.max() + 1
 
         if self.energy_weight > 0.0:
             loss['energy'].value += loss_e
-            loss['energy'].n     += e_true.numel()
+            loss['energy'].n += e_true.numel()
         if self.forces_weight > 0.0:
             loss['forces'].value += loss_f
-            loss['forces'].n     += f_true.numel()
+            loss['forces'].n += f_true.numel()
         if self.stress_weight > 0.0:
             loss['stress'].value += loss_s
-            loss['stress'].n     += s_true.numel()
+            loss['stress'].n += s_true.numel()
 
         return loss

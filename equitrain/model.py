@@ -1,24 +1,20 @@
 import torch
 
-from equitrain.model_wrappers import *
+from equitrain.model_wrappers import MaceWrapper
 
 
 def get_model(args, logger=None):
-
     if isinstance(args.model, torch.nn.Module):
-
         model = args.model
 
     else:
-
         # TODO: Check if file exists. Through a meaningful error if not
         model = torch.load(args.model, weights_only=False)
 
-    if args.model_wrapper == "mace":
+    if args.model_wrapper == 'mace':
         model = MaceWrapper(args, model)
 
     if args.load_checkpoint_model is not None:
-
         if logger is not None:
             logger.log(1, f'Loading model checkpoint {args.load_checkpoint_model}...')
 
