@@ -1,14 +1,22 @@
-from equitrain.mace.data.utils import compute_average_E0s, compute_one_hot
-import numpy as np
-import h5py
 import json
 import logging
+from collections import defaultdict
+
+import h5py
+import numpy as np
 import torch
 from ase import Atoms
 from fairchem.core.datasets import AseDBDataset
-from collections import defaultdict
+
+# ! these imports are broken!
+from equitrain.mace.data.utils import compute_average_E0s, compute_one_hot
 from equitrain.mace.modules.blocks import AtomicEnergiesBlock
-from equitrain.mace.tools import AtomicNumberTable, to_numpy, atomic_numbers_to_indices, to_one_hot
+from equitrain.mace.tools import (
+    AtomicNumberTable,
+    atomic_numbers_to_indices,
+    to_numpy,
+    to_one_hot,
+)
 from equitrain.mace.tools.scatter import scatter_sum
 
 
@@ -19,12 +27,19 @@ def convert_to_ase_object(data):
     cell = data['cell']
 
     if len(cell) == 6:
-        atoms = Atoms(numbers=numbers, positions=positions, cell=cell[:3], pbc=data['pbc'])
+        atoms = Atoms(
+            numbers=numbers, positions=positions, cell=cell[:3], pbc=data['pbc']
+        )
         atoms.set_cell(cell)
     elif len(cell) == 3:
         atoms = Atoms(numbers=numbers, positions=positions, cell=cell, pbc=data['pbc'])
     else:
-        atoms = Atoms(numbers=numbers, positions=positions, cell=np.reshape(cell, (3, 3)), pbc=data['pbc'])
+        atoms = Atoms(
+            numbers=numbers,
+            positions=positions,
+            cell=np.reshape(cell, (3, 3)),
+            pbc=data['pbc'],
+        )
 
     if 'energy' in data:
         atoms.info['energy'] = data['energy']
@@ -38,7 +53,9 @@ def convert_to_ase_object(data):
 
 # Extract atomic numbers, energies, and neighbor statistics from LMDB dataset
 def extract_statistics_from_lmdb(dataset, z_table):
-    atomic_energies_dict = defaultdict(float)  # Initialize dictionary for atomic energies
+    atomic_energies_dict = defaultdict(
+        float
+    )  # Initialize dictionary for atomic energies
     forces_list = []
     num_neighbors = []
     atom_energy_list = []
@@ -52,7 +69,9 @@ def extract_statistics_from_lmdb(dataset, z_table):
 
         # Accumulate atomic energies for each element in the system
         for z in atomic_numbers:
-            atomic_energies_dict[z] += energy / len(atomic_numbers)  # Per-atom contribution
+            atomic_energies_dict[z] += energy / len(
+                atomic_numbers
+            )  # Per-atom contribution
 
         # Collect forces and energies for statistics
         forces_list.append(forces)
@@ -110,7 +129,9 @@ def compute_lmdb_statistics(data_loader, atomic_energies, z_table):
 
 
 # Main function to generate statistics.json and write to HDF5
-def generate_statistics_and_convert_hdf5(lmdb_dataset, z_table, output_hdf5, output_dir, r_max):
+def generate_statistics_and_convert_hdf5(
+    lmdb_dataset, z_table, output_hdf5, output_dir, r_max
+):
     atoms_list = []  # Store Atoms objects for train_collection
 
     # Initialize the HDF5 file for conversion
@@ -127,7 +148,7 @@ def generate_statistics_and_convert_hdf5(lmdb_dataset, z_table, output_hdf5, out
             # Start a new batch every 'batch_size' configurations
             if i % batch_size == 0:
                 batch_index = i // batch_size
-                current_batch = f.create_group(f"config_batch_{batch_index}")
+                current_batch = f.create_group(f'config_batch_{batch_index}')
 
             # Convert LMDB data to ASE Atoms object
             atoms = convert_to_ase_object(data)
@@ -143,7 +164,7 @@ def generate_statistics_and_convert_hdf5(lmdb_dataset, z_table, output_hdf5, out
             num_neighbors.append(avg_neighbors)
 
             # Create a new configuration inside the current batch
-            config_group = current_batch.create_group(f"config_{i % batch_size}")
+            config_group = current_batch.create_group(f'config_{i % batch_size}')
             config_group.create_dataset('positions', data=atoms.get_positions())
             config_group.create_dataset('numbers', data=atoms.get_atomic_numbers())
             config_group.create_dataset('cell', data=atoms.get_cell())
@@ -161,18 +182,20 @@ def generate_statistics_and_convert_hdf5(lmdb_dataset, z_table, output_hdf5, out
 
         # Write the statistics to statistics.json
         statistics = {
-            "atomic_energies": str(atomic_energies_dict),
-            "avg_num_neighbors": avg_num_neighbors,
-            "mean": mean_energy,
-            "std": std_energy,
-            "atomic_numbers": str(z_table.zs),
-            "r_max": r_max
+            'atomic_energies': str(atomic_energies_dict),
+            'avg_num_neighbors': avg_num_neighbors,
+            'mean': mean_energy,
+            'std': std_energy,
+            'atomic_numbers': str(z_table.zs),
+            'r_max': r_max,
         }
 
-        with open(f"{output_dir}/statistics.json", "w") as json_file:
+        with open(f'{output_dir}/statistics.json', 'w') as json_file:
             json.dump(statistics, json_file)
 
-        print(f"Statistics and HDF5 file successfully written to {output_hdf5} and {output_dir}/statistics.json")
+        print(
+            f'Statistics and HDF5 file successfully written to {output_hdf5} and {output_dir}/statistics.json'
+        )
 
 
 # Load and process the dataset and compute statistics
@@ -185,14 +208,12 @@ def main():
     config_kwargs = {
         'metadata': {
             'title': 'LMDB Dataset',
-            'key_descriptions': {'natoms': ('Number of atoms', 'Number of atoms in the system', 'count')},
-            'natoms': metadata['natoms'].tolist()
+            'key_descriptions': {
+                'natoms': ('Number of atoms', 'Number of atoms in the system', 'count')
+            },
+            'natoms': metadata['natoms'].tolist(),
         },
-        'a2g_args': {
-            'r_energy': True,
-            'r_forces': True,
-            'r_stress': True
-        }
+        'a2g_args': {'r_energy': True, 'r_forces': True, 'r_stress': True},
     }
 
     # Load LMDB dataset
@@ -213,8 +234,10 @@ def main():
     r_max = 4.5  # Replace with actual r_max from args
 
     # Generate statistics and convert to HDF5
-    generate_statistics_and_convert_hdf5(lmdb_dataset, z_table, output_hdf5, output_dir, r_max)
+    generate_statistics_and_convert_hdf5(
+        lmdb_dataset, z_table, output_hdf5, output_dir, r_max
+    )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -1,11 +1,11 @@
-import torch
-import lightning as L
-import math
 import logging
-import numpy as np
-
+import math
 from pathlib import Path
-from torch.optim import SGD, Adam, AdamW, RMSprop, Adadelta
+
+import lightning as L
+import numpy as np
+import torch
+from torch.optim import SGD, Adadelta, Adam, AdamW, RMSprop
 
 from equitrain.data.loaders import get_dataloaders
 from equitrain.model import get_model
@@ -48,7 +48,9 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
-def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=True, lr_groups=None):
+def add_weight_decay_and_groups(
+    model, weight_decay=1e-5, filter_bias_and_bn=True, lr_groups=None
+):
     decay = []
     no_decay = []
     param_groups = {}
@@ -56,8 +58,13 @@ def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=Tru
         if not param.requires_grad:
             continue
         if filter_bias_and_bn and (
-                name.endswith(".bias") or "bn" in name.lower() or name.endswith(".affine_weight") or
-                name.endswith(".affine_bias") or 'bias.' in name or 'mean_shift' in name):
+            name.endswith('.bias')
+            or 'bn' in name.lower()
+            or name.endswith('.affine_weight')
+            or name.endswith('.affine_bias')
+            or 'bias.' in name
+            or 'mean_shift' in name
+        ):
             no_decay.append(param)
         else:
             decay.append(param)
@@ -68,8 +75,10 @@ def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=Tru
                         param_groups[group_name] = {'params': []}
                     param_groups[group_name]['params'].append(param)
 
-    param_group_list = [{'params': decay, 'weight_decay': weight_decay},
-                        {'params': no_decay, 'weight_decay': 0.0}]
+    param_group_list = [
+        {'params': decay, 'weight_decay': weight_decay},
+        {'params': no_decay, 'weight_decay': 0.0},
+    ]
     for group_name, group_params in param_groups.items():
         param_group_list.append(group_params)
     return param_group_list
@@ -77,11 +86,17 @@ def add_weight_decay_and_groups(model, weight_decay=1e-5, filter_bias_and_bn=Tru
 
 def compute_weighted_loss(args, energy_loss, force_loss, stress_loss):
     result = 0.0
-    if energy_loss is not None and (not math.isinf(energy_loss) or args.energy_weight > 0.0):
+    if energy_loss is not None and (
+        not math.isinf(energy_loss) or args.energy_weight > 0.0
+    ):
         result += args.energy_weight * energy_loss
-    if force_loss is not None and (not math.isinf(force_loss) or args.forces_weight > 0.0):
+    if force_loss is not None and (
+        not math.isinf(force_loss) or args.forces_weight > 0.0
+    ):
         result += args.forces_weight * force_loss
-    if stress_loss is not None and (not math.isinf(stress_loss) or args.stress_weight > 0.0):
+    if stress_loss is not None and (
+        not math.isinf(stress_loss) or args.stress_weight > 0.0
+    ):
         result += args.stress_weight * stress_loss
     return result
 
@@ -91,8 +106,12 @@ def create_optimizer(args, model, filter_bias_and_bn=True):
         'group1': lambda name: 'layer1' in name,
         'group2': lambda name: 'layer2' in name,
     }
-    params = add_weight_decay_and_groups(model, weight_decay=args.weight_decay, filter_bias_and_bn=filter_bias_and_bn,
-                                         lr_groups=lr_groups)
+    params = add_weight_decay_and_groups(
+        model,
+        weight_decay=args.weight_decay,
+        filter_bias_and_bn=filter_bias_and_bn,
+        lr_groups=lr_groups,
+    )
 
     if args.opt == 'sgd':
         return SGD(params, lr=args.lr, momentum=args.momentum)
@@ -105,17 +124,26 @@ def create_optimizer(args, model, filter_bias_and_bn=True):
     elif args.opt == 'adadelta':
         return Adadelta(params, lr=args.lr)
     else:
-        raise ValueError(f"Unsupported optimizer: {args.opt}")
+        raise ValueError(f'Unsupported optimizer: {args.opt}')
 
 
 class NoOp:
     def __getattr__(self, *args):
-        def no_op(*args, **kwargs): pass
+        def no_op(*args, **kwargs):
+            pass
+
         return no_op
 
 
 class FileLogger:
-    def __init__(self, is_master=False, is_rank0=False, output_dir=None, logger_name='training', version='1'):
+    def __init__(
+        self,
+        is_master=False,
+        is_rank0=False,
+        output_dir=None,
+        logger_name='training',
+        version='1',
+    ):
         self.output_dir = output_dir
         self.save_dir = output_dir
         self.name = logger_name
@@ -132,7 +160,9 @@ class FileLogger:
         logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(message)s')
         if output_dir and log_to_file:
-            time_formatter = logging.Formatter('%(asctime)s - %(filename)s:%(lineno)d - %(message)s')
+            time_formatter = logging.Formatter(
+                '%(asctime)s - %(filename)s:%(lineno)d - %(message)s'
+            )
             debuglog = logging.FileHandler(output_dir + '/debug.log')
             debuglog.setLevel(logging.DEBUG)
             debuglog.setFormatter(time_formatter)
@@ -154,10 +184,18 @@ class EquiTrainModule:
         self.model = model
         self.criterion = criterion
         self.custom_logger = logger
-        self.train_loss_metrics = {'total': AverageMeter(), 'energy': AverageMeter(), 'forces': AverageMeter(),
-                                   'stress': AverageMeter()}
-        self.val_loss_metrics = {'total': AverageMeter(), 'energy': AverageMeter(), 'forces': AverageMeter(),
-                                 'stress': AverageMeter()}
+        self.train_loss_metrics = {
+            'total': AverageMeter(),
+            'energy': AverageMeter(),
+            'forces': AverageMeter(),
+            'stress': AverageMeter(),
+        }
+        self.val_loss_metrics = {
+            'total': AverageMeter(),
+            'energy': AverageMeter(),
+            'forces': AverageMeter(),
+            'stress': AverageMeter(),
+        }
 
     def forward(self, data):
         return self.model(data)
@@ -170,17 +208,24 @@ def _train(args):
     np.random.seed(args.seed)
 
     # Initialize Lightning Fabric
-    fabric = L.Fabric(accelerator="cuda", devices=1, strategy="ddp", precision="16-mixed")
+    fabric = L.Fabric(
+        accelerator='cuda', devices=1, strategy='ddp', precision='16-mixed'
+    )
 
     # Launch the Fabric environment for distributed training
     fabric.launch()
 
-    ''' Data Loader '''
+    """ Data Loader """
     train_loader, val_loader, test_loader, r_max = get_dataloaders(args, logger=logger)
 
-    ''' Network '''
-    model = get_model(r_max, args, compute_force=args.forces_weight > 0.0, compute_stress=args.stress_weight > 0.0,
-                      logger=logger)
+    """ Network """
+    model = get_model(
+        r_max,
+        args,
+        compute_force=args.forces_weight > 0.0,
+        compute_stress=args.stress_weight > 0.0,
+        logger=logger,
+    )
 
     # Create Criterion
     criterion = torch.nn.L1Loss()
@@ -192,11 +237,10 @@ def _train(args):
     model, optimizer = fabric.setup(model, optimizer)
     train_loader, val_loader = fabric.setup_dataloaders(train_loader, val_loader)
 
-    ''' Start Training '''
+    """ Start Training """
     for epoch in range(args.epochs):
-        logger.info(f"Epoch nº {epoch+1}")
-        logger.info("-----------------")
-
+        logger.info(f'Epoch nº {epoch+1}')
+        logger.info('-----------------')
 
         model.train()
         for batch in train_loader:
@@ -215,7 +259,7 @@ def _train(args):
                 loss_s = criterion(s_pred, s_true)
 
             loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
-            logger.info(f"Training loss: {loss.item()}")
+            logger.info(f'Training loss: {loss.item()}')
 
             fabric.backward(loss)
             optimizer.step()
@@ -238,20 +282,24 @@ def _train(args):
                     loss_s = criterion(s_pred, s_true)
 
                 val_loss = compute_weighted_loss(args, loss_e, loss_f, loss_s)
-                logger.info(f"Validation loss: {val_loss.item()}\n")
+                logger.info(f'Validation loss: {val_loss.item()}\n')
 
 
 def train_fabric(args):
     if args.train_file is None:
-        raise ValueError("--train-file is a required argument")
+        raise ValueError('--train-file is a required argument')
     if args.valid_file is None:
-        raise ValueError("--valid-file is a required argument")
+        raise ValueError('--valid-file is a required argument')
     if args.statistics_file is None:
-        raise ValueError("--statistics-file is a required argument")
+        raise ValueError('--statistics-file is a required argument')
     if args.output_dir is None:
-        raise ValueError("--output-dir is a required argument")
-    if args.energy_weight == 0.0 and args.forces_weight == 0.0 and args.stress_weight == 0.0:
-        raise ValueError("at least one non-zero loss weight is required")
+        raise ValueError('--output-dir is a required argument')
+    if (
+        args.energy_weight == 0.0
+        and args.forces_weight == 0.0
+        and args.stress_weight == 0.0
+    ):
+        raise ValueError('at least one non-zero loss weight is required')
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     _train(args)

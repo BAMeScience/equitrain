@@ -5,9 +5,9 @@ from .configuration import (
     Configuration,
 )
 from .statistics import (
-    compute_statistics,
-    compute_average_atomic_energies,
     compute_atomic_numbers,
+    compute_average_atomic_energies,
+    compute_statistics,
 )
 from .statistics_data import (
     Statistics,

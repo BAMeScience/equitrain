@@ -1,5 +1,3 @@
-from typing import Optional, Tuple
-
 import numpy as np
 from matscipy.neighbours import neighbour_list
 
@@ -7,17 +5,17 @@ from matscipy.neighbours import neighbour_list
 def get_neighborhood(
     positions: np.ndarray,  # [num_positions, 3]
     cutoff: float,
-    pbc: Optional[Tuple[bool, bool, bool]] = None,
-    cell: Optional[np.ndarray] = None,  # [3, 3]
+    pbc: tuple[bool, bool, bool] | None = None,
+    cell: np.ndarray | None = None,  # [3, 3]
     true_self_interaction=False,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     if pbc is None:
         pbc = (False, False, False)
 
     if cell is None or cell.any() == np.zeros((3, 3)).any():
         cell = np.identity(3, dtype=float)
 
-    assert len(pbc) == 3 and all(isinstance(i, (bool, np.bool_)) for i in pbc)
+    assert len(pbc) == 3 and all(isinstance(i, bool | np.bool_) for i in pbc)
     assert cell.shape == (3, 3)
 
     pbc_x = pbc[0]
@@ -36,7 +34,7 @@ def get_neighborhood(
         cell[2, :] = max_positions * 5 * cutoff * identity[2, :]
 
     sender, receiver, unit_shifts = neighbour_list(
-        quantities="ijS",
+        quantities='ijS',
         pbc=pbc,
         cell=cell,
         positions=positions,
