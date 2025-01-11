@@ -14,5 +14,6 @@ def test_preprocess():
 
     preprocess(args)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     test_preprocess()

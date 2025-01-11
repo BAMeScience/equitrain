@@ -16,5 +16,6 @@ def test_mace_predict():
     print(forces_pred)
     print(stress_pred)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     test_mace_predict()

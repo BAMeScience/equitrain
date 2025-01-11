@@ -1,9 +1,8 @@
 import os
 import re
-import torch
-
 from pathlib import Path
 
+import torch
 from accelerate import Accelerator
 
 
@@ -58,8 +57,9 @@ def load_checkpoint(args, logger, accelerator: Accelerator, model_ema):
     args.epochs_start = max(args.epochs_start, 1)
 
 
-def save_checkpoint(args, logger, accelerator: Accelerator, epoch, valid_loss, model, model_ema):
-
+def save_checkpoint(
+    args, logger, accelerator: Accelerator, epoch, valid_loss, model, model_ema
+):
     output_dir = 'best_val_epochs@{}_e@{:.4f}'.format(
         epoch, valid_loss.metrics['total'].avg
     )
@@ -72,12 +72,12 @@ def save_checkpoint(args, logger, accelerator: Accelerator, epoch, valid_loss, m
     # Prefix with output directory after logging
     output_dir = Path(args.output_dir) / output_dir
 
-    accelerator.save_state(
-        output_dir, safe_serialization=False
-    )
+    accelerator.save_state(output_dir, safe_serialization=False)
 
     if model_ema is not None:
         torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
 
         with model_ema.average_parameters():
-            torch.save(model.state_dict(), output_dir / 'pytorch_model_averaged_weights.bin')
+            torch.save(
+                model.state_dict(), output_dir / 'pytorch_model_averaged_weights.bin'
+            )

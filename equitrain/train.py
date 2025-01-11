@@ -1,4 +1,3 @@
-import os
 import time
 import warnings
 from collections.abc import Iterable
@@ -6,8 +5,8 @@ from pathlib import Path
 
 import torch
 import torch_geometric
-from torch_ema import ExponentialMovingAverage
 from accelerate import Accelerator, DistributedDataParallelKwargs
+from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
 
 from equitrain.argparser import (
@@ -74,7 +73,7 @@ def evaluate_main(
 
             if accelerator.is_main_process and args.tqdm:
                 pbar.set_description(
-                    f"Evaluating (loss={loss_metrics.metrics['total'].avg:.04f})"
+                    f'Evaluating (loss={loss_metrics.metrics["total"].avg:.04f})'
                 )
 
     return loss_metrics
@@ -204,7 +203,7 @@ def train_one_epoch(
 
                 if args.tqdm:
                     pbar.set_description(
-                        f"Training (lr={optimizer.param_groups[0]['lr']:.0e}, loss={loss_metrics.metrics['total'].avg:.04f})"
+                        f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.metrics["total"].avg:.04f})'
                     )
 
     return loss_metrics
@@ -325,7 +324,9 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             valid_loss.log(logger, 'val', epoch=epoch)
 
             if update_val_result:
-                save_checkpoint(args, logger, accelerator, epoch, valid_loss, model, model_ema)
+                save_checkpoint(
+                    args, logger, accelerator, epoch, valid_loss, model, model_ema
+                )
 
         if lr_scheduler is not None:
             lr_scheduler.step(train_loss.metrics['total'].avg)
