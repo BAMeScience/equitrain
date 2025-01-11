@@ -71,7 +71,7 @@ def convert_aselmdb_to_xyz(lmdb_path, output_xyz):
             xyz_file.write(
                 f'config_type=Default energy={energy:.6f} energy_corrected={energy:.6f} '
             )
-            xyz_file.write(f'stress="{ " ".join(map(str, stress)) }" pbc="T T T"\n')
+            xyz_file.write(f'stress="{" ".join(map(str, stress))}" pbc="T T T"\n')
 
             # Write each atom's data (species, position, forces)
             for symbol, pos, force in zip(

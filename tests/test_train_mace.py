@@ -3,7 +3,6 @@ from equitrain.utility_test import MaceWrapper
 
 
 def test_train_mace():
-
     args = get_args_parser_train().parse_args()
 
     args.train_file = 'data/train.h5'
@@ -21,5 +20,6 @@ def test_train_mace():
 
     train(args)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     test_train_mace()
