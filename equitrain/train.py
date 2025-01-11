@@ -251,7 +251,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         model_ema = None
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
-    load_checkpoint(args, logger, accelerator)
+    load_checkpoint(args, logger, accelerator, model_ema)
 
     # Record the best validation loss and corresponding epoch
     best_metrics = BestMetric(args)

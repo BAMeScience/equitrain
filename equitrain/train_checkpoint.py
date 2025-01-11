@@ -35,7 +35,7 @@ def _find_best_checkpoint(base_path: Path | str, monitor_target: str):
     return dirs[min_index]
 
 
-def load_checkpoint(args, logger, accelerator: Accelerator):
+def load_checkpoint(args, logger, accelerator: Accelerator, model_ema):
     if args.load_checkpoint is None and args.resume:
         args.load_checkpoint = _find_best_checkpoint(args.output_dir, 'val')
 
@@ -44,6 +44,11 @@ def load_checkpoint(args, logger, accelerator: Accelerator):
             logger.log(1, f'Loading checkpoint {args.load_checkpoint}...')
 
         accelerator.load_state(args.load_checkpoint)
+
+        ema_path = Path(args.load_checkpoint) / 'ema.bin'
+
+        if model_ema and ema_path.exists():
+            model_ema.load_state_dict(torch.load(ema_path))
 
         if (
             m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)
@@ -72,5 +77,7 @@ def save_checkpoint(args, logger, accelerator: Accelerator, epoch, valid_loss, m
     )
 
     if model_ema is not None:
+        torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
+
         with model_ema.average_parameters():
-            torch.save(model, output_dir / 'pytorch_model_averaged_weights.model')
+            torch.save(model.state_dict(), output_dir / 'pytorch_model_averaged_weights.bin')
