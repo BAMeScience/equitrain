@@ -6,7 +6,7 @@ from accelerate import Accelerator
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
-    pattern = f'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
+    pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
 
     regex = re.compile(pattern)
 
