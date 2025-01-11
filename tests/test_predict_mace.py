@@ -15,3 +15,6 @@ def test_mace_predict():
     print(energy_pred)
     print(forces_pred)
     print(stress_pred)
+
+if __name__ == "__main__":
+    test_mace_predict()

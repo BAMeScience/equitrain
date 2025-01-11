@@ -13,3 +13,6 @@ def test_preprocess():
     args.verbose = 1
 
     preprocess(args)
+
+if __name__ == "__main__":
+    test_preprocess()

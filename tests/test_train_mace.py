@@ -3,7 +3,6 @@ from equitrain.utility_test import MaceWrapper
 
 
 def test_train_mace():
-    # r = 4.5  # ! unused
 
     args = get_args_parser_train().parse_args()
 
@@ -21,3 +20,6 @@ def test_train_mace():
     args.tqdm = True
 
     train(args)
+
+if __name__ == "__main__":
+    test_train_mace()
