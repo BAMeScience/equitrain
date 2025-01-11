@@ -107,6 +107,18 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         type=float,
         default=10.0,
     )
+    parser.add_argument(
+        '--ema',
+        help='Use exponential moving average (EMA) during training',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--ema-decay',
+        help='Decay rate for EMA',
+        type=float,
+        default=0.999,
+    )
     parser.add_argument('--weight-decay', help='Weight decay', type=float, default=0.0)
     parser.add_argument(
         '--alpha', default=0.99, type=float, help='Smoothing constant (default: 0.99)'

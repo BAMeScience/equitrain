@@ -36,6 +36,7 @@ dependencies = [
     "pymatgen",
     "torch",
     "torch_geometric",
+    "torch_ema",
     "tqdm",
     "accelerate",
 ]

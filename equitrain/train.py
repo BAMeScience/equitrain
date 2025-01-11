@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 import torch_geometric
+from torch_ema import ExponentialMovingAverage
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from tqdm import tqdm
 
@@ -19,7 +20,7 @@ from equitrain.data.loaders import get_dataloaders
 from equitrain.logger import FileLogger
 from equitrain.loss import GenericLossFn, Loss
 from equitrain.model import get_model
-from equitrain.train_checkpoint import load_checkpoint
+from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
 from equitrain.train_metrics import BestMetric, LossMetric
 from equitrain.train_optimizer import create_optimizer
 from equitrain.train_scheduler import create_scheduler
@@ -28,7 +29,7 @@ from equitrain.utility import set_dtype, set_seeds
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
 
-def evaluate(
+def evaluate_main(
     args,
     model: torch.nn.Module,
     accelerator: Accelerator,
@@ -79,6 +80,20 @@ def evaluate(
     return loss_metrics
 
 
+def evaluate(
+    args,
+    model: torch.nn.Module,
+    model_ema: ExponentialMovingAverage,
+    *args_other,
+    **kwargs,
+):
+    if model_ema:
+        with model_ema.average_parameters():
+            return evaluate_main(args, model, *args_other, **kwargs)
+    else:
+        return evaluate_main(args, model, *args_other, **kwargs)
+
+
 def forward_and_backward(
     model: torch.nn.Module,
     accelerator: Accelerator,
@@ -106,6 +121,7 @@ def forward_and_backward(
 def train_one_epoch(
     args,
     model: torch.nn.Module,
+    model_ema: ExponentialMovingAverage,
     accelerator: Accelerator,
     criterion: torch.nn.Module,
     data_loader: Iterable,
@@ -163,6 +179,9 @@ def train_one_epoch(
             # Sync of gradients across processes occurs here
             optimizer.step()
             optimizer.zero_grad()
+
+            if model_ema is not None:
+                model_ema.update()
 
             loss_metrics.update(loss_for_metrics)
 
@@ -222,11 +241,19 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     criterion = GenericLossFn(**vars(args))
 
+    # Prepare all components with accelerate
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
+    # Exponential moving average (EMA)
+    if args.ema:
+        model_ema = ExponentialMovingAverage(model.parameters(), decay=args.ema_decay)
+    else:
+        model_ema = None
+
+    # Import model, optimizer, lr_scheduler from checkpoint if possible
     load_checkpoint(args, logger, accelerator)
 
-    # record the best validation loss and corresponding epoch
+    # Record the best validation loss and corresponding epoch
     best_metrics = BestMetric(args)
 
     if args.wandb_project is not None:
@@ -239,6 +266,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         val_loss = evaluate(
             args,
             model=model,
+            model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
             data_loader=val_loader,
@@ -260,6 +288,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         train_loss = train_one_epoch(
             args=args,
             model=model,
+            model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
             data_loader=train_loader,
@@ -272,6 +301,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         valid_loss = evaluate(
             args,
             model=model,
+            model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
             data_loader=val_loader,
@@ -295,18 +325,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             valid_loss.log(logger, 'val', epoch=epoch)
 
             if update_val_result:
-                filename = 'best_val_epochs@{}_e@{:.4f}'.format(
-                    epoch, valid_loss.metrics['total'].avg
-                )
-
-                logger.log(
-                    1,
-                    f'Epoch [{epoch:>4}] -- Validation error decreased. Saving checkpoint to `{filename}`...',
-                )
-
-                accelerator.save_state(
-                    os.path.join(args.output_dir, filename), safe_serialization=False
-                )
+                save_checkpoint(args, logger, accelerator, epoch, valid_loss, model, model_ema)
 
         if lr_scheduler is not None:
             lr_scheduler.step(train_loss.metrics['total'].avg)
@@ -324,6 +343,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         test_loss = evaluate(
             args,
             model=model,
+            model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
             data_loader=test_loader,
