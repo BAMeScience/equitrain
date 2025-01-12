@@ -1,9 +1,25 @@
 import torch
 
 
+def update_weight_decay(args, logger, optimizer):
+    if args.weight_decay is None:
+        return
+
+    for param_group in optimizer.param_groups:
+        if (
+            param_group.get('name', 'n/a') == 'decay'
+            or param_group['weight_decay'] > 0.0
+        ):
+            param_group['weight_decay'] = args.weight_decay
+
+    logger.log(1, f'Using weight_decay = {args.weight_decay}')
+
+
 def add_weight_decay(model, weight_decay, skip_list=[]):
+    # Parameters with decay
     decay = []
-    no_decay = []
+    # Parameters without decay
+    nocay = []
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue  # frozen weights
@@ -15,12 +31,12 @@ def add_weight_decay(model, weight_decay, skip_list=[]):
             or 'bias.' in name
             or name in skip_list
         ):
-            no_decay.append(param)
+            nocay.append(param)
         else:
             decay.append(param)
     return [
-        {'params': no_decay, 'weight_decay': 0.0},
-        {'params': decay, 'weight_decay': weight_decay},
+        {'params': nocay, 'name': 'nocay', 'weight_decay': 0.0},
+        {'params': decay, 'name': 'decay', 'weight_decay': weight_decay},
     ]
 
 
@@ -55,6 +71,9 @@ def create_optimizer_impl(
     skip_list: list = [],
 ) -> torch.optim.Optimizer:
     opt_lower = optimizer_name.lower()
+
+    if weight_decay is None:
+        weight_decay = 0.0
 
     if filter_bias_and_bn:
         # Always split parameters to allow checkpointing

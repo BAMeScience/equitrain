@@ -119,7 +119,7 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         type=float,
         default=0.999,
     )
-    parser.add_argument('--weight-decay', help='Weight decay', type=float, default=0.0)
+    parser.add_argument('--weight-decay', help='Weight decay', type=float, default=None)
     parser.add_argument(
         '--alpha', default=0.99, type=float, help='Smoothing constant (default: 0.99)'
     )

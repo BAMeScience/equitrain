@@ -21,7 +21,7 @@ from equitrain.loss import GenericLossFn, Loss
 from equitrain.model import get_model
 from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
 from equitrain.train_metrics import BestMetric, LossMetric
-from equitrain.train_optimizer import create_optimizer
+from equitrain.train_optimizer import create_optimizer, update_weight_decay
 from equitrain.train_scheduler import create_scheduler
 from equitrain.utility import set_dtype, set_seeds
 
@@ -251,6 +251,9 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
     load_checkpoint(args, logger, accelerator, model_ema)
+
+    # Allow users to modify the weight decay even when resuming from a checkpoint
+    update_weight_decay(args, logger, optimizer)
 
     # Record the best validation loss and corresponding epoch
     best_metrics = BestMetric(args)
