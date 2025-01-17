@@ -160,7 +160,6 @@ class HDF5GraphDataset(HDF5Dataset):
         filename: Path | str,
         r_max: float,
         atomic_numbers: AtomicNumberTable,
-        mode='r',
         **kwargs,
     ):
         super().__init__(filename, mode='r', **kwargs)
@@ -178,5 +177,7 @@ class HDF5GraphDataset(HDF5Dataset):
 
     def __getitem__(self, index):
         atoms = super().__getitem__(index)
+        graph = self.converter.convert(atoms)
+        graph.idx = index
 
-        return self.converter.convert(atoms)
+        return graph

@@ -15,7 +15,7 @@ def test_train_mace():
     args.epochs = 10
     args.batch_size = 2
     args.lr = 0.001
-    args.verbose = 2
+    args.verbose = 1
     args.tqdm = True
 
     train(args)

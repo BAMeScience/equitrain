@@ -175,6 +175,18 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default=0.5,
         help='LR decay rate (default: 0.5)',
     )
+    parser.add_argument(
+        '--weighted-sampler',
+        help='Use a weighted sampler where the probability of drawing a sample is proportional to its prediction error',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--weighted-sampler-threshold',
+        type=float,
+        default=None,
+        help='Use the median error for samples with a prediction error exceeding the specified threshold',
+    )
 
     return parser
 

@@ -1,4 +1,5 @@
 import torch_geometric
+from torch.utils.data import WeightedRandomSampler
 
 
 class DynamicGraphCollater:
@@ -64,7 +65,27 @@ class DynamicGraphCollater:
 
 
 class DynamicGraphLoader(torch_geometric.loader.DataLoader):
-    def __init__(self, *args, max_nodes=None, max_edges=None, drop=False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        errors=None,
+        errors_threshold=None,
+        max_nodes=None,
+        max_edges=None,
+        drop=False,
+        generator=None,
+        **kwargs,
+    ):
+        if errors is not None:
+            if errors_threshold is not None:
+                errors[errors >= args.weighted_sampler_threshold] = 0.0
+            # Errors might be zero, in case a sample was not used during training
+            errors[errors == 0.0] = errors.mean()
+            # Add sampler to the keyword arguments, use errors as weights
+            kwargs['sampler'] = WeightedRandomSampler(
+                errors, num_samples=len(errors), replacement=True, generator=generator
+            )
+
         super().__init__(*args, **kwargs)
 
         self.collate_fn = DynamicGraphCollater(

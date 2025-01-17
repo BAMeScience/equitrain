@@ -15,7 +15,7 @@ from equitrain.argparser import (
     ArgumentError,
     check_args_complete,
 )
-from equitrain.data.loaders import get_dataloaders
+from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
 from equitrain.logger import FileLogger
 from equitrain.loss import GenericLossFn, Loss
 from equitrain.model import get_model
@@ -33,19 +33,22 @@ def evaluate_main(
     model: torch.nn.Module,
     accelerator: Accelerator,
     criterion: torch.nn.Module,
-    data_loader: Iterable,
+    dataloader: Iterable,
     logger: FileLogger,
+    desc: str = 'Evaluating',
 ):
     model.eval()
     criterion.eval()
 
     loss_metrics = LossMetric(args)
 
+    errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
+
     with tqdm(
-        data_loader,
-        total=len(data_loader),
+        dataloader,
+        total=len(dataloader),
         disable=not args.tqdm or not accelerator.is_main_process,
-        desc='Evaluating',
+        desc=desc,
     ) as pbar:
         for data_list in pbar:
             loss_sum = Loss(device=accelerator.device)
@@ -54,13 +57,15 @@ def evaluate_main(
                 for data in data_list:
                     y_pred = model(data)
 
-                    loss = criterion(y_pred, data)
+                    loss, error = criterion(y_pred, data)
 
                     if loss.isnan():
                         logger.log(1, 'Nan value detected. Skipping batch...')
                         continue
 
                     loss_sum += loss.detach()
+
+                    errors[data.idx] = error
 
             # Gather loss across processes for computing metrics
             loss_for_metrics, skip = loss_sum.gather_for_metrics(accelerator)
@@ -73,10 +78,15 @@ def evaluate_main(
 
             if accelerator.is_main_process and args.tqdm:
                 pbar.set_description(
-                    f'Evaluating (loss={loss_metrics.metrics["total"].avg:.04f})'
+                    f'{desc} (loss={loss_metrics.metrics["total"].avg:.04f})'
                 )
 
-    return loss_metrics
+    # Synchronize updates across processes
+    accelerator.wait_for_everyone()
+    # Sum local errors across all processes
+    accelerator.reduce(errors, reduction='sum')
+
+    return loss_metrics, errors
 
 
 def evaluate(
@@ -93,38 +103,15 @@ def evaluate(
         return evaluate_main(args, model, *args_other, **kwargs)
 
 
-def forward_and_backward(
-    model: torch.nn.Module,
-    accelerator: Accelerator,
-    criterion: torch.nn.Module,
-    data: torch_geometric.data.Batch,
-    n: int,
-    logger: FileLogger,
-):
-    y_pred = model(data)
-
-    loss = criterion(y_pred, data)
-
-    if loss.isnan():
-        logger.log(1, 'Nan value detected. Skipping batch...')
-        return None
-
-    # Backpropagate here to prevent out-of-memory errors, gradients
-    # will be accumulated. Since we accumulate gradients over sub-batches,
-    # we have to rescale before the backward pass
-    accelerator.backward(loss['total'].value / n)
-
-    return loss
-
-
 def train_one_epoch(
     args,
     model: torch.nn.Module,
     model_ema: ExponentialMovingAverage,
     accelerator: Accelerator,
     criterion: torch.nn.Module,
-    data_loader: Iterable,
+    dataloader: Iterable,
     optimizer: torch.optim.Optimizer,
+    errors: torch.Tensor,
     epoch: int,
     print_freq: int,
     logger: FileLogger,
@@ -136,9 +123,16 @@ def train_one_epoch(
 
     start_time = time.perf_counter()
 
+    if errors is None:
+        errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
+    else:
+        dataloader = dataloader_update_errors(
+            args, dataloader, errors, accelerator, logger
+        )
+
     with tqdm(
-        enumerate(data_loader),
-        total=len(data_loader),
+        enumerate(dataloader),
+        total=len(dataloader),
         disable=not args.tqdm or not accelerator.is_main_process,
         desc='Training',
     ) as pbar:
@@ -150,12 +144,22 @@ def train_one_epoch(
             with accelerator.no_sync(model):
                 for i_, data in enumerate(data_list):
                     try:
-                        loss = forward_and_backward(
-                            model, accelerator, criterion, data, len(data_list), logger
-                        )
+                        y_pred = model(data)
 
-                        if loss is not None:
-                            loss_sum += loss.detach()
+                        loss, error = criterion(y_pred, data)
+
+                        if loss.isnan():
+                            logger.log(2, 'Nan value detected. Skipping batch...')
+                            continue
+
+                        # Backpropagate here to prevent out-of-memory errors, gradients
+                        # will be accumulated. Since we accumulate gradients over sub-batches,
+                        # we have to rescale before the backward pass
+                        accelerator.backward(loss['total'].value / len(data_list))
+
+                        loss_sum += loss.detach()
+
+                        errors[data.idx] = error
 
                     except torch.OutOfMemoryError:
                         logger.log(
@@ -187,17 +191,17 @@ def train_one_epoch(
             if accelerator.is_main_process:
                 # Print intermediate performance statistics only for higher verbose levels
                 if args.verbose > 1 and (
-                    step % print_freq == 0 or step == len(data_loader) - 1
+                    step % print_freq == 0 or step == len(dataloader) - 1
                 ):
                     w = time.perf_counter() - start_time
-                    e = (step + 1) / len(data_loader)
+                    e = (step + 1) / len(dataloader)
 
                     loss_metrics.log_step(
                         logger,
                         epoch,
                         step,
-                        len(data_loader),
-                        time=(1e3 * w / e / len(data_loader)),
+                        len(dataloader),
+                        time=(1e3 * w / e / len(dataloader)),
                         lr=optimizer.param_groups[0]['lr'],
                     )
 
@@ -206,7 +210,12 @@ def train_one_epoch(
                         f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.metrics["total"].avg:.04f})'
                     )
 
-    return loss_metrics
+    # Synchronize updates across processes
+    accelerator.wait_for_everyone()
+    # Sum local errors across all processes
+    accelerator.reduce(errors, reduction='sum')
+
+    return loss_metrics, errors
 
 
 def _train_with_accelerator(args, accelerator: Accelerator):
@@ -220,9 +229,8 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     logger.log(1, ArgsFormatter(args))
 
     """ Data Loader """
-    train_loader, val_loader, test_loader = get_dataloaders(args, logger=logger)
-    train_loader, val_loader, test_loader = accelerator.prepare(
-        train_loader, val_loader, test_loader
+    train_loader, val_loader, test_loader = get_dataloaders(
+        args, accelerator, logger=logger
     )
 
     """ Network """
@@ -258,6 +266,21 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     # Record the best validation loss and corresponding epoch
     best_metrics = BestMetric(args)
 
+    # Prediction errors for sampling training data accordingly
+    if args.weighted_sampler:
+        _, errors = evaluate(
+            args,
+            model=model,
+            model_ema=model_ema,
+            accelerator=accelerator,
+            criterion=criterion,
+            dataloader=train_loader,
+            logger=logger,
+            desc='Estimating errors',
+        )
+    else:
+        errors = None
+
     if args.wandb_project is not None:
         accelerator.init_trackers(
             args.wandb_project, config=ArgsFilterSimple().filter(args)
@@ -265,13 +288,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Evaluate model before training
     if True:
-        val_loss = evaluate(
+        val_loss, _ = evaluate(
             args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
-            data_loader=val_loader,
+            dataloader=val_loader,
             logger=logger,
         )
 
@@ -287,26 +310,30 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     for epoch in range(args.epochs_start, args.epochs_start + args.epochs):
         epoch_start_time = time.perf_counter()
 
-        train_loss = train_one_epoch(
+        if not args.weighted_sampler:
+            errors = None
+
+        train_loss, errors = train_one_epoch(
             args=args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
-            data_loader=train_loader,
+            dataloader=train_loader,
             optimizer=optimizer,
+            errors=errors,
             epoch=epoch,
             print_freq=args.print_freq,
             logger=logger,
         )
 
-        valid_loss = evaluate(
+        valid_loss, _ = evaluate(
             args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
-            data_loader=val_loader,
+            dataloader=val_loader,
             logger=logger,
         )
 
@@ -344,13 +371,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     if test_loader is not None:
         # evaluate on the whole testing set
-        test_loss = evaluate(
+        test_loss, _ = evaluate(
             args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             criterion=criterion,
-            data_loader=test_loader,
+            dataloader=test_loader,
             logger=logger,
         )
 

@@ -1,30 +1,53 @@
-import math
-
 import torch
 
+from equitrain.data.scatter import scatter_mean
 
-class WeightedL1Loss(torch.nn.Module):
+
+class L1LossEnergy(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, input, target, weights=None):
-        """
-        Compute the weighted L1 loss.
+    def forward(self, input, target, weights):
+        # TODO: Different loss types can be implemented here
+        error = torch.abs(input - target)
+        error *= weights
 
-        Args:
-            input (torch.Tensor): Predicted values.
-            target (torch.Tensor): Ground truth values.
-            weights (torch.Tensor): Weights for each element.
+        loss = error.mean()
+        error = error.detach()
 
-        Returns:
-            torch.Tensor: Weighted L1 loss.
-        """
-        loss = torch.abs(input - target)
+        return loss, error
 
-        if weights is not None:
-            loss *= weights
 
-        return loss.mean()
+class L1LossForces(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input, target, batch):
+        # TODO: Different loss types can be implemented here
+        error = torch.abs(input - target)
+
+        loss = error.mean()
+
+        error = error.detach()
+        error = error.mean(dim=1)
+        error = scatter_mean(error, batch)
+
+        return loss, error
+
+
+class L1LossStress(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input, target):
+        # TODO: Different loss types can be implemented here
+        error = torch.abs(input - target)
+
+        loss = error.mean()
+        error = error.detach()
+        error = error.mean(dim=(1, 2))
+
+        return loss, error
 
 
 class ForceAngleLoss(torch.nn.Module):
@@ -156,9 +179,9 @@ class GenericLossFn(torch.nn.Module):
         super().__init__()
 
         # TODO: Allow to select other loss functions with args
-        self.loss_energy = WeightedL1Loss()
-        self.loss_forces = torch.nn.L1Loss()
-        self.loss_stress = torch.nn.L1Loss()
+        self.loss_energy = L1LossEnergy()
+        self.loss_forces = L1LossForces()
+        self.loss_stress = L1LossStress()
 
         # TODO: Use register_buffer instead
         self.energy_weight = energy_weight
@@ -167,21 +190,21 @@ class GenericLossFn(torch.nn.Module):
 
         self.loss_energy_per_atom = loss_energy_per_atom
 
-    def compute_weighted_loss(self, energy_loss, forces_loss, stress_loss):
+    def compute_weighted(self, energy_value, forces_value, stress_value):
         result = 0.0
         # handle initial values correctly when weights are zero, i.e. 0.0*Inf -> NaN
-        if energy_loss is not None and (
-            not math.isinf(energy_loss) or self.energy_weight > 0.0
+        if energy_value is not None and (
+            not torch.isinf(energy_value).any() or self.energy_weight > 0.0
         ):
-            result += self.energy_weight * energy_loss
-        if forces_loss is not None and (
-            not math.isinf(forces_loss) or self.forces_weight > 0.0
+            result += self.energy_weight * energy_value
+        if forces_value is not None and (
+            not torch.isinf(forces_value).any() or self.forces_weight > 0.0
         ):
-            result += self.forces_weight * forces_loss
-        if stress_loss is not None and (
-            not math.isinf(stress_loss) or self.stress_weight > 0.0
+            result += self.forces_weight * forces_value
+        if stress_value is not None and (
+            not torch.isinf(stress_value).any() or self.stress_weight > 0.0
         ):
-            result += self.stress_weight * stress_loss
+            result += self.stress_weight * stress_value
 
         return result
 
@@ -206,20 +229,24 @@ class GenericLossFn(torch.nn.Module):
         loss_f = None
         loss_s = None
 
+        error_e = None
+        error_f = None
+        error_s = None
+
         # Evaluate every loss component
         if self.energy_weight > 0.0:
-            loss_e = self.loss_energy(e_pred, e_true, weights=energy_weights)
+            loss_e, error_e = self.loss_energy(e_pred, e_true, energy_weights)
         if self.forces_weight > 0.0:
-            loss_f = self.loss_forces(f_pred, f_true)
+            loss_f, error_f = self.loss_forces(f_pred, f_true, y_true.batch)
         if self.stress_weight > 0.0:
-            loss_s = self.loss_stress(s_pred, s_true)
+            loss_s, error_s = self.loss_stress(s_pred, s_true)
 
         # Move results to loss object
-        loss['total'].value += self.compute_weighted_loss(loss_e, loss_f, loss_s)
+        loss['total'].value += self.compute_weighted(loss_e, loss_f, loss_s)
         loss['total'].n += y_true.batch.max() + 1
 
         if self.energy_weight > 0.0:
-            loss['energy'].value += loss_e
+            loss['energy'].value = loss_e
             loss['energy'].n += e_true.numel()
         if self.forces_weight > 0.0:
             loss['forces'].value += loss_f
@@ -228,4 +255,6 @@ class GenericLossFn(torch.nn.Module):
             loss['stress'].value += loss_s
             loss['stress'].n += s_true.numel()
 
-        return loss
+        error = self.compute_weighted(error_e, error_f, error_s)
+
+        return loss, error
