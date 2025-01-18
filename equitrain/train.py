@@ -243,7 +243,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     """ Optimizer and LR Scheduler """
     optimizer = create_optimizer(args, model)
     lr_scheduler = create_scheduler(args, optimizer)
-    last_lr = None
 
     criterion = GenericLossFn(**vars(args))
 
@@ -308,6 +307,12 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if accelerator.is_main_process:
             val_loss.log(logger, 'val', epoch=args.epochs_start - 1)
+
+        # Scheduler step before the first epoch for schedulers depending on the epoch
+        if lr_scheduler is not None:
+            lr_scheduler.step(metric=None, epoch=args.epochs_start - 1)
+
+        last_lr = lr_scheduler.get_last_lr()[0]
 
     for epoch in range(args.epochs_start, args.epochs_start + args.epochs):
         epoch_start_time = time.perf_counter()

@@ -23,11 +23,13 @@ class SchedulerWrapper:
             metric: The monitored metric (required for ReduceLROnPlateau).
         """
         if self.mode == 'epoch':
-            self.scheduler.step(epoch=epoch)
+            if epoch is not None:
+                self.scheduler.step(epoch=epoch)
+
         elif self.mode == 'metric':
-            if metric is None:
-                raise ValueError('Metric is required for ReduceLROnPlateau')
-            self.scheduler.step(metric)
+            if metric is not None:
+                self.scheduler.step(metric)
+
         else:
             raise ValueError(f'Unsupported mode: {self.mode}')
 
