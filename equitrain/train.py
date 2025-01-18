@@ -312,7 +312,9 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         if lr_scheduler is not None:
             lr_scheduler.step(metric=None, epoch=args.epochs_start - 1)
 
-        last_lr = lr_scheduler.get_last_lr()[0]
+            last_lr = lr_scheduler.get_last_lr()[0]
+        else:
+            last_lr = None
 
     for epoch in range(args.epochs_start, args.epochs_start + args.epochs):
         epoch_start_time = time.perf_counter()
