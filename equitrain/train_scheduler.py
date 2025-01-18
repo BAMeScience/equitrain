@@ -1,10 +1,44 @@
 import torch
 
 
+class SchedulerWrapper:
+    def __init__(self, args, scheduler):
+        """
+        Wrapper for different LR schedulers.
+
+        Args:
+            scheduler: The learning rate scheduler (ExponentialLR or ReduceLROnPlateau).
+            mode: "epoch" for schedulers like ExponentialLR, "metric" for ReduceLROnPlateau.
+        """
+        self.scheduler = scheduler
+        self.mode = {'exponential': 'epoch', 'step': 'epoch', 'plateau': 'metric'}[
+            args.scheduler
+        ]
+
+    def step(self, metric=None, epoch=None):
+        """
+        Steps the scheduler based on the mode.
+
+        Args:
+            metric: The monitored metric (required for ReduceLROnPlateau).
+        """
+        if self.mode == 'epoch':
+            self.scheduler.step(epoch=epoch)
+        elif self.mode == 'metric':
+            if metric is None:
+                raise ValueError('Metric is required for ReduceLROnPlateau')
+            self.scheduler.step(metric)
+        else:
+            raise ValueError(f'Unsupported mode: {self.mode}')
+
+    def get_last_lr(self):
+        return self.scheduler.get_last_lr()
+
+
 def scheduler_kwargs(args):
     kwargs = dict(
         scheduler_name=args.scheduler,
-        gamma=args.epochs,
+        gamma=args.gamma,
         min_lr=args.min_lr,
         eps=args.eps,
         step_size=args.step_size,

@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import torch
-import torch_geometric
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
@@ -22,7 +21,7 @@ from equitrain.model import get_model
 from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
 from equitrain.train_metrics import BestMetric, LossMetric
 from equitrain.train_optimizer import create_optimizer, update_weight_decay
-from equitrain.train_scheduler import create_scheduler
+from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
 from equitrain.utility import set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
@@ -257,6 +256,9 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     else:
         model_ema = None
 
+    # Use a wrapper for the scheduler with a unified interface
+    lr_scheduler = SchedulerWrapper(args, lr_scheduler)
+
     # Import model, optimizer, lr_scheduler from checkpoint if possible
     load_checkpoint(args, logger, accelerator, model_ema)
 
@@ -359,12 +361,12 @@ def _train_with_accelerator(args, accelerator: Accelerator):
                 )
 
         if lr_scheduler is not None:
-            lr_scheduler.step(train_loss.metrics['total'].avg)
+            lr_scheduler.step(metric=train_loss.metrics['total'].avg, epoch=epoch)
 
             if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
                 logger.log(
                     1,
-                    f'Epoch [{epoch:>4}] -- New learning rate: {lr_scheduler.get_last_lr()[0]}',
+                    f'Epoch [{epoch:>4}] -- New learning rate: {lr_scheduler.get_last_lr()[0]:.4g}',
                 )
 
             last_lr = lr_scheduler.get_last_lr()[0]
