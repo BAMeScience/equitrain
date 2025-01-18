@@ -124,7 +124,10 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         '--alpha', default=0.99, type=float, help='Smoothing constant (default: 0.99)'
     )
     parser.add_argument(
-        '--gamma', default=0.8, type=float, help='Multiplicative factor of learning rate decay (default: 0.8)'
+        '--gamma',
+        default=0.8,
+        type=float,
+        help='Multiplicative factor of learning rate decay (default: 0.8)',
     )
     parser.add_argument(
         '--momentum', default=0.9, type=float, help='SGD momentum (default: 0.9)'
