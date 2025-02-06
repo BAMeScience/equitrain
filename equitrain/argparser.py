@@ -266,9 +266,15 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
         parser.add_argument(
             '--loss-type',
-            help='Type of loss function [l1 (default), l2, huber]',
+            help='Type of loss function [l1 (default), smooth-l1, l2, huber]',
             type=str,
             default='l1',
+        )
+        parser.add_argument(
+            '--smooth-l1-beta',
+            help='Beta parameter for the Smooth-L1 loss (default: 1.0)',
+            type=float,
+            default=1.0,
         )
         parser.add_argument(
             '--huber-delta',

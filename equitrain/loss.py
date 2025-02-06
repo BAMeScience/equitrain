@@ -4,7 +4,13 @@ from equitrain.data.scatter import scatter_mean
 
 
 class GenericError(torch.nn.Module):
-    def __init__(self, loss_type: str = None, huber_delta: float = 1.0, **args):
+    def __init__(
+        self,
+        loss_type: str = None,
+        smooth_l1_beta: float = None,
+        huber_delta: float = None,
+        **args,
+    ):
         super().__init__()
 
         loss_type = loss_type.lower()
@@ -14,8 +20,13 @@ class GenericError(torch.nn.Module):
                 x, y, reduction='none'
             )
 
-        elif loss_type == 'l2':
-            self.error_fn = lambda x, y: torch.nn.functional.l2_loss(
+        elif loss_type == 'smooth-l1':
+            self.error_fn = lambda x, y: torch.nn.functional.smooth_l1_loss(
+                x, y, beta=smooth_l1_beta, reduction='none'
+            )
+
+        elif loss_type == 'l2' or loss_type == 'mse':
+            self.error_fn = lambda x, y: torch.nn.functional.mse_loss(
                 x, y, reduction='none'
             )
 
