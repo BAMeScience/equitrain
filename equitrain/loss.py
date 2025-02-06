@@ -3,13 +3,42 @@ import torch
 from equitrain.data.scatter import scatter_mean
 
 
-class L1LossEnergy(torch.nn.Module):
-    def __init__(self):
+class GenericError(torch.nn.Module):
+    def __init__(self, loss_type: str = None, huber_delta: float = 1.0, **args):
         super().__init__()
 
+        loss_type = loss_type.lower()
+
+        if type is None or loss_type == 'l1':
+            self.error_fn = lambda x, y: torch.nn.functional.l1_loss(
+                x, y, reduction='none'
+            )
+
+        elif loss_type == 'l2':
+            self.error_fn = lambda x, y: torch.nn.functional.l2_loss(
+                x, y, reduction='none'
+            )
+
+        elif loss_type == 'huber':
+            self.error_fn = lambda x, y: torch.nn.functional.huber_loss(
+                x, y, delta=huber_delta, reduction='none'
+            )
+
+        else:
+            raise ValueError(f'Invalid loss type: {loss_type}')
+
+    def forward(self, input, target):
+        return self.error_fn(input, target)
+
+
+class L1LossEnergy(torch.nn.Module):
+    def __init__(self, **args):
+        super().__init__()
+
+        self.error_fn = GenericError(**args)
+
     def forward(self, input, target, weights):
-        # TODO: Different loss types can be implemented here
-        error = torch.abs(input - target)
+        error = self.error_fn(input, target)
         error *= weights
 
         loss = error.mean()
@@ -19,12 +48,13 @@ class L1LossEnergy(torch.nn.Module):
 
 
 class L1LossForces(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, **args):
         super().__init__()
 
+        self.error_fn = GenericError(**args)
+
     def forward(self, input, target, batch):
-        # TODO: Different loss types can be implemented here
-        error = torch.abs(input - target)
+        error = self.error_fn(input, target)
 
         loss = error.mean()
 
@@ -36,12 +66,13 @@ class L1LossForces(torch.nn.Module):
 
 
 class L1LossStress(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, **args):
         super().__init__()
 
+        self.error_fn = GenericError(**args)
+
     def forward(self, input, target):
-        # TODO: Different loss types can be implemented here
-        error = torch.abs(input - target)
+        error = self.error_fn(input, target)
 
         loss = error.mean()
         error = error.detach()
@@ -178,10 +209,9 @@ class GenericLossFn(torch.nn.Module):
     ):
         super().__init__()
 
-        # TODO: Allow to select other loss functions with args
-        self.loss_energy = L1LossEnergy()
-        self.loss_forces = L1LossForces()
-        self.loss_stress = L1LossStress()
+        self.loss_energy = L1LossEnergy(**args)
+        self.loss_forces = L1LossForces(**args)
+        self.loss_stress = L1LossStress(**args)
 
         # TODO: Use register_buffer instead
         self.energy_weight = energy_weight

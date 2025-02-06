@@ -265,6 +265,18 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             '--scheduler', help='LR scheduler type', type=str, default='plateau'
         )
         parser.add_argument(
+            '--loss-type',
+            help='Type of loss function [l1 (default), l2, huber]',
+            type=str,
+            default='l1',
+        )
+        parser.add_argument(
+            '--huber-delta',
+            help='Delta parameter for the Huber loss (default: 0.01)',
+            type=float,
+            default=0.01,
+        )
+        parser.add_argument(
             '--shuffle',
             help='Shuffle the training dataset',
             type=str2bool,
