@@ -2,8 +2,16 @@ import torch
 
 
 class MaceWrapper(torch.nn.Module):
-    def __init__(self, args, model):
+    def __init__(self, args, model, optimize_atomic_energies=False):
         super().__init__()
+
+        if optimize_atomic_energies:
+            if 'atomic_energies' in model.atomic_energies_fn._buffers:
+                atomic_energies = model.atomic_energies_fn.atomic_energies
+                del model.atomic_energies_fn._buffers['atomic_energies']
+                model.atomic_energies_fn.atomic_energies = torch.nn.Parameter(
+                    atomic_energies
+                )
 
         self.model = model
         self.compute_force = args.forces_weight > 0.0

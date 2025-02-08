@@ -1,12 +1,3 @@
-import os
-
-import requests
-import sevenn._keys as KEY
-import torch
-from sevenn.model_build import build_E3_equivariant_model
-from sevenn.parse_input import read_config_yaml
-from tqdm import tqdm
-
 from equitrain.data import Statistics
 from equitrain.model_wrappers import SevennetWrapper
 
@@ -19,6 +10,9 @@ class SevennetWrapper(SevennetWrapper):
 
     @classmethod
     def get_config(cls, filename_config, filename_statistics):
+        import sevenn._keys as KEY
+        from sevenn.parse_input import read_config_yaml
+
         print(f'Reading statistics from `{filename_statistics}`')
 
         statistics = Statistics.load(filename_statistics)
@@ -50,6 +44,8 @@ class SevennetWrapper(SevennetWrapper):
 
     @classmethod
     def get_initial_model(cls, filename_config, filename_statistics):
+        from sevenn.model_build import build_E3_equivariant_model
+
         config = cls.get_config(filename_config, filename_statistics)
 
         return build_E3_equivariant_model(config)

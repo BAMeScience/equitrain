@@ -11,6 +11,7 @@ class MaceWrapper(MaceWrapper):
     def __init__(
         self,
         args,
+        optimize_atomic_energies=False,
         filename_model='mace.model',
         url='https://github.com/ACEsuit/mace-mp/releases/download/mace_mp_0/2023-12-10-mace-128-L0_epoch-199.model',
     ):
@@ -21,4 +22,8 @@ class MaceWrapper(MaceWrapper):
                 for data in tqdm(response.iter_content(), desc='Downloading MACE'):
                     handle.write(data)
 
-        super().__init__(args, torch.load(filename_model, weights_only=False))
+        super().__init__(
+            args,
+            torch.load(filename_model, weights_only=False),
+            optimize_atomic_energies=optimize_atomic_energies,
+        )
