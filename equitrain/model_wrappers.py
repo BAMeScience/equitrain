@@ -20,8 +20,6 @@ class MaceWrapper(torch.nn.Module):
         if not isinstance(y_pred, dict):
             y_pred = {'energy': y_pred[0], 'forces': y_pred[1], 'stress': y_pred[2]}
 
-        print(y_pred)
-
         return y_pred
 
 
