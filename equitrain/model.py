@@ -1,6 +1,6 @@
 import torch
 
-from equitrain.model_wrappers import MaceWrapper
+from equitrain.model_wrappers import MaceWrapper, SevennetWrapper
 
 
 def get_model(args, logger=None):
@@ -13,6 +13,8 @@ def get_model(args, logger=None):
 
     if args.model_wrapper == 'mace':
         model = MaceWrapper(args, model)
+    if args.model_wrapper == 'sevennet':
+        model = SevennetWrapper(args, model)
 
     if args.load_checkpoint_model is not None:
         if logger is not None:

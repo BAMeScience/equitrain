@@ -69,6 +69,7 @@ class AtomsToGraphs:
         # put the minimum data in torch geometric data object
         data = Data(
             cell=cell,
+            cell_volume=atoms.cell.volume,
             # atomic positions are sometimes expected as `pos`, or `positions`
             pos=positions,
             positions=positions,
