@@ -10,7 +10,7 @@ from equitrain.data import Statistics
 
 
 def get_statistics():
-    statistics_file = 'mace-alexandria_mptraj-statistics.json'
+    statistics_file = '../../data/alexandria+mptraj-statistics.json'
 
     print(f'Reading statistics from `{statistics_file}`')
 

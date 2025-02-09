@@ -210,12 +210,12 @@ class Loss(dict):
 class GenericLossFn(torch.nn.Module):
     def __init__(
         self,
-        energy_weight=1.0,
-        forces_weight=1.0,
-        stress_weight=0.0,
+        energy_weight: float = 1.0,
+        forces_weight: float = 1.0,
+        stress_weight: float = 0.0,
         # As opposed to forces, energy is predicted per material. By normalizing
         # the energy by the number of atoms, forces and energy become comparable
-        loss_energy_per_atom=True,
+        loss_energy_per_atom: bool = True,
         **args,
     ):
         super().__init__()
@@ -224,7 +224,6 @@ class GenericLossFn(torch.nn.Module):
         self.loss_forces = L1LossForces(**args)
         self.loss_stress = L1LossStress(**args)
 
-        # TODO: Use register_buffer instead
         self.energy_weight = energy_weight
         self.forces_weight = forces_weight
         self.stress_weight = stress_weight

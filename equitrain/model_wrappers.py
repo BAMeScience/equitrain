@@ -36,8 +36,6 @@ class SevennetWrapper(torch.nn.Module):
         super().__init__()
 
         self.model = model
-        self.compute_force = args.forces_weight > 0.0
-        self.compute_stress = args.stress_weight > 0.0
 
     def forward(self, input):
         input.energy = input.y

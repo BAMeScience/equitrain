@@ -9,7 +9,7 @@ from sevenn.parse_input import read_config_yaml
 from equitrain.data import Statistics
 
 
-def get_statistics(filename='mace-alexandria_mptraj-statistics.json'):
+def get_statistics(filename='../../data/alexandria+mptraj-statistics.json'):
     print(f'Reading statistics from `{filename}`')
 
     statistics = Statistics.load(filename)
