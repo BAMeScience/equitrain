@@ -17,7 +17,7 @@ def get_statistics(filename='../../data/alexandria+mptraj-statistics.json'):
     return statistics
 
 
-def get_config(filename='input.yaml'):
+def get_config(filename='sevennet-initial-model.yaml'):
     print(f'Reading initial config from `{filename}`')
 
     statistics = get_statistics()
