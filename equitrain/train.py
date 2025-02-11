@@ -16,10 +16,11 @@ from equitrain.argparser import (
 )
 from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
 from equitrain.logger import FileLogger
-from equitrain.loss import GenericLossFn, Loss
+from equitrain.loss import LossCollection
+from equitrain.loss_fn import LossFn, LossFnCollection
+from equitrain.loss_metrics import BestMetric, LossMetrics
 from equitrain.model import get_model
 from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
-from equitrain.train_metrics import BestMetric, LossMetric
 from equitrain.train_optimizer import create_optimizer, update_weight_decay
 from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
 from equitrain.utility import set_dtype, set_seeds
@@ -31,15 +32,15 @@ def evaluate_main(
     args,
     model: torch.nn.Module,
     accelerator: Accelerator,
-    criterion: torch.nn.Module,
     dataloader: Iterable,
     logger: FileLogger,
     desc: str = 'Evaluating',
 ):
-    model.eval()
-    criterion.eval()
+    loss_fn = LossFnCollection(**vars(args))
 
-    loss_metrics = LossMetric(args)
+    model.eval()
+
+    loss_metrics = LossMetrics(args)
 
     errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
 
@@ -50,34 +51,37 @@ def evaluate_main(
         desc=desc,
     ) as pbar:
         for data_list in pbar:
-            loss_sum = Loss(device=accelerator.device)
+            # Compute a collection of loss metrics for monitoring purposes
+            loss_collection = LossCollection(
+                args.loss_monitor.split(','), device=accelerator.device
+            )
 
             with accelerator.no_sync(model):
                 for data in data_list:
                     y_pred = model(data)
 
-                    loss, error = criterion(y_pred, data)
+                    loss, error = loss_fn(y_pred, data)
 
-                    if loss.isnan():
-                        logger.log(1, 'Nan value detected. Skipping batch...')
-                        continue
+                    # if loss.isnan():
+                    #    logger.log(1, 'Nan value detected. Skipping batch...')
+                    #    continue
 
-                    loss_sum += loss.detach()
+                    loss_collection += loss
 
                     errors[data.idx] = error
 
             # Gather loss across processes for computing metrics
-            loss_for_metrics, skip = loss_sum.gather_for_metrics(accelerator)
+            loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations
-            if skip['total']:
-                continue
+            # if skip['total']:
+            #    continue
 
             loss_metrics.update(loss_for_metrics)
 
             if accelerator.is_main_process and args.tqdm:
                 pbar.set_description(
-                    f'{desc} (loss={loss_metrics.metrics["total"].avg:.04f})'
+                    f'{desc} (loss={loss_metrics.main["total"].avg:.04f})'
                 )
 
     # Synchronize updates across processes
@@ -107,7 +111,6 @@ def train_one_epoch(
     model: torch.nn.Module,
     model_ema: ExponentialMovingAverage,
     accelerator: Accelerator,
-    criterion: torch.nn.Module,
     dataloader: Iterable,
     optimizer: torch.optim.Optimizer,
     errors: torch.Tensor,
@@ -115,10 +118,11 @@ def train_one_epoch(
     print_freq: int,
     logger: FileLogger,
 ):
-    model.train()
-    criterion.train()
+    loss_fn = LossFnCollection(**vars(args))
 
-    loss_metrics = LossMetric(args)
+    model.train()
+
+    loss_metrics = LossMetrics(args)
 
     start_time = time.perf_counter()
 
@@ -136,7 +140,10 @@ def train_one_epoch(
         desc='Training',
     ) as pbar:
         for step, data_list in pbar:
-            loss_sum = Loss(device=accelerator.device)
+            # Compute a collection of loss metrics for monitoring purposes
+            loss_collection = LossCollection(
+                args.loss_monitor.split(','), device=accelerator.device
+            )
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
             # processes. We need to loop over sub-batches withouth sync
@@ -145,18 +152,20 @@ def train_one_epoch(
                     try:
                         y_pred = model(data)
 
-                        loss, error = criterion(y_pred, data)
+                        # Evaluate metric to be optimized
+                        loss, error = loss_fn(y_pred, data)
 
-                        if loss.isnan():
-                            logger.log(2, 'Nan value detected. Skipping batch...')
-                            continue
+                        # if loss.isnan():
+                        #    logger.log(2, 'Nan value detected. Skipping batch...')
+                        #    continue
 
                         # Backpropagate here to prevent out-of-memory errors, gradients
                         # will be accumulated. Since we accumulate gradients over sub-batches,
                         # we have to rescale before the backward pass
-                        accelerator.backward(loss['total'].value / len(data_list))
 
-                        loss_sum += loss.detach()
+                        accelerator.backward(loss.main['total'].value / len(data_list))
+
+                        loss_collection += loss
 
                         errors[data.idx] = error
 
@@ -167,12 +176,12 @@ def train_one_epoch(
                         torch.cuda.empty_cache()
 
             # Gather loss across processes for computing metrics
-            loss_for_metrics, skip = loss_sum.gather_for_metrics(accelerator)
+            loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations in one of the processes
-            if skip['total']:
-                optimizer.zero_grad()
-                continue
+            # if skip['total']:
+            #    optimizer.zero_grad()
+            #   continue
 
             # Clip gradients before optimization step
             if args.gradient_clipping is not None and args.gradient_clipping > 0:
@@ -206,7 +215,7 @@ def train_one_epoch(
 
                 if args.tqdm:
                     pbar.set_description(
-                        f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.metrics["total"].avg:.04f})'
+                        f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04f})'
                     )
 
     # Synchronize updates across processes
@@ -244,8 +253,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     optimizer = create_optimizer(args, model)
     lr_scheduler = create_scheduler(args, optimizer)
 
-    criterion = GenericLossFn(**vars(args))
-
     # Prepare all components with accelerate
     model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
@@ -274,7 +281,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
-            criterion=criterion,
             dataloader=train_loader,
             logger=logger,
             desc='Estimating errors',
@@ -294,15 +300,14 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
-            criterion=criterion,
             dataloader=val_loader,
             logger=logger,
         )
 
-        best_metrics.update(val_loss, args.epochs_start - 1)
+        best_metrics.update(val_loss.main, args.epochs_start - 1)
 
         accelerator.log(
-            {'val_loss': val_loss.metrics['total'].avg}, step=args.epochs_start - 1
+            {'val_loss': val_loss.main['total'].avg}, step=args.epochs_start - 1
         )
 
         if accelerator.is_main_process:
@@ -327,7 +332,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
-            criterion=criterion,
             dataloader=train_loader,
             optimizer=optimizer,
             errors=errors,
@@ -341,15 +345,14 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
-            criterion=criterion,
             dataloader=val_loader,
             logger=logger,
         )
 
-        update_val_result = best_metrics.update(valid_loss, epoch)
+        update_val_result = best_metrics.update(valid_loss.main, epoch)
 
-        accelerator.log({'train_loss': train_loss.metrics['total'].avg}, step=epoch)
-        accelerator.log({'val_loss': valid_loss.metrics['total'].avg}, step=epoch)
+        accelerator.log({'train_loss': train_loss.main['total'].avg}, step=epoch)
+        accelerator.log({'val_loss': valid_loss.main['total'].avg}, step=epoch)
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
@@ -364,11 +367,11 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
             if update_val_result:
                 save_checkpoint(
-                    args, logger, accelerator, epoch, valid_loss, model, model_ema
+                    args, logger, accelerator, epoch, valid_loss.main, model, model_ema
                 )
 
         if lr_scheduler is not None:
-            lr_scheduler.step(metric=train_loss.metrics['total'].avg, epoch=epoch)
+            lr_scheduler.step(metric=train_loss.main['total'].avg, epoch=epoch)
 
             if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
                 logger.log(
@@ -385,12 +388,11 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
-            criterion=criterion,
             dataloader=test_loader,
             logger=logger,
         )
 
-        accelerator.log({'test_loss': test_loss.metrics['total'].avg}, step=epoch)
+        accelerator.log({'test_loss': test_loss.main['total'].avg}, step=epoch)
 
         if accelerator.is_main_process:
             test_loss.log(logger, 'Test')

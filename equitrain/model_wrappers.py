@@ -50,7 +50,9 @@ class SevennetWrapper(torch.nn.Module):
         y_pred = {
             'energy': y_pred.inferred_total_energy,
             'forces': y_pred.inferred_force,
-            'stress': self.batch_voigt_to_tensor(y_pred.inferred_stress),
+            'stress': self.batch_voigt_to_tensor(y_pred.inferred_stress).type(
+                y_pred.inferred_total_energy.dtype
+            ),
         }
 
         return y_pred

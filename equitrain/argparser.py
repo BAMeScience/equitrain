@@ -266,9 +266,15 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
         parser.add_argument(
             '--loss-type',
-            help='Type of loss function [l1 (default), smooth-l1, l2, huber]',
+            help='Type of loss function [mae, smooth-l1, mse, huber (default)]',
             type=str,
-            default='l1',
+            default='huber',
+        )
+        parser.add_argument(
+            '--loss-monitor',
+            help='Comma separated list of loss types to monitor [default: mae,mse]',
+            type=str,
+            default='mae,mse',
         )
         parser.add_argument(
             '--smooth-l1-beta',

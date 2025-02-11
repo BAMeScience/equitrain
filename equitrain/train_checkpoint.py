@@ -60,9 +60,7 @@ def load_checkpoint(args, logger, accelerator: Accelerator, model_ema):
 def save_checkpoint(
     args, logger, accelerator: Accelerator, epoch, valid_loss, model, model_ema
 ):
-    output_dir = 'best_val_epochs@{}_e@{:.4f}'.format(
-        epoch, valid_loss.metrics['total'].avg
-    )
+    output_dir = 'best_val_epochs@{}_e@{:.4f}'.format(epoch, valid_loss['total'].avg)
 
     logger.log(
         1,
