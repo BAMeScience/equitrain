@@ -62,9 +62,9 @@ def evaluate_main(
 
                     loss, error = loss_fn(y_pred, data)
 
-                    # if loss.isnan():
-                    #    logger.log(1, 'Nan value detected. Skipping batch...')
-                    #    continue
+                    if loss.main.isnan():
+                        logger.log(1, 'Nan value detected. Skipping batch...')
+                        continue
 
                     loss_collection += loss
 
@@ -74,8 +74,8 @@ def evaluate_main(
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations
-            # if skip['total']:
-            #    continue
+            if loss_collection.main['total'].n == 0.0:
+                continue
 
             loss_metrics.update(loss_for_metrics)
 
@@ -115,7 +115,6 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     errors: torch.Tensor,
     epoch: int,
-    print_freq: int,
     logger: FileLogger,
 ):
     loss_fn = LossFnCollection(**vars(args))
@@ -144,6 +143,8 @@ def train_one_epoch(
             loss_collection = LossCollection(
                 args.loss_monitor.split(','), device=accelerator.device
             )
+            # Reset gradients
+            optimizer.zero_grad()
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
             # processes. We need to loop over sub-batches withouth sync
@@ -155,14 +156,13 @@ def train_one_epoch(
                         # Evaluate metric to be optimized
                         loss, error = loss_fn(y_pred, data)
 
-                        # if loss.isnan():
-                        #    logger.log(2, 'Nan value detected. Skipping batch...')
-                        #    continue
+                        if loss.main.isnan():
+                            logger.log(2, 'Nan value detected. Skipping batch...')
+                            continue
 
                         # Backpropagate here to prevent out-of-memory errors, gradients
                         # will be accumulated. Since we accumulate gradients over sub-batches,
                         # we have to rescale before the backward pass
-
                         accelerator.backward(loss.main['total'].value / len(data_list))
 
                         loss_collection += loss
@@ -179,9 +179,8 @@ def train_one_epoch(
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
 
             # Check if loss was NaN for all iterations in one of the processes
-            # if skip['total']:
-            #    optimizer.zero_grad()
-            #   continue
+            if loss_collection.main['total'].n == 0.0:
+                continue
 
             # Clip gradients before optimization step
             if args.gradient_clipping is not None and args.gradient_clipping > 0:
@@ -189,7 +188,6 @@ def train_one_epoch(
 
             # Sync of gradients across processes occurs here
             optimizer.step()
-            optimizer.zero_grad()
 
             if model_ema is not None:
                 model_ema.update()
@@ -199,7 +197,7 @@ def train_one_epoch(
             if accelerator.is_main_process:
                 # Print intermediate performance statistics only for higher verbose levels
                 if args.verbose > 1 and (
-                    step % print_freq == 0 or step == len(dataloader) - 1
+                    step % args.print_freq == 0 or step == len(dataloader) - 1
                 ):
                     w = time.perf_counter() - start_time
                     e = (step + 1) / len(dataloader)
@@ -218,6 +216,8 @@ def train_one_epoch(
                         f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04f})'
                     )
 
+    # Reset gradients
+    optimizer.zero_grad()
     # Synchronize updates across processes
     accelerator.wait_for_everyone()
     # Sum local errors across all processes
@@ -336,7 +336,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             optimizer=optimizer,
             errors=errors,
             epoch=epoch,
-            print_freq=args.print_freq,
             logger=logger,
         )
 

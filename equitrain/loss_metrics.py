@@ -77,10 +77,10 @@ class LossMetric(dict):
 
         logger.log(1, info_str)
 
-    def log_step(self, logger, epoch, step, length, time=None, lr=None):
+    def log_step(self, logger, epoch, step, length, mode, time=None, lr=None):
         """Log the current loss metrics."""
 
-        info_str_prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- '
+        info_str_prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- {mode}'
         info_str_postfix = ''
 
         if time is not None:
@@ -89,16 +89,16 @@ class LossMetric(dict):
             info_str_postfix += f', lr={lr:.2e}'
 
         info_str = info_str_prefix
-        info_str += f': {self["total"].avg:.5f}'
+        info_str += f': {self["total"].avg:.6f}'
 
         if self['energy'] is not None:
-            info_str += f', energy: {self["energy"].avg:.5f}'
+            info_str += f', energy: {self["energy"].avg:.6f}'
 
         if self['forces'] is not None:
-            info_str += f', forces: {self["forces"].avg:.5f}'
+            info_str += f', forces: {self["forces"].avg:.6f}'
 
         if self['stress'] is not None:
-            info_str += f', stress: {self["stress"].avg:.5f}'
+            info_str += f', stress: {self["stress"].avg:.6f}'
 
         info_str += info_str_postfix
 
@@ -165,11 +165,27 @@ class LossMetrics(dict):
                 f'{mode:>5} {"[" + loss_type + "]":7}',
                 epoch=epoch,
                 step=step,
-                time=time,
-                lr=lr,
+                time=None,
+                lr=None,
             )
 
     def log_step(self, logger, epoch, step, length, time=None, lr=None):
-        self.main.log_step(self, logger, epoch, step, length, time=time, lr=lr)
+        self.main.log_step(
+            logger,
+            epoch,
+            step,
+            length,
+            f'{"[" + self.main_type + "]":7}',
+            time=time,
+            lr=lr,
+        )
         for loss_type, loss_metric in self.items():
-            loss_metric.log_step(self, logger, epoch, step, length, time=time, lr=lr)
+            loss_metric.log_step(
+                logger,
+                epoch,
+                step,
+                length,
+                f'{"[" + loss_type + "]":7}',
+                time=None,
+                lr=None,
+            )

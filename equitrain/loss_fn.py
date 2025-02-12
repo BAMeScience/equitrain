@@ -241,7 +241,10 @@ class LossFnCollection(torch.nn.Module):
         for loss_type, loss_fn in self.loss_fns.items():
             loss[loss_type], _ = loss_fn(
                 # Detach predictions for other loss functions
-                {key: value.detach() for key, value in y_pred.items()},
+                {
+                    key: value.detach() if value is not None else None
+                    for key, value in y_pred.items()
+                },
                 y_true,
             )
 
