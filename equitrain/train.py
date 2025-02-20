@@ -244,11 +244,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     """ Network """
     model = get_model(args, logger=logger)
 
-    if accelerator.is_main_process:
-        n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-        logger.log(1, f'Number of params: {n_parameters}')
-
     """ Optimizer and LR Scheduler """
     optimizer = create_optimizer(args, model)
     lr_scheduler = create_scheduler(args, optimizer)
@@ -273,6 +268,21 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Record the best validation loss and corresponding epoch
     best_metrics = BestMetric(args)
+
+    """ Print training statistics """
+    if accelerator.is_main_process:
+        n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+        logger.log(1, f'Number of params           : {n_parameters}')
+        logger.log(1, f'Number of training points  : {len(train_loader)}')
+        logger.log(
+            1,
+            f'Number of validation points: {len(val_loader) if val_loader is not None else 0}',
+        )
+        logger.log(
+            1,
+            f'Number of test points      : {len(test_loader) if test_loader is not None else 0}',
+        )
 
     # Prediction errors for sampling training data accordingly
     if args.weighted_sampler:
