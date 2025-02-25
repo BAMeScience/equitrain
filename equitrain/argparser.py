@@ -262,6 +262,18 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             '--epochs-start', help='Number of starting epoch', type=int, default=1
         )
         parser.add_argument(
+            '--train-max-steps',
+            help='Maximum number of steps within each training epoch (default: None)',
+            type=int,
+            default=None,
+        )
+        parser.add_argument(
+            '--valid-max-steps',
+            help='Maximum number of steps for computing the validation error (default: None)',
+            type=int,
+            default=None,
+        )
+        parser.add_argument(
             '--scheduler', help='LR scheduler type', type=str, default='plateau'
         )
         parser.add_argument(
@@ -272,7 +284,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
         parser.add_argument(
             '--loss-monitor',
-            help='Comma separated list of loss types to monitor [default: mae,mse]',
+            help='Comma separated list of loss types to monitor in addition to the loss function [default: mae,mse]',
             type=str,
             default='mae,mse',
         )

@@ -44,13 +44,18 @@ def evaluate_main(
 
     errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
 
+    if args.valid_max_steps is None:
+        total = len(dataloader)
+    else:
+        total = args.valid_max_steps
+
     with tqdm(
         dataloader,
-        total=len(dataloader),
+        total=total,
         disable=not args.tqdm or not accelerator.is_main_process,
         desc=desc,
     ) as pbar:
-        for data_list in pbar:
+        for step, data_list in enumerate(pbar):
             # Compute a collection of loss metrics for monitoring purposes
             loss_collection = LossCollection(
                 args.loss_monitor.split(','), device=accelerator.device
@@ -83,6 +88,10 @@ def evaluate_main(
                 pbar.set_description(
                     f'{desc} (loss={loss_metrics.main["total"].avg:.04f})'
                 )
+
+            # Stop evaluating if maximum number of steps is defined and reached
+            if step >= total:
+                break
 
     # Synchronize updates across processes
     accelerator.wait_for_everyone()
@@ -132,9 +141,14 @@ def train_one_epoch(
             args, dataloader, errors, accelerator, logger
         )
 
+    if args.train_max_steps is None:
+        total = len(dataloader)
+    else:
+        total = args.train_max_steps
+
     with tqdm(
         enumerate(dataloader),
-        total=len(dataloader),
+        total=total,
         disable=not args.tqdm or not accelerator.is_main_process,
         desc='Training',
     ) as pbar:
@@ -215,6 +229,10 @@ def train_one_epoch(
                     pbar.set_description(
                         f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04f})'
                     )
+
+            # Stop training if maximum number of steps is defined and reached
+            if step >= total:
+                break
 
     # Reset gradients
     optimizer.zero_grad()
