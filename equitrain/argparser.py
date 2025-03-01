@@ -170,6 +170,7 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     )
     parser.add_argument(
         '--plateau-mode',
+        choices=['min', 'max'],
         type=str,
         default='min',
         help='One of min, max. In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing (default: min)',
@@ -277,8 +278,16 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             '--scheduler', help='LR scheduler type', type=str, default='plateau'
         )
         parser.add_argument(
+            '--scheduler_monitor',
+            help='Loss monitored by the scheduler [train (default), val]',
+            choices=['train', 'val'],
+            type=str,
+            default='train',
+        )
+        parser.add_argument(
             '--loss-type',
             help='Type of loss function [mae, smooth-l1, mse, huber (default)]',
+            choices=['mae', 'smooth-l1', 'mse', 'huber'],
             type=str,
             default='huber',
         )

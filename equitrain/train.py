@@ -398,7 +398,10 @@ def _train_with_accelerator(args, accelerator: Accelerator):
                 )
 
         if lr_scheduler is not None:
-            lr_scheduler.step(metric=train_loss.main['total'].avg, epoch=epoch)
+            if args.scheduler_monitor == 'train':
+                lr_scheduler.step(metric=train_loss.main['total'].avg, epoch=epoch)
+            if args.scheduler_monitor == 'val':
+                lr_scheduler.step(metric=val_loss.main['total'].avg, epoch=epoch)
 
             if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
                 logger.log(
