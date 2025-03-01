@@ -169,6 +169,13 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help='Threshold for measuring the new optimum, to only focus on significant changes (default: 1e-4)',
     )
     parser.add_argument(
+        '--plateau-threshold-mode',
+        choices=['rel', 'abs'],
+        type=float,
+        default=1e-4,
+        help='One of rel, abs. In rel mode, dynamic_threshold = best * ( 1 + threshold ) in `max` mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: `rel`.',
+    )
+    parser.add_argument(
         '--plateau-mode',
         choices=['min', 'max'],
         type=str,
