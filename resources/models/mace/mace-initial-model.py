@@ -41,7 +41,7 @@ def get_model(args: argparse.Namespace):
 
     heads = list(args.heads.keys())
 
-    z_table, atomic_energies, r_max, args.mean, args.std = get_statistics()
+    atomic_numbers, atomic_energies, args.r_max, args.mean, args.std = get_statistics()
 
     model, output_args = configure_model(
         args,
@@ -49,7 +49,7 @@ def get_model(args: argparse.Namespace):
         atomic_energies,
         model_foundation=None,
         heads=heads,
-        z_table=AtomicNumberTable(z_table),
+        z_table=AtomicNumberTable(atomic_numbers),
     )
 
     torch.save(model, 'mace-initial.model')
