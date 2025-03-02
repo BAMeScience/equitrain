@@ -42,13 +42,13 @@ def scheduler_kwargs(args):
         scheduler_name=args.scheduler,
         gamma=args.gamma,
         min_lr=args.min_lr,
-        eps=args.eps,
         step_size=args.step_size,
         plateau_mode=args.plateau_mode,
         plateau_factor=args.plateau_factor,
         plateau_patience=args.plateau_patience,
         plateau_threshold=args.plateau_threshold,
         plateau_threshold_mode=args.plateau_threshold_mode,
+        plateau_eps=args.plateau_eps,
     )
     return kwargs
 
@@ -68,13 +68,13 @@ def create_scheduler_impl(
     scheduler_name: str = None,
     gamma: float = None,
     min_lr: float = None,
-    eps: float = None,
     step_size: int = None,
     plateau_factor: float = None,
     plateau_patience: int = None,
     plateau_threshold: float = None,
     plateau_mode: str = None,
     plateau_threshold_mode: str = None,
+    plateau_eps: float = None,
 ) -> torch.optim.lr_scheduler.LRScheduler:
     lr_scheduler = None
 
@@ -99,8 +99,8 @@ def create_scheduler_impl(
             patience=plateau_patience,
             threshold=plateau_threshold,
             threshold_mode=plateau_threshold_mode,
+            eps=plateau_eps,
             min_lr=min_lr,
-            eps=eps,
         )
 
     return lr_scheduler
