@@ -17,12 +17,6 @@ def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     parser.add_argument('--valid-file', help='Validation data', type=str, default=None)
     parser.add_argument('--test-file', help='Test data', type=str, default=None)
     parser.add_argument(
-        '--statistics-file',
-        help='Statistics file in JSON format',
-        type=str,
-        default=None,
-    )
-    parser.add_argument(
         '--output-dir', help='Output directory for h5 files', type=str, default=''
     )
     return parser

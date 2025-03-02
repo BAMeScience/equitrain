@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 class AtomicNumberTable(list):
     def __init__(self, zs: list):
-        super().__init__(sorted(list(zs)))
+        super().__init__(zs)
 
     @classmethod
     def from_zs(cls, zs: Iterable[int]):
