@@ -171,8 +171,8 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     parser.add_argument(
         '--plateau-threshold-mode',
         choices=['rel', 'abs'],
-        type=float,
-        default=1e-4,
+        type=str,
+        default='rel',
         help='One of rel, abs. In rel mode, dynamic_threshold = best * ( 1 + threshold ) in `max` mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: `rel`.',
     )
     parser.add_argument(
@@ -386,7 +386,7 @@ def check_args_complete(args: argparse.ArgumentParser, script_type: str):
 
 def get_loss_monitor(args: argparse.ArgumentParser) -> list[str]:
     # Create list of loss types
-    loss_monitor = [item.strip().lower() for item in args['loss_monitor'].split(',')]
+    loss_monitor = [item.strip().lower() for item in args.loss_monitor.split(',')]
 
     if args.loss_type in loss_monitor:
         loss_monitor.remove(args.loss_type)

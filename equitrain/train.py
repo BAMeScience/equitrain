@@ -13,11 +13,12 @@ from equitrain.argparser import (
     ArgsFormatter,
     ArgumentError,
     check_args_complete,
+    get_loss_monitor,
 )
 from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
 from equitrain.logger import FileLogger
 from equitrain.loss import LossCollection
-from equitrain.loss_fn import LossFn, LossFnCollection
+from equitrain.loss_fn import LossFnCollection
 from equitrain.loss_metrics import BestMetric, LossMetrics
 from equitrain.model import get_model
 from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
@@ -58,7 +59,7 @@ def evaluate_main(
         for step, data_list in enumerate(pbar):
             # Compute a collection of loss metrics for monitoring purposes
             loss_collection = LossCollection(
-                args.loss_monitor.split(','), device=accelerator.device
+                args.loss_monitor, device=accelerator.device
             )
 
             with accelerator.no_sync(model):
@@ -155,7 +156,7 @@ def train_one_epoch(
         for step, data_list in pbar:
             # Compute a collection of loss metrics for monitoring purposes
             loss_collection = LossCollection(
-                args.loss_monitor.split(','), device=accelerator.device
+                args.loss_monitor, device=accelerator.device
             )
             # Reset gradients
             optimizer.zero_grad()
@@ -380,6 +381,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         accelerator.log({'train_loss': train_loss.main['total'].avg}, step=epoch)
         accelerator.log({'val_loss': valid_loss.main['total'].avg}, step=epoch)
+        accelerator.log({'lr': lr_scheduler.get_last_lr()[0]}, step=epoch)
 
         # Only main process should save model and compute validation statistics
         if accelerator.is_main_process:
@@ -441,6 +443,9 @@ def _train(args):
         log_with = 'wandb'
     else:
         log_with = None
+
+    # Filter out main loss type and convert to list
+    args.loss_monitor = get_loss_monitor(args)
 
     accelerator = Accelerator(
         step_scheduler_with_optimizer=False,

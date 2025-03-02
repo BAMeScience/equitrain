@@ -1,4 +1,3 @@
-from equitrain.argparser import get_loss_monitor
 from equitrain.loss import LossCollection
 
 
@@ -143,7 +142,7 @@ class LossMetrics(dict):
     def __init__(self, args):
         self.main = LossMetric(args)
         self.main_type = args.loss_type.lower()
-        for loss_type in get_loss_monitor(args):
+        for loss_type in args.loss_monitor:
             self[loss_type] = LossMetric(args)
 
     def update(self, loss: LossCollection):
