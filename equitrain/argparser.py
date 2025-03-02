@@ -384,6 +384,16 @@ def check_args_complete(args: argparse.ArgumentParser, script_type: str):
             raise ValueError(f'Unexpected arguments: {extra}')
 
 
+def get_loss_monitor(args: argparse.ArgumentParser) -> list[str]:
+    # Create list of loss types
+    loss_monitor = [item.strip().lower() for item in args['loss_monitor'].split(',')]
+
+    if args.loss_type in loss_monitor:
+        loss_monitor.remove(args.loss_type)
+
+    return loss_monitor
+
+
 class ArgumentError(ValueError):
     """Custom exception raised when invalid or missing argument is present."""
 

@@ -1,5 +1,6 @@
 import torch
 
+from equitrain.argparser import get_loss_monitor
 from equitrain.data.scatter import scatter_mean
 from equitrain.loss import Loss, LossCollection
 
@@ -228,7 +229,7 @@ class LossFnCollection(torch.nn.Module):
 
         # Additional loss metrics
         self.loss_fns = {}
-        for loss_type in args['loss_monitor'].split(','):
+        for loss_type in get_loss_monitor(args):
             args_new = {**args, 'loss_type': loss_type}
             self.loss_fns[loss_type] = LossFn(**args_new)
 

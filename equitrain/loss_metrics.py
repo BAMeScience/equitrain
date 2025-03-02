@@ -1,3 +1,4 @@
+from equitrain.argparser import get_loss_monitor
 from equitrain.loss import LossCollection
 
 
@@ -141,13 +142,13 @@ class BestMetric(dict):
 class LossMetrics(dict):
     def __init__(self, args):
         self.main = LossMetric(args)
-        self.main_type = args.loss_type
-        for loss_type in args.loss_monitor.split(','):
+        self.main_type = args.loss_type.lower()
+        for loss_type in get_loss_monitor(args):
             self[loss_type] = LossMetric(args)
 
     def update(self, loss: LossCollection):
         self.main.update(loss.main)
-        for loss_type, loss_metric in self.items():
+        for loss_type, _ in self.items():
             self[loss_type].update(loss[loss_type])
 
     def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None):
