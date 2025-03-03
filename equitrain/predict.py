@@ -121,9 +121,11 @@ def _predict(args, device=None):
     r_force = torch.empty((0, 3), device=device)
     r_stress = torch.empty((0, 3, 3), device=device)
 
-    data_loader = get_dataloader(args.predict_file, args)
-
     model = get_model(args)
+
+    data_loader = get_dataloader(
+        args, args.predict_file, model.atomic_numbers, model.r_max
+    )
 
     for data_list in data_loader:
         for data in data_list:
@@ -150,8 +152,6 @@ def predict(args):
 
     if args.predict_file is None:
         raise ValueError('--predict-file is a required argument')
-    if args.statistics_file is None:
-        raise ValueError('--statistics-file is a required argument')
     if args.model is None:
         raise ValueError('--model is a required argument')
 

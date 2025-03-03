@@ -70,4 +70,4 @@ class XYZReader:
 
     @property
     def atomic_numbers(self):
-        return AtomicNumberTable(self.z_set)
+        return AtomicNumberTable(sorted(list(self.z_set)))

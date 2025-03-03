@@ -224,7 +224,7 @@ def main():
     for data in lmdb_dataset:
         atoms = convert_to_ase_object(data)
         atomic_numbers.update(atoms.get_atomic_numbers())
-    z_table = AtomicNumberTable(list(atomic_numbers))
+    z_table = AtomicNumberTable(sorted(list(atomic_numbers)))
 
     # Define output file paths
     output_hdf5 = 'output_data.h5'

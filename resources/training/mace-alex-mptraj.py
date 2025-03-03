@@ -11,7 +11,6 @@ def main():
 
     args.train_file = data_dir / 'train.h5'
     args.valid_file = data_dir / 'valid.h5'
-    args.statistics_file = data_dir / 'statistics.json'
     args.output_dir = 'result'
     args.model = 'mace-initial.model'
     args.model_wrapper = 'mace'

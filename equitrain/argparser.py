@@ -17,12 +17,6 @@ def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     parser.add_argument('--valid-file', help='Validation data', type=str, default=None)
     parser.add_argument('--test-file', help='Test data', type=str, default=None)
     parser.add_argument(
-        '--statistics-file',
-        help='Statistics file in JSON format',
-        type=str,
-        default=None,
-    )
-    parser.add_argument(
         '--output-dir', help='Output directory for h5 files', type=str, default=''
     )
     return parser
@@ -145,12 +139,6 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         help='Period of learning rate decay for the StepLR scheduler',
     )
     parser.add_argument(
-        '--eps',
-        default=1e-8,
-        type=float,
-        help='Term added to the denominator to improve numerical stability (default: 1e-8)',
-    )
-    parser.add_argument(
         '--plateau-patience',
         type=int,
         default=2,
@@ -181,6 +169,12 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         type=str,
         default='min',
         help='One of min, max. In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing (default: min)',
+    )
+    parser.add_argument(
+        '--plateau-eps',
+        default=1e-12,
+        type=float,
+        help='Minimal decay applied to lr. If the difference between new and old lr is smaller than eps, the update is ignored (default: 1e-12)',
     )
     parser.add_argument(
         '--decay-rate',

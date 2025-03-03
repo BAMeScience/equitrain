@@ -1,5 +1,7 @@
 import torch
 
+from equitrain.data.atomic import AtomicNumberTable
+
 
 class MaceWrapper(torch.nn.Module):
     def __init__(self, args, model, optimize_atomic_energies=False):
@@ -29,6 +31,14 @@ class MaceWrapper(torch.nn.Module):
             y_pred = {'energy': y_pred[0], 'forces': y_pred[1], 'stress': y_pred[2]}
 
         return y_pred
+
+    @property
+    def atomic_numbers(self):
+        return AtomicNumberTable(self.model.atomic_numbers.tolist())
+
+    @property
+    def r_max(self):
+        return self.model.r_max.item()
 
 
 class SevennetWrapper(torch.nn.Module):
@@ -93,3 +103,13 @@ class SevennetWrapper(torch.nn.Module):
         tensors[:, 0, 2] = tensors[:, 2, 0] = voigts[:, 4]  # σ_xz
         tensors[:, 0, 1] = tensors[:, 1, 0] = voigts[:, 5]  # σ_xy
         return tensors
+
+    @property
+    def atomic_numbers(self):
+        return AtomicNumberTable(
+            torch.nonzero(self.model.z_to_onehot_tensor != -1).squeeze().tolist()
+        )
+
+    @property
+    def r_max(self):
+        return self.model.cutoff

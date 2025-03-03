@@ -255,13 +255,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     )
     logger.log(1, ArgsFormatter(args))
 
-    """ Data Loader """
-    train_loader, val_loader, test_loader = get_dataloaders(
-        args, accelerator, logger=logger
-    )
-
     """ Network """
     model = get_model(args, logger=logger)
+
+    """ Data Loader """
+    train_loader, val_loader, test_loader = get_dataloaders(
+        args, model.atomic_numbers, model.r_max, accelerator
+    )
 
     """ Optimizer and LR Scheduler """
     optimizer = create_optimizer(args, model)
@@ -467,8 +467,6 @@ def train(args):
         raise ArgumentError('--train-file is a required argument')
     if args.valid_file is None:
         raise ArgumentError('--valid-file is a required argument')
-    if args.statistics_file is None:
-        raise ArgumentError('--statistics-file is a required argument')
     if args.output_dir is None:
         raise ArgumentError('--output-dir is a required argument')
     if args.model is None:
