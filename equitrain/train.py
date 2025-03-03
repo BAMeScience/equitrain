@@ -163,7 +163,7 @@ def train_one_epoch(
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
             # processes. We need to loop over sub-batches withouth sync
-            with accelerator.no_sync(model):
+            with accelerator.accumulate(model):
                 for i_, data in enumerate(data_list):
                     try:
                         y_pred = model(data)
