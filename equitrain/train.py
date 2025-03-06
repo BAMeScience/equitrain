@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
@@ -116,6 +117,23 @@ def evaluate(
         return evaluate_main(args, model, *args_other, **kwargs)
 
 
+def manual_sync_gradients(model, world_size):
+    """
+    Manually synchronizes gradients across GPUs by averaging them.
+
+    Args:
+        model (torch.nn.Module): The model whose gradients need to be synchronized.
+        world_size (int): The number of GPUs participating in training.
+    """
+    if world_size < 2:  # No need to sync if using only one GPU
+        return
+
+    for param in model.parameters():
+        if param.grad is not None:
+            dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
+            param.grad /= world_size  # Averaging the gradients
+
+
 def train_one_epoch(
     args,
     model: torch.nn.Module,
@@ -162,8 +180,9 @@ def train_one_epoch(
             optimizer.zero_grad()
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
-            # processes. We need to loop over sub-batches withouth sync
-            with accelerator.accumulate(model):
+            # processes. We need to loop over sub-batches withouth sync. The `accumulate`
+            # variant, which does automatic syncing seems to cause CUDA errors
+            with accelerator.no_sync(model):
                 for i_, data in enumerate(data_list):
                     try:
                         y_pred = model(data)
@@ -189,6 +208,11 @@ def train_one_epoch(
                             1, f'OOM error on graph {i_} in batch {step}. Skipping...'
                         )
                         torch.cuda.empty_cache()
+
+            # Synchronize processes
+            accelerator.wait_for_everyone()
+            # Synchronize gradients across processes
+            manual_sync_gradients(model, torch.distributed.get_world_size())
 
             # Gather loss across processes for computing metrics
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
@@ -235,10 +259,10 @@ def train_one_epoch(
             if step >= total:
                 break
 
-    # Reset gradients
-    optimizer.zero_grad()
     # Synchronize updates across processes
     accelerator.wait_for_everyone()
+    # Reset gradients
+    optimizer.zero_grad()
     # Sum local errors across all processes
     accelerator.reduce(errors, reduction='sum')
 
