@@ -4,7 +4,6 @@ import torch
 from accelerate import Accelerator
 
 from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
-from equitrain.data.statistics_data import Statistics
 from equitrain.logger import FileLogger
 
 from .loaders_dynamic import DynamicGraphLoader

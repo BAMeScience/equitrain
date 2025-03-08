@@ -68,10 +68,6 @@ def evaluate_main(
 
                     loss, error = loss_fn(y_pred, data)
 
-                    if loss.main.isnan():
-                        logger.log(1, 'Nan value detected. Skipping batch...')
-                        continue
-
                     loss_collection += loss
 
                     errors[data.idx] = error
@@ -94,8 +90,6 @@ def evaluate_main(
             if step >= total:
                 break
 
-    # Synchronize updates across processes
-    accelerator.wait_for_everyone()
     # Sum local errors across all processes
     accelerator.reduce(errors, reduction='sum')
 
@@ -114,6 +108,24 @@ def evaluate(
             return evaluate_main(args, model, *args_other, **kwargs)
     else:
         return evaluate_main(args, model, *args_other, **kwargs)
+
+
+def forward_and_backward(
+    model, data, data_list, errors, loss_fn, loss_collection, accelerator
+):
+    y_pred = model(data)
+
+    # Evaluate metric to be optimized
+    loss, error = loss_fn(y_pred, data)
+
+    # Backpropagate here to prevent out-of-memory errors, gradients
+    # will be accumulated. Since we accumulate gradients over sub-batches,
+    # we have to rescale before the backward pass
+    accelerator.backward(loss.main['total'].value / len(data_list))
+
+    loss_collection += loss
+
+    errors[data.idx] = error
 
 
 def train_one_epoch(
@@ -163,39 +175,32 @@ def train_one_epoch(
 
             # Sub-batching causes deadlocks when the number of sub-batches varies between
             # processes. We need to loop over sub-batches withouth sync
-            with accelerator.accumulate(model):
+            with accelerator.no_sync(model):
                 for i_, data in enumerate(data_list):
-                    try:
-                        y_pred = model(data)
+                    # Break before last forward/backward pass
+                    if i_ + 1 == len(data_list):
+                        break
 
-                        # Evaluate metric to be optimized
-                        loss, error = loss_fn(y_pred, data)
+                    forward_and_backward(
+                        model,
+                        data,
+                        data_list,
+                        errors,
+                        loss_fn,
+                        loss_collection,
+                        accelerator,
+                    )
 
-                        if loss.main.isnan():
-                            logger.log(2, 'Nan value detected. Skipping batch...')
-                            continue
-
-                        # Backpropagate here to prevent out-of-memory errors, gradients
-                        # will be accumulated. Since we accumulate gradients over sub-batches,
-                        # we have to rescale before the backward pass
-                        accelerator.backward(loss.main['total'].value / len(data_list))
-
-                        loss_collection += loss
-
-                        errors[data.idx] = error
-
-                    except torch.OutOfMemoryError:
-                        logger.log(
-                            1, f'OOM error on graph {i_} in batch {step}. Skipping...'
-                        )
-                        torch.cuda.empty_cache()
-
-            # Gather loss across processes for computing metrics
-            loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
-
-            # Check if loss was NaN for all iterations in one of the processes
-            if loss_collection.main['total'].n == 0.0:
-                continue
+            # Do final pass here to sync processes
+            forward_and_backward(
+                model,
+                data,
+                data_list,
+                errors,
+                loss_fn,
+                loss_collection,
+                accelerator,
+            )
 
             # Clip gradients before optimization step
             if args.gradient_clipping is not None and args.gradient_clipping > 0:
@@ -206,6 +211,9 @@ def train_one_epoch(
 
             if model_ema is not None:
                 model_ema.update()
+
+            # Gather loss across processes for computing metrics
+            loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
 
             loss_metrics.update(loss_for_metrics)
 
@@ -237,8 +245,6 @@ def train_one_epoch(
 
     # Reset gradients
     optimizer.zero_grad()
-    # Synchronize updates across processes
-    accelerator.wait_for_everyone()
     # Sum local errors across all processes
     accelerator.reduce(errors, reduction='sum')
 
