@@ -47,7 +47,7 @@ def load_checkpoint(args, logger, accelerator: Accelerator, model_ema):
         ema_path = Path(args.load_checkpoint) / 'ema.bin'
 
         if model_ema and ema_path.exists():
-            model_ema.load_state_dict(torch.load(ema_path))
+            model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
 
         if (
             m := re.match('.*best_[a-zA-Z]+_epochs@([0-9]+)_', args.load_checkpoint)
