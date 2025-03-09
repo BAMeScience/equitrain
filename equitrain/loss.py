@@ -61,8 +61,8 @@ class Loss(dict):
 
         return self
 
-    def isnan(self):
-        return torch.isnan(self['total'].value)
+    def isfinite(self):
+        return torch.isfinite(self['total'].value)
 
     def detach(self):
         r = Loss()

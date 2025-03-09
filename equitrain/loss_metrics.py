@@ -1,3 +1,5 @@
+import math
+
 from equitrain.loss import LossCollection
 
 
@@ -13,6 +15,8 @@ class AverageMeter:
         self.avg = 0
 
     def update(self, val, n=1):
+        if n == 0 or not math.isfinite(val):
+            return
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count

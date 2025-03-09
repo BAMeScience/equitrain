@@ -34,7 +34,6 @@ def evaluate_main(
     model: torch.nn.Module,
     accelerator: Accelerator,
     dataloader: Iterable,
-    logger: FileLogger,
     desc: str = 'Evaluating',
 ):
     loss_fn = LossFnCollection(**vars(args))
@@ -68,16 +67,12 @@ def evaluate_main(
 
                     loss, error = loss_fn(y_pred, data)
 
-                    loss_collection += loss
-
-                    errors[data.idx] = error
+                    if loss.main.isfinite():
+                        loss_collection += loss
+                        errors[data.idx] = error
 
             # Gather loss across processes for computing metrics
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
-
-            # Check if loss was NaN for all iterations
-            if loss_collection.main['total'].n == 0.0:
-                continue
 
             loss_metrics.update(loss_for_metrics)
 
@@ -110,18 +105,46 @@ def evaluate(
         return evaluate_main(args, model, *args_other, **kwargs)
 
 
+def fix_gradients(args, model: torch.nn.Module, accelerator: Accelerator):
+    # Remove NaN and Inf from gradients
+    for param in model.parameters():
+        if param.grad is not None:
+            param.grad.data = torch.nan_to_num(param.grad.data, nan=0.0)
+
+    # Clip gradients before optimization step
+    if args.gradient_clipping is not None and args.gradient_clipping > 0:
+        accelerator.clip_grad_value_(model.parameters(), args.gradient_clipping)
+
+
 def forward_and_backward(
-    model, data, data_list, errors, loss_fn, loss_collection, accelerator
+    model,
+    data,
+    data_list,
+    i_,
+    step,
+    errors,
+    loss_fn,
+    loss_collection,
+    accelerator,
+    logger,
 ):
     y_pred = model(data)
 
     # Evaluate metric to be optimized
     loss, error = loss_fn(y_pred, data)
 
-    # Backpropagate here to prevent out-of-memory errors, gradients
-    # will be accumulated. Since we accumulate gradients over sub-batches,
-    # we have to rescale before the backward pass
-    accelerator.backward(loss.main['total'].value / len(data_list))
+    try:
+        # Backpropagate here to prevent out-of-memory errors, gradients
+        # will be accumulated. Since we accumulate gradients over sub-batches,
+        # we have to rescale before the backward pass
+        accelerator.backward(loss.main['total'].value / len(data_list))
+
+    except torch.OutOfMemoryError:
+        logger.log(
+            1,
+            f'OOM error during backward pass on graph {i_} in batch {step}. Skipping...',
+        )
+        torch.cuda.empty_cache()
 
     loss_collection += loss
 
@@ -185,10 +208,13 @@ def train_one_epoch(
                         model,
                         data,
                         data_list,
+                        i_,
+                        step,
                         errors,
                         loss_fn,
                         loss_collection,
                         accelerator,
+                        logger,
                     )
 
             # Do final pass here to sync processes
@@ -196,17 +222,18 @@ def train_one_epoch(
                 model,
                 data,
                 data_list,
+                i_,
+                step,
                 errors,
                 loss_fn,
                 loss_collection,
                 accelerator,
+                logger,
             )
 
-            # Clip gradients before optimization step
-            if args.gradient_clipping is not None and args.gradient_clipping > 0:
-                accelerator.clip_grad_value_(model.parameters(), args.gradient_clipping)
-
-            # Sync of gradients across processes occurs here
+            # Handle NaN/Inf values and clip gradients
+            fix_gradients(args, model, accelerator)
+            # Perform gradient step on accumulated gradients
             optimizer.step()
 
             if model_ema is not None:
@@ -214,6 +241,9 @@ def train_one_epoch(
 
             # Gather loss across processes for computing metrics
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
+
+            if not loss_for_metrics.main.isfinite():
+                logger.log(2, 'NaN/Inf value detected during training')
 
             loss_metrics.update(loss_for_metrics)
 
@@ -317,7 +347,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=train_loader,
-            logger=logger,
             desc='Estimating errors',
         )
     else:
@@ -336,7 +365,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
-            logger=logger,
         )
 
         best_metrics.update(valid_loss.main, args.epochs_start - 1)
@@ -380,7 +408,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
-            logger=logger,
         )
 
         update_val_result = best_metrics.update(valid_loss.main, epoch)
@@ -427,7 +454,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=test_loader,
-            logger=logger,
         )
 
         accelerator.log({'test_loss': test_loss.main['total'].avg}, step=epoch)
