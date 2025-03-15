@@ -1,6 +1,5 @@
 import sys
 
-import torch
 from tabulate import tabulate
 
 from equitrain import check_args_complete, get_args_parser_inspect
