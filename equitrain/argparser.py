@@ -199,6 +199,15 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     return parser
 
 
+def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument('--model', help='Path to a model file', type=str, default=None)
+    parser.add_argument(
+        '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
+    )
+
+    return parser
+
+
 def get_args_parser(script_type: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(f'Equitrain {script_type} script')
 
@@ -340,6 +349,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default=None,
         )
 
+    elif script_type == 'inspect':
+        add_inspect_args(parser)
+
     parser.add_argument(
         '-v',
         '--verbose',
@@ -361,6 +373,10 @@ def get_args_parser_train() -> argparse.ArgumentParser:
 
 def get_args_parser_predict() -> argparse.ArgumentParser:
     return get_args_parser('predict')
+
+
+def get_args_parser_inspect() -> argparse.ArgumentParser:
+    return get_args_parser('inspect')
 
 
 def check_args_complete(args: argparse.ArgumentParser, script_type: str):
