@@ -1,21 +1,59 @@
+from abc import ABC, abstractmethod
+
 import torch
 
 from equitrain.data.atomic import AtomicNumberTable
 
 
-class MaceWrapper(torch.nn.Module):
-    def __init__(self, args, model, optimize_atomic_energies=False):
+class AbstractWrapper(torch.nn.Module, ABC):
+    def __init__(self, model):
         super().__init__()
+        self.model = model
+
+    @abstractmethod
+    def forward(self, *args):
+        """
+        Defines the forward pass. Should implement the forward pass for the model.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def atomic_numbers(self):
+        """
+        Property that should return atomic numbers from the model.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def r_max(self):
+        """
+        Property that should return the r_max value from the model.
+        """
+        pass
+
+    @r_max.setter
+    @abstractmethod
+    def r_max(self, value):
+        """
+        Setter for r_max. Should modify the model's r_max.
+        """
+        pass
+
+
+class MaceWrapper(AbstractWrapper):
+    def __init__(self, args, model, optimize_atomic_energies=False):
+        super().__init__(model)
 
         if optimize_atomic_energies:
-            if 'atomic_energies' in model.atomic_energies_fn._buffers:
-                atomic_energies = model.atomic_energies_fn.atomic_energies
-                del model.atomic_energies_fn._buffers['atomic_energies']
-                model.atomic_energies_fn.atomic_energies = torch.nn.Parameter(
+            if 'atomic_energies' in self.model.atomic_energies_fn._buffers:
+                atomic_energies = self.model.atomic_energies_fn.atomic_energies
+                del self.model.atomic_energies_fn._buffers['atomic_energies']
+                self.model.atomic_energies_fn.atomic_energies = torch.nn.Parameter(
                     atomic_energies
                 )
 
-        self.model = model
         self.compute_force = args.forces_weight > 0.0
         self.compute_stress = args.stress_weight > 0.0
 
@@ -40,12 +78,14 @@ class MaceWrapper(torch.nn.Module):
     def r_max(self):
         return self.model.r_max.item()
 
+    @r_max.setter
+    def r_max(self, value):
+        self.model.r_max.fill_(value)
 
-class SevennetWrapper(torch.nn.Module):
+
+class SevennetWrapper(AbstractWrapper):
     def __init__(self, args, model):
-        super().__init__()
-
-        self.model = model
+        super().__init__(model)
 
     def forward(self, input):
         input.energy = input.y
@@ -113,3 +153,7 @@ class SevennetWrapper(torch.nn.Module):
     @property
     def r_max(self):
         return self.model.cutoff
+
+    @r_max.setter
+    def r_max(self, value):
+        self.model.cutoff.fill_(value)

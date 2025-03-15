@@ -34,6 +34,11 @@ def get_model(args, logger=None):
         # TODO: Check if file exists. Through a meaningful error if not
         model = torch.load(args.model, weights_only=False)
 
+    if hasattr(args, 'r_max') and args.r_max is not None:
+        if logger is not None:
+            logger.log(1, f'Overwriting r_max model parameter with r_max={args.r_max}')
+        model.r_max = args.r_max
+
     # Set attributes that might be required for the wrapper
     if not hasattr(args, 'energy_weight'):
         setattr(args, 'energy_weight', 0.0)

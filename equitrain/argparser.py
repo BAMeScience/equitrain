@@ -98,6 +98,12 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         nargs='*',
         help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
     )
+    parser.add_argument(
+        '--r-max',
+        help='Override model cutoff radius for graphs (default: None)',
+        type=float,
+        default=None,
+    )
 
     return parser
 

@@ -18,7 +18,12 @@ def _inspect(args):
         for name, param in model.named_parameters()
     ]
 
-    print(f'Total number of parameters: {n_parameters}\n')
+    print(f'Total number of parameters: {n_parameters}')
+    if hasattr(model, 'r_max'):
+        print(f'Model r_max               : {model.r_max}')
+    if hasattr(model, 'atomic_numbers'):
+        print(f'Model atomic numbers      : {model.atomic_numbers}')
+    print()
     print(tabulate(param_list, headers=['Name', 'Shape', 'Requires Grad']))
 
 
