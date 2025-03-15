@@ -16,10 +16,8 @@ class MaceWrapper(torch.nn.Module):
                 )
 
         self.model = model
-        self.compute_force = hasattr(args, 'forces_weight') and args.forces_weight > 0.0
-        self.compute_stress = (
-            hasattr(args, 'stress_weight') and args.stress_weight > 0.0
-        )
+        self.compute_force = args.forces_weight > 0.0
+        self.compute_stress = args.stress_weight > 0.0
 
     def forward(self, *args):
         y_pred = self.model(

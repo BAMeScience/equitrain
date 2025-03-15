@@ -86,6 +86,18 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--stress-weight', help='Weight for stress loss', type=float, default=1.0
     )
+    parser.add_argument(
+        '--freeze-params',
+        type=str,
+        nargs='*',
+        help='List of regex patterns matching model parameters to freeze.',
+    )
+    parser.add_argument(
+        '--unfreeze-params',
+        type=str,
+        nargs='*',
+        help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
+    )
 
     return parser
 
@@ -203,6 +215,18 @@ def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     parser.add_argument('--model', help='Path to a model file', type=str, default=None)
     parser.add_argument(
         '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
+    )
+    parser.add_argument(
+        '--freeze-params',
+        type=str,
+        nargs='*',
+        help='List of regex patterns matching model parameters to freeze.',
+    )
+    parser.add_argument(
+        '--unfreeze-params',
+        type=str,
+        nargs='*',
+        help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
     )
 
     return parser
