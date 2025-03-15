@@ -143,6 +143,7 @@ def forward_and_backward(
         logger.log(
             1,
             f'OOM error during backward pass on graph {i_} in batch {step}. Skipping...',
+            force=True,
         )
         torch.cuda.empty_cache()
 

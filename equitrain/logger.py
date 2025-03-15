@@ -31,13 +31,8 @@ class FileLogger:
         self.enable_logging = enable_logging
         self.output_dir = output_dir
         self.verbosity = verbosity
-
-        if enable_logging:
-            self.logger_name = logger_name
-            self.logger = self._setup_logger(log_to_file)
-        else:
-            self.logger_name = None
-            self.logger = NoOp()
+        self.logger_name = logger_name
+        self.logger = self._setup_logger(log_to_file)
 
     def _setup_logger(self, log_to_file):
         logger = logging.getLogger(self.logger_name)
@@ -63,7 +58,7 @@ class FileLogger:
         logger.propagate = False
         return logger
 
-    def log(self, level, message):
+    def log(self, level, message, force=False):
         """
         Log a message based on the verbosity level.
 
@@ -71,7 +66,7 @@ class FileLogger:
             level (int): Verbosity level (0 = INFO, 1 = WARNING, 2 = DEBUG).
             message (str): Message to log.
         """
-        if self.enable_logging and level in self.LOG_LEVELS:
+        if (self.enable_logging or force) and level in self.LOG_LEVELS:
             log_method = {
                 logging.INFO: self.logger.info,
                 logging.WARNING: self.logger.warning,
@@ -89,15 +84,6 @@ class FileLogger:
 
     def _cleanup(self):
         """Clean up handlers to avoid duplication or memory leaks."""
-        if self.enable_logging:
-            for handler in self.logger.handlers:
-                handler.close()
-            self.logger.handlers.clear()
-
-
-class NoOp:
-    def __getattr__(self, name):
-        def no_op(*args, **kwargs):
-            pass
-
-        return no_op
+        for handler in self.logger.handlers:
+            handler.close()
+        self.logger.handlers.clear()
