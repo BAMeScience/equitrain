@@ -57,7 +57,13 @@ def get_model(args, logger=None):
         if logger is not None:
             logger.log(1, f'Loading model checkpoint {args.load_checkpoint_model}...')
 
-        model.load_state_dict(torch.load(args.load_checkpoint_model, weights_only=True))
+        device = next(model.parameters()).device
+
+        model.load_state_dict(
+            torch.load(
+                args.load_checkpoint_model, weights_only=True, map_location=device
+            )
+        )
 
     model_freeze_params(args, model, logger=logger)
 

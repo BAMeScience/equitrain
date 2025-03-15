@@ -69,23 +69,27 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
     )
     parser.add_argument(
-        '--load-checkpoint', help='Load full checkpoint', type=str, default=None
+        '--r-max',
+        help='Override model cutoff radius for graphs (default: None)',
+        type=float,
+        default=None,
     )
+    return parser
+
+
+def add_model_checkpoint_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument(
         '--load-checkpoint-model',
         help='Load model checkpoint only',
         type=str,
         default=None,
     )
-    parser.add_argument(
-        '--energy-weight', help='Weight for energy loss', type=float, default=1.0
-    )
-    parser.add_argument(
-        '--forces-weight', help='Weight for forces loss', type=float, default=1.0
-    )
-    parser.add_argument(
-        '--stress-weight', help='Weight for stress loss', type=float, default=1.0
-    )
+    return parser
+
+
+def add_model_freeze_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--freeze-params',
         type=str,
@@ -98,12 +102,30 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         nargs='*',
         help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
     )
+    return parser
+
+
+def add_model_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = add_model_freeze_args(parser)
     parser.add_argument(
-        '--r-max',
-        help='Override model cutoff radius for graphs (default: None)',
-        type=float,
-        default=None,
+        '--energy-weight', help='Weight for energy loss', type=float, default=1.0
     )
+    parser.add_argument(
+        '--forces-weight', help='Weight for forces loss', type=float, default=1.0
+    )
+    parser.add_argument(
+        '--stress-weight', help='Weight for stress loss', type=float, default=1.0
+    )
+    parser.add_argument(
+        '--load-checkpoint', help='Load full checkpoint', type=str, default=None
+    )
+    return parser
+
+
+def add_model_all_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = add_model_args(parser)
+    parser = add_model_checkpoint_args(parser)
+    parser = add_model_train_args(parser)
 
     return parser
 
@@ -213,26 +235,23 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default=None,
         help='Use the median error for samples with a prediction error exceeding the specified threshold',
     )
-
     return parser
 
 
 def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument('--model', help='Path to a model file', type=str, default=None)
+    parser = add_model_args(parser)
+    parser = add_model_checkpoint_args(parser)
+    parser = add_model_freeze_args(parser)
+
+    return parser
+
+
+def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = add_model_args(parser)
+    parser = add_model_checkpoint_args(parser)
+
     parser.add_argument(
-        '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
-    )
-    parser.add_argument(
-        '--freeze-params',
-        type=str,
-        nargs='*',
-        help='List of regex patterns matching model parameters to freeze.',
-    )
-    parser.add_argument(
-        '--unfreeze-params',
-        type=str,
-        nargs='*',
-        help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
+        '--model-export', help='Export model to given file', type=str, default=None
     )
 
     return parser
@@ -266,7 +285,10 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default='average',
         )
         parser.add_argument(
-            '--r-max', help='Cutoff radius for graphs', type=float, default=4.5
+            '--r-max',
+            help='Cutoff radius for graphs (default: 4.5)',
+            type=float,
+            default=4.5,
         )
         parser.add_argument(
             '--energy-key',
@@ -290,7 +312,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
     elif script_type == 'train':
         add_common_file_args(parser)
         add_common_data_args(parser)
-        add_model_args(parser)
+        add_model_all_args(parser)
         add_optimizer_args(parser)
         parser.add_argument(
             '--resume',
@@ -372,6 +394,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_file_args(parser)
         add_common_data_args(parser)
         add_model_args(parser)
+        add_model_checkpoint_args(parser)
         parser.add_argument(
             '--predict-file',
             help='File with data for which predictions should be computed',
@@ -382,6 +405,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
     elif script_type == 'inspect':
         add_inspect_args(parser)
 
+    elif script_type == 'export':
+        add_export_args(parser)
+
     parser.add_argument(
         '-v',
         '--verbose',
@@ -389,7 +415,6 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         default=0,
         help='Increase verbosity level (e.g., -v, -vv, -vvv)',
     )
-
     return parser
 
 
@@ -407,6 +432,10 @@ def get_args_parser_predict() -> argparse.ArgumentParser:
 
 def get_args_parser_inspect() -> argparse.ArgumentParser:
     return get_args_parser('inspect')
+
+
+def get_args_parser_export() -> argparse.ArgumentParser:
+    return get_args_parser('export')
 
 
 def check_args_complete(args: argparse.ArgumentParser, script_type: str):
