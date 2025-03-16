@@ -330,14 +330,14 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
         logger.log(1, f'Number of params           : {n_parameters}')
-        logger.log(1, f'Number of training points  : {len(train_loader)}')
+        logger.log(1, f'Number of training points  : {len(train_loader.dataset)}')
         logger.log(
             1,
-            f'Number of validation points: {len(val_loader) if val_loader is not None else 0}',
+            f'Number of validation points: {len(val_loader.dataset) if val_loader is not None else 0}',
         )
         logger.log(
             1,
-            f'Number of test points      : {len(test_loader) if test_loader is not None else 0}',
+            f'Number of test points      : {len(test_loader.dataset) if test_loader is not None else 0}',
         )
 
     # Prediction errors for sampling training data accordingly
