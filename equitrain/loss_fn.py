@@ -1,6 +1,5 @@
 import torch
 
-from equitrain.argparser import get_loss_monitor
 from equitrain.data.scatter import scatter_mean
 from equitrain.loss import Loss, LossCollection
 
