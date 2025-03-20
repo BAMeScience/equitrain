@@ -79,8 +79,58 @@ class MaceWrapper(AbstractWrapper):
         return self.model.r_max.item()
 
     @r_max.setter
-    def r_max(self, value):
-        self.model.r_max.fill_(value)
+    def r_max(self, r_max):
+        if hasattr(self.model, 'radial_embedding'):
+            from mace.modules.blocks import RadialEmbeddingBlock
+            from mace.modules.radial import (
+                AgnesiTransform,
+                BesselBasis,
+                ChebychevBasis,
+                GaussianBasis,
+                SoftTransform,
+            )
+
+            num_bessel = self.model.radial_embedding.out_dim
+            num_polynomial_cutoff = self.model.radial_embedding.cutoff_fn.p.item()
+
+            if isinstance(self.model.radial_embedding.bessel_fn, BesselBasis):
+                radial_type = 'bessel'
+            elif isinstance(self.model.radial_embedding.bessel_fn, ChebychevBasis):
+                radial_type = 'chebychev'
+            elif isinstance(self.model.radial_embedding.bessel_fn, GaussianBasis):
+                radial_type = 'gaussian'
+            elif isinstance(self.model.radial_embedding.bessel_fn, GaussianBasis):
+                radial_type = 'gaussian'
+            else:
+                return
+
+            if isinstance(
+                self.model.radial_embedding.distance_transform, AgnesiTransform
+            ):
+                distance_transform = 'Agnesi'
+            elif isinstance(
+                self.model.radial_embedding.distance_transform, SoftTransform
+            ):
+                distance_transform = 'Soft'
+            else:
+                return
+
+            self.model.radial_embedding = RadialEmbeddingBlock(
+                r_max=r_max,
+                num_bessel=num_bessel,
+                num_polynomial_cutoff=num_polynomial_cutoff,
+                radial_type=radial_type,
+                distance_transform=distance_transform,
+            )
+
+        if hasattr(self.model, 'pair_repulsion'):
+            from mace.modules.radial import ZBLBasis
+
+            if self.model.pair_repulsion:
+                p = self.model.pair_repulsion_fn.p
+                self.model.pair_repulsion_fn = ZBLBasis(r_max=r_max, p=p)
+
+        self.model.r_max.fill_(r_max)
 
 
 class SevennetWrapper(AbstractWrapper):
