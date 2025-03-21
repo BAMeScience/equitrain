@@ -56,6 +56,7 @@ docu = [
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
+equitrain-evaluate   = "equitrain.scripts.equitrain_evaluate:main"
 equitrain-export     = "equitrain.scripts.equitrain_export:main"
 equitrain-inspect    = "equitrain.scripts.equitrain_inspect:main"
 equitrain-predict    = "equitrain.scripts.equitrain_predict:main"

@@ -16,6 +16,7 @@ from equitrain.argparser import (
     get_loss_monitor,
 )
 from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
+from equitrain.evaluate import evaluate_main
 from equitrain.logger import FileLogger
 from equitrain.loss import LossCollection
 from equitrain.loss_fn import LossFnCollection
@@ -27,82 +28,6 @@ from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
 from equitrain.utility import set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
-
-
-def evaluate_main(
-    args,
-    model: torch.nn.Module,
-    accelerator: Accelerator,
-    dataloader: Iterable,
-    desc: str = 'Evaluating',
-):
-    loss_fn = LossFnCollection(**vars(args))
-
-    model.eval()
-
-    loss_metrics = LossMetrics(args)
-
-    errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
-
-    if args.valid_max_steps is None:
-        total = len(dataloader)
-    else:
-        total = args.valid_max_steps
-
-    with tqdm(
-        dataloader,
-        total=total,
-        disable=not args.tqdm or not accelerator.is_main_process,
-        desc=desc,
-    ) as pbar:
-        for step, data_list in enumerate(pbar):
-            # Compute a collection of loss metrics for monitoring purposes
-            loss_collection = LossCollection(
-                args.loss_monitor, device=accelerator.device
-            )
-
-            with accelerator.no_sync(model):
-                for data in data_list:
-                    y_pred = model(data)
-
-                    loss, error = loss_fn(y_pred, data)
-
-                    if loss.main.isfinite():
-                        loss_collection += loss
-                        errors[data.idx] = error
-
-            # Gather loss across processes for computing metrics
-            loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
-
-            loss_metrics.update(loss_for_metrics)
-
-            if accelerator.is_main_process and args.tqdm:
-                pbar.set_description(
-                    f'{desc} (loss={loss_metrics.main["total"].avg:.04f})'
-                )
-
-            # Stop evaluating if maximum number of steps is defined and reached
-            if step >= total:
-                break
-
-    # Sum local errors across all processes
-    accelerator.reduce(errors, reduction='sum')
-
-    return loss_metrics, errors
-
-
-def evaluate(
-    args,
-    model: torch.nn.Module,
-    model_ema: ExponentialMovingAverage,
-    *args_other,
-    **kwargs,
-):
-    if model_ema:
-        with model_ema.average_parameters():
-            return evaluate_main(args, model, *args_other, **kwargs)
-    else:
-        return evaluate_main(args, model, *args_other, **kwargs)
 
 
 def fix_gradients(args, model: torch.nn.Module, accelerator: Accelerator):
@@ -342,7 +267,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Prediction errors for sampling training data accordingly
     if args.weighted_sampler:
-        _, errors = evaluate(
+        _, errors = evaluate_main(
             args,
             model=model,
             model_ema=model_ema,
@@ -360,12 +285,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     # Evaluate model before training
     if True:
-        valid_loss, _ = evaluate(
+        valid_loss, _ = evaluate_main(
             args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
+            max_steps=args.valid_max_steps,
         )
 
         best_metrics.update(valid_loss.main, args.epochs_start - 1)
@@ -403,12 +329,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             logger=logger,
         )
 
-        valid_loss, _ = evaluate(
+        valid_loss, _ = evaluate_main(
             args,
             model=model,
             model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
+            max_steps=args.valid_max_steps,
         )
 
         update_val_result = best_metrics.update(valid_loss.main, epoch)
@@ -449,7 +376,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
     if test_loader is not None:
         # evaluate on the whole testing set
-        test_loss, _ = evaluate(
+        test_loss, _ = evaluate_main(
             args,
             model=model,
             model_ema=model_ema,

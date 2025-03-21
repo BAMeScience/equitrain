@@ -89,6 +89,35 @@ def add_model_checkpoint_args(
     return parser
 
 
+def add_model_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--loss-type',
+        help='Type of loss function [mae, smooth-l1, mse, huber (default)]',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default='huber',
+    )
+    parser.add_argument(
+        '--loss-monitor',
+        help='Comma separated list of loss types to monitor in addition to the loss function [default: mae,mse]',
+        type=str,
+        default='mae,mse',
+    )
+    parser.add_argument(
+        '--smooth-l1-beta',
+        help='Beta parameter for the Smooth-L1 loss (default: 1.0)',
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
+        '--huber-delta',
+        help='Delta parameter for the Huber loss (default: 0.01)',
+        type=float,
+        default=0.01,
+    )
+    return parser
+
+
 def add_model_freeze_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--freeze-params',
@@ -314,6 +343,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_data_args(parser)
         add_model_all_args(parser)
         add_optimizer_args(parser)
+        add_model_loss_args(parser)
         parser.add_argument(
             '--resume',
             help='Resume training from best checkpoint',
@@ -347,31 +377,6 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default='train',
         )
         parser.add_argument(
-            '--loss-type',
-            help='Type of loss function [mae, smooth-l1, mse, huber (default)]',
-            choices=['mae', 'smooth-l1', 'mse', 'huber'],
-            type=str,
-            default='huber',
-        )
-        parser.add_argument(
-            '--loss-monitor',
-            help='Comma separated list of loss types to monitor in addition to the loss function [default: mae,mse]',
-            type=str,
-            default='mae,mse',
-        )
-        parser.add_argument(
-            '--smooth-l1-beta',
-            help='Beta parameter for the Smooth-L1 loss (default: 1.0)',
-            type=float,
-            default=1.0,
-        )
-        parser.add_argument(
-            '--huber-delta',
-            help='Delta parameter for the Huber loss (default: 0.01)',
-            type=float,
-            default=0.01,
-        )
-        parser.add_argument(
             '--shuffle',
             help='Shuffle the training dataset',
             type=str2bool,
@@ -402,6 +407,23 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default=None,
         )
 
+    elif script_type == 'evaluate':
+        add_model_all_args(parser)
+        add_model_loss_args(parser)
+        add_common_data_args(parser)
+        parser.add_argument(
+            '--test-file', help='File with test data', type=str, default=None
+        )
+        parser.add_argument(
+            '--shuffle',
+            help='Shuffle the training dataset',
+            type=str2bool,
+            default=False,
+        )
+        parser.add_argument(
+            '--tqdm', help='Show TQDM status bar', action='store_true', default=False
+        )
+
     elif script_type == 'inspect':
         add_inspect_args(parser)
 
@@ -424,6 +446,10 @@ def get_args_parser_preprocess() -> argparse.ArgumentParser:
 
 def get_args_parser_train() -> argparse.ArgumentParser:
     return get_args_parser('train')
+
+
+def get_args_parser_evaluate() -> argparse.ArgumentParser:
+    return get_args_parser('evaluate')
 
 
 def get_args_parser_predict() -> argparse.ArgumentParser:
