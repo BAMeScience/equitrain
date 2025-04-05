@@ -15,6 +15,7 @@ from equitrain.argparser import (
     check_args_complete,
     get_loss_monitor,
 )
+from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
 from equitrain.evaluate import evaluate_main
 from equitrain.logger import FileLogger
@@ -22,7 +23,7 @@ from equitrain.loss import LossCollection
 from equitrain.loss_fn import LossFnCollection
 from equitrain.loss_metrics import BestMetric, LossMetrics
 from equitrain.model import get_model
-from equitrain.train_checkpoint import load_checkpoint, save_checkpoint
+from equitrain.model_freeze import model_freeze_params
 from equitrain.train_optimizer import create_optimizer, update_weight_decay
 from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
 from equitrain.utility import set_dtype, set_seeds
@@ -192,7 +193,7 @@ def train_one_epoch(
 
                 if args.tqdm:
                     pbar.set_description(
-                        f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04f})'
+                        f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04g})'
                     )
 
             # Stop training if maximum number of steps is defined and reached
@@ -242,7 +243,10 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     lr_scheduler = SchedulerWrapper(args, lr_scheduler)
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
-    load_checkpoint(args, logger, accelerator, model_ema)
+    load_checkpoint(args, logger, accelerator, model, model_ema)
+
+    # Keep subset of parameters fixed during training
+    model_freeze_params(args, model, logger=logger)
 
     # Allow users to modify the weight decay even when resuming from a checkpoint
     update_weight_decay(args, logger, optimizer)

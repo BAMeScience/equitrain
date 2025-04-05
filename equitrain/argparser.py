@@ -81,15 +81,65 @@ def add_model_checkpoint_args(
     parser: argparse.ArgumentParser,
 ) -> argparse.ArgumentParser:
     parser.add_argument(
+        '--load-best-checkpoint-model',
+        help='Load only the model weights from the best checkpoint (ignores optimizer and scheduler states)',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--load-last-checkpoint-model',
+        help='Load only the model weights from the last checkpoint (ignores optimizer and scheduler states)',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
         '--load-checkpoint-model',
-        help='Load model checkpoint only',
+        help='Load only the model weights from given checkpoint directory (ignores optimizer and scheduler states)',
         type=str,
         default=None,
     )
     return parser
 
 
-def add_model_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def add_checkpoint_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--load-best-checkpoint',
+        help='Load model, optimizer, and scheduler states from best checkpoint',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--load-last-checkpoint',
+        help='Load model, optimizer, and scheduler states from last checkpoint',
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        '--load-checkpoint',
+        help='Load model, optimizer, and scheduler states from given checkpoint directory',
+        type=str,
+        default=None,
+    )
+    return parser
+
+
+def add_loss_weights_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--energy-weight', help='Weight for energy loss', type=float, default=1.0
+    )
+    parser.add_argument(
+        '--forces-weight', help='Weight for forces loss', type=float, default=1.0
+    )
+    parser.add_argument(
+        '--stress-weight', help='Weight for stress loss', type=float, default=1.0
+    )
+    return parser
+
+
+def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = add_loss_weights_args(parser)
     parser.add_argument(
         '--loss-type',
         help='Type of loss function [mae, smooth-l1, mse, huber (default)]',
@@ -131,31 +181,6 @@ def add_model_freeze_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         nargs='*',
         help='List of regex patterns matching model parameters to keep trainable (all others will be frozen).',
     )
-    return parser
-
-
-def add_model_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser = add_model_freeze_args(parser)
-    parser.add_argument(
-        '--energy-weight', help='Weight for energy loss', type=float, default=1.0
-    )
-    parser.add_argument(
-        '--forces-weight', help='Weight for forces loss', type=float, default=1.0
-    )
-    parser.add_argument(
-        '--stress-weight', help='Weight for stress loss', type=float, default=1.0
-    )
-    parser.add_argument(
-        '--load-checkpoint', help='Load full checkpoint', type=str, default=None
-    )
-    return parser
-
-
-def add_model_all_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser = add_model_args(parser)
-    parser = add_model_checkpoint_args(parser)
-    parser = add_model_train_args(parser)
-
     return parser
 
 
@@ -341,15 +366,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
     elif script_type == 'train':
         add_common_file_args(parser)
         add_common_data_args(parser)
-        add_model_all_args(parser)
+        add_model_args(parser)
+        add_model_checkpoint_args(parser)
+        add_loss_args(parser)
+        add_checkpoint_args(parser)
         add_optimizer_args(parser)
-        add_model_loss_args(parser)
-        parser.add_argument(
-            '--resume',
-            help='Resume training from best checkpoint',
-            action='store_true',
-            default=False,
-        )
+
         parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
         parser.add_argument(
             '--epochs-start', help='Number of starting epoch', type=int, default=1
@@ -399,7 +421,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_file_args(parser)
         add_common_data_args(parser)
         add_model_args(parser)
-        add_model_checkpoint_args(parser)
+        add_loss_weights_args(parser)
         parser.add_argument(
             '--predict-file',
             help='File with data for which predictions should be computed',
@@ -408,9 +430,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
 
     elif script_type == 'evaluate':
-        add_model_all_args(parser)
-        add_model_loss_args(parser)
         add_common_data_args(parser)
+        add_model_args(parser)
+        add_loss_args(parser)
         parser.add_argument(
             '--test-file', help='File with test data', type=str, default=None
         )

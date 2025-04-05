@@ -1,6 +1,7 @@
 import ase
 import torch
 import torch_geometric
+from accelerate import Accelerator
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
@@ -117,11 +118,15 @@ def predict_structures(
 def _predict(args, device=None):
     set_dtype(args.dtype)
 
+    accelerator = Accelerator()
+
     r_energy = torch.empty((0), device=device)
     r_force = torch.empty((0, 3), device=device)
     r_stress = torch.empty((0, 3, 3), device=device)
 
     model = get_model(args)
+
+    model = accelerator.prepare(model)
 
     data_loader = get_dataloader(
         args, args.predict_file, model.atomic_numbers, model.r_max

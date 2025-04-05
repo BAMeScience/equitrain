@@ -74,7 +74,7 @@ def evaluate_main_(
 
             if accelerator.is_main_process and args.tqdm:
                 pbar.set_description(
-                    f'{desc} (loss={loss_metrics.main["total"].avg:.04f})'
+                    f'{desc} (loss={loss_metrics.main["total"].avg:.04g})'
                 )
 
             # Stop evaluating if maximum number of steps is defined and reached
@@ -131,7 +131,7 @@ def _evaluate_with_accelerator(args, accelerator: Accelerator):
     )
 
     if accelerator.is_main_process:
-        test_loss.log(logger, 'test', epoch=0)
+        test_loss.log(logger, 'test', epoch=None, force=True)
 
     return test_loss
 

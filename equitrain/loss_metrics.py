@@ -50,7 +50,9 @@ class LossMetric(dict):
                 loss['stress'].value.detach().item(), n=loss['stress'].n.detach().item()
             )
 
-    def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None):
+    def log(
+        self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False
+    ):
         """Log the current loss metrics."""
 
         if epoch is None:
@@ -79,9 +81,11 @@ class LossMetric(dict):
 
         info_str += info_str_postfix
 
-        logger.log(1, info_str)
+        logger.log(1, info_str, force=force)
 
-    def log_step(self, logger, epoch, step, length, mode, time=None, lr=None):
+    def log_step(
+        self, logger, epoch, step, length, mode, time=None, lr=None, force=False
+    ):
         """Log the current loss metrics."""
 
         info_str_prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- {mode}'
@@ -106,7 +110,7 @@ class LossMetric(dict):
 
         info_str += info_str_postfix
 
-        logger.log(1, info_str)
+        logger.log(1, info_str, force=force)
 
 
 class BestMetric(dict):
@@ -154,7 +158,9 @@ class LossMetrics(dict):
         for loss_type, _ in self.items():
             self[loss_type].update(loss[loss_type])
 
-    def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None):
+    def log(
+        self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False
+    ):
         self.main.log(
             logger,
             f'{mode:>5} {"[" + self.main_type + "]":7}',
@@ -171,9 +177,10 @@ class LossMetrics(dict):
                 step=step,
                 time=None,
                 lr=None,
+                force=force,
             )
 
-    def log_step(self, logger, epoch, step, length, time=None, lr=None):
+    def log_step(self, logger, epoch, step, length, time=None, lr=None, force=False):
         self.main.log_step(
             logger,
             epoch,
@@ -192,4 +199,5 @@ class LossMetrics(dict):
                 f'{"[" + loss_type + "]":7}',
                 time=None,
                 lr=None,
+                force=force,
             )
