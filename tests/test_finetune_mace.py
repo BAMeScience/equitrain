@@ -32,8 +32,6 @@ class FinetuneMaceWrapper(MaceWrapper):
         for i, readout in enumerate(self.model.readouts):
             self.model.readouts[i] = FineTuneModule(readout)
 
-        print(self.model.readouts)
-
 
 def test_finetune_mace():
     args = get_args_parser_train().parse_args()
