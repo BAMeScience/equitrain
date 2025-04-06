@@ -368,6 +368,7 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_data_args(parser)
         add_model_args(parser)
         add_model_checkpoint_args(parser)
+        add_model_freeze_args(parser)
         add_loss_args(parser)
         add_checkpoint_args(parser)
         add_optimizer_args(parser)
