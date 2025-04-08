@@ -21,8 +21,12 @@ def _inspect(args):
     print(f'Total number of parameters: {n_parameters}')
     if hasattr(model, 'r_max'):
         print(f'Model r_max               : {model.r_max}')
-    if hasattr(model, 'atomic_numbers'):
+    if hasattr(model, 'atomic_numbers') and model.atomic_numbers is not None:
         print(f'Model atomic numbers      : {model.atomic_numbers}')
+    if hasattr(model, 'atomic_energies') and model.atomic_energies is not None:
+        print(f'Model atomic energies     : {model.atomic_energies}')
+    else:
+        print('no atomic energies')
     print()
     print(tabulate(param_list, headers=['Name', 'Shape', 'Requires Grad']))
 

@@ -27,6 +27,14 @@ class AbstractWrapper(torch.nn.Module, ABC):
 
     @property
     @abstractmethod
+    def atomic_energies(self):
+        """
+        Property that should return atomic numbers from the model.
+        """
+        pass
+
+    @property
+    @abstractmethod
     def r_max(self):
         """
         Property that should return the r_max value from the model.
@@ -73,6 +81,10 @@ class MaceWrapper(AbstractWrapper):
     @property
     def atomic_numbers(self):
         return AtomicNumberTable(self.model.atomic_numbers.tolist())
+
+    @property
+    def atomic_energies(self):
+        return self.model.atomic_energies_fn.atomic_energies.tolist()
 
     @property
     def r_max(self):
@@ -199,6 +211,10 @@ class SevennetWrapper(AbstractWrapper):
         return AtomicNumberTable(
             torch.nonzero(self.model.z_to_onehot_tensor != -1).squeeze().tolist()
         )
+
+    @property
+    def atomic_energies(self):
+        return None
 
     @property
     def r_max(self):
