@@ -69,6 +69,9 @@ def load_checkpoint(
         args.load_checkpoint_model, epoch = _find_best_checkpoint(
             args.output_dir, 'val'
         )
+        if args.load_checkpoint_model is not None:
+            args.load_checkpoint_model += '/pytorch_model.bin'
+
         if epoch is not None:
             args.epochs_start = epoch + 1
 
@@ -76,6 +79,9 @@ def load_checkpoint(
         args.load_checkpoint_model, epoch = _find_last_checkpoint(
             args.output_dir, 'val'
         )
+        if args.load_checkpoint_model is not None:
+            args.load_checkpoint_model += '/pytorch_model.bin'
+
         if epoch is not None:
             args.epochs_start = epoch + 1
 
@@ -96,11 +102,18 @@ def load_checkpoint(
 
         device = next(model.parameters()).device
 
-        model.load_state_dict(
-            torch.load(
-                args.load_checkpoint_model, weights_only=True, map_location=device
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+            model.module.load_state_dict(
+                torch.load(
+                    args.load_checkpoint_model, weights_only=True, map_location=device
+                )
             )
-        )
+        else:
+            model.load_state_dict(
+                torch.load(
+                    args.load_checkpoint_model, weights_only=True, map_location=device
+                )
+            )
 
     args.epochs_start = max(args.epochs_start, 1)
 
