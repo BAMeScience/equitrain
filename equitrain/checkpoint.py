@@ -6,6 +6,8 @@ import torch
 from accelerate import Accelerator
 from torch_ema import ExponentialMovingAverage
 
+from equitrain.logger import FileLogger
+
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
     pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
@@ -48,74 +50,98 @@ def _find_last_checkpoint(base_path: Path | str, monitor_target: str):
     return dirs[max_index], epochs[max_index]
 
 
+def load_model_state(model, state_dict_path):
+    device = next(model.parameters()).device
+
+    state_dict = torch.load(state_dict_path, weights_only=True, map_location=device)
+
+    # If saved with DDP, keys start with 'module.'
+    if any(k.startswith('module.') for k in state_dict.keys()):
+        # Remove 'module.' prefix
+        state_dict = {k.replace('module.', '', 1): v for k, v in state_dict.items()}
+
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        model.module.load_state_dict(state_dict)
+    else:
+        model.load_state_dict(state_dict)
+
+
 def load_checkpoint(
     args,
-    logger,
-    accelerator: Accelerator,
     model: torch.nn.Module,
-    model_ema: ExponentialMovingAverage,
+    model_ema: ExponentialMovingAverage = None,
+    accelerator: Accelerator = None,
+    logger: FileLogger = None,
 ):
-    if args.load_checkpoint is None and args.load_best_checkpoint:
-        args.load_checkpoint, epoch = _find_best_checkpoint(args.output_dir, 'val')
+    load_checkpoint = getattr(args, 'load_checkpoint', None)
+    load_checkpoint_model = getattr(args, 'load_checkpoint_model', None)
+    load_best_checkpoint = getattr(args, 'load_best_checkpoint', None)
+    load_last_checkpoint = getattr(args, 'load_last_checkpoint', None)
+    load_best_checkpoint_model = getattr(args, 'load_best_checkpoint_model', None)
+    load_last_checkpoint_model = getattr(args, 'load_last_checkpoint_model', None)
+    epochs_start = getattr(args, 'epochs_start', 1)
+
+    if load_checkpoint is None and load_best_checkpoint:
+        load_checkpoint, epoch = _find_best_checkpoint(args.output_dir, 'val')
+
+        if epoch is not None:
+            epochs_start = epoch + 1
+
+    if load_checkpoint is None and load_last_checkpoint:
+        load_checkpoint, epoch = _find_last_checkpoint(args.output_dir, 'val')
+
+        if epoch is not None:
+            epochs_start = epoch + 1
+
+    if load_checkpoint_model is None and load_best_checkpoint_model:
+        load_checkpoint_model, epoch = _find_best_checkpoint(args.output_dir, 'val')
+        if load_checkpoint_model is not None:
+            load_checkpoint_model += '/pytorch_model.bin'
+
         if epoch is not None:
             args.epochs_start = epoch + 1
 
-    if args.load_checkpoint is None and args.load_last_checkpoint:
-        args.load_checkpoint, epoch = _find_last_checkpoint(args.output_dir, 'val')
-        if epoch is not None:
-            args.epochs_start = epoch + 1
-
-    if args.load_checkpoint_model is None and args.load_best_checkpoint_model:
-        args.load_checkpoint_model, epoch = _find_best_checkpoint(
+    if load_checkpoint_model is None and load_last_checkpoint_model:
+        load_last_checkpoint_model, epoch = _find_last_checkpoint(
             args.output_dir, 'val'
         )
-        if args.load_checkpoint_model is not None:
-            args.load_checkpoint_model += '/pytorch_model.bin'
+        if load_checkpoint_model is not None:
+            load_checkpoint_model += '/pytorch_model.bin'
 
         if epoch is not None:
-            args.epochs_start = epoch + 1
+            epochs_start = epoch + 1
 
-    if args.load_checkpoint_model is None and args.load_last_checkpoint_model:
-        args.load_checkpoint_model, epoch = _find_last_checkpoint(
-            args.output_dir, 'val'
-        )
-        if args.load_checkpoint_model is not None:
-            args.load_checkpoint_model += '/pytorch_model.bin'
-
-        if epoch is not None:
-            args.epochs_start = epoch + 1
-
-    if args.load_checkpoint is not None:
-        if args.verbose > 0:
+    if load_checkpoint is not None and accelerator is not None:
+        if logger is not None:
             logger.log(1, f'Loading checkpoint {args.load_checkpoint}...')
 
-        accelerator.load_state(args.load_checkpoint)
+        accelerator.load_state(load_checkpoint)
 
         ema_path = Path(args.load_checkpoint) / 'ema.bin'
 
         if model_ema and ema_path.exists():
             model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
 
-    if args.load_checkpoint_model is not None:
+    if load_checkpoint_model is not None:
         if logger is not None:
-            logger.log(1, f'Loading model checkpoint {args.load_checkpoint_model}...')
+            logger.log(1, f'Loading model checkpoint {load_checkpoint_model}...')
 
-        device = next(model.parameters()).device
+        load_model_state(model, load_checkpoint_model)
 
-        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-            model.module.load_state_dict(
-                torch.load(
-                    args.load_checkpoint_model, weights_only=True, map_location=device
-                )
-            )
-        else:
-            model.load_state_dict(
-                torch.load(
-                    args.load_checkpoint_model, weights_only=True, map_location=device
-                )
-            )
-
-    args.epochs_start = max(args.epochs_start, 1)
+    if hasattr(args, 'load_checkpoint'):
+        args.load_checkpoint = load_checkpoint
+    if hasattr(args, 'load_checkpoint_model'):
+        args.load_checkpoint_model = load_checkpoint_model
+    if hasattr(args, 'load_best_checkpoint'):
+        args.load_best_checkpoint = load_best_checkpoint
+    if hasattr(args, 'load_last_checkpoint'):
+        args.load_last_checkpoint = load_last_checkpoint
+    if hasattr(args, 'load_best_checkpoint_model'):
+        args.load_best_checkpoint_model = load_best_checkpoint_model
+    if hasattr(args, 'load_last_checkpoint_model'):
+        args.load_last_checkpoint_model = load_last_checkpoint_model
+    if hasattr(args, 'epochs_start'):
+        args.epochs_start = epochs_start
 
 
 def save_checkpoint(

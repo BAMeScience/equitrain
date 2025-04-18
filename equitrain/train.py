@@ -243,7 +243,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     lr_scheduler = SchedulerWrapper(args, lr_scheduler)
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
-    load_checkpoint(args, logger, accelerator, model, model_ema)
+    load_checkpoint(args, model, model_ema, accelerator, logger)
 
     # Keep subset of parameters fixed during training
     model_freeze_params(args, model, logger=logger)

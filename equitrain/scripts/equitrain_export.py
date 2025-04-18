@@ -3,6 +3,7 @@ import sys
 import torch
 
 from equitrain import check_args_complete, get_args_parser_export
+from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.model import get_model
 from equitrain.model_wrappers import AbstractWrapper
 
@@ -10,6 +11,9 @@ from equitrain.model_wrappers import AbstractWrapper
 # %%
 def _export(args):
     model = get_model(args)
+
+    # Import model, optimizer, lr_scheduler from checkpoint if possible
+    load_checkpoint(args, model)
 
     if isinstance(model, AbstractWrapper):
         model = model.model
