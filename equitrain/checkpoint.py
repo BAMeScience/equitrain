@@ -102,9 +102,7 @@ def load_checkpoint(
             args.epochs_start = epoch + 1
 
     if load_checkpoint_model is None and load_last_checkpoint_model:
-        load_last_checkpoint_model, epoch = _find_last_checkpoint(
-            args.output_dir, 'val'
-        )
+        load_checkpoint_model, epoch = _find_last_checkpoint(args.output_dir, 'val')
         if load_checkpoint_model is not None:
             load_checkpoint_model += '/pytorch_model.bin'
 
