@@ -4,7 +4,6 @@ from pathlib import Path
 
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
-from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
 
 from equitrain.argparser import (
@@ -24,7 +23,7 @@ from equitrain.utility import set_dtype, set_seeds
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
 
-def evaluate_main_(
+def evaluate_main(
     args,
     model: torch.nn.Module,
     accelerator: Accelerator,
@@ -87,20 +86,6 @@ def evaluate_main_(
     return loss_metrics, errors
 
 
-def evaluate_main(
-    args,
-    model: torch.nn.Module,
-    model_ema: ExponentialMovingAverage,
-    *args_other,
-    **kwargs,
-):
-    if model_ema:
-        with model_ema.average_parameters():
-            return evaluate_main_(args, model, *args_other, **kwargs)
-    else:
-        return evaluate_main_(args, model, *args_other, **kwargs)
-
-
 def _evaluate_with_accelerator(args, accelerator: Accelerator):
     # Only main process should output information
     logger = FileLogger(
@@ -125,7 +110,6 @@ def _evaluate_with_accelerator(args, accelerator: Accelerator):
     test_loss, _ = evaluate_main(
         args,
         model=model,
-        model_ema=None,
         accelerator=accelerator,
         dataloader=data_loader,
     )

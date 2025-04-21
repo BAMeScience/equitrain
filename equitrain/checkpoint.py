@@ -1,5 +1,6 @@
 import os
 import re
+import warnings
 from pathlib import Path
 
 import torch
@@ -7,6 +8,16 @@ from accelerate import Accelerator
 from torch_ema import ExponentialMovingAverage
 
 from equitrain.logger import FileLogger
+
+# Suppress warnings about using `torch.load` with `weights_only=False`
+warnings.filterwarnings(
+    'ignore',
+    category=FutureWarning,
+    message=re.escape(
+        'You are using `torch.load` with `weights_only=False` (the current default value), '
+        'which uses the default pickle module implicitly.'
+    ),
+)
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
@@ -111,11 +122,11 @@ def load_checkpoint(
 
     if load_checkpoint is not None and accelerator is not None:
         if logger is not None:
-            logger.log(1, f'Loading checkpoint {args.load_checkpoint}...')
+            logger.log(1, f'Loading checkpoint {load_checkpoint}...')
 
         accelerator.load_state(load_checkpoint)
 
-        ema_path = Path(args.load_checkpoint) / 'ema.bin'
+        ema_path = Path(load_checkpoint) / 'ema.bin'
 
         if model_ema and ema_path.exists():
             model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
@@ -159,8 +170,3 @@ def save_checkpoint(
 
     if model_ema is not None:
         torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
-
-        with model_ema.average_parameters():
-            torch.save(
-                model.state_dict(), output_dir / 'pytorch_model_averaged_weights.bin'
-            )

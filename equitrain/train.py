@@ -205,6 +205,10 @@ def train_one_epoch(
     # Sum local errors across all processes
     accelerator.reduce(errors, reduction='sum')
 
+    # Copy average weights to model
+    if model_ema is not None:
+        model_ema.copy_to(model.parameters())
+
     return loss_metrics, errors
 
 
@@ -274,7 +278,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         _, errors = evaluate_main(
             args,
             model=model,
-            model_ema=model_ema,
             accelerator=accelerator,
             dataloader=train_loader,
             desc='Estimating errors',
@@ -292,7 +295,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         valid_loss, _ = evaluate_main(
             args,
             model=model,
-            model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
             max_steps=args.valid_max_steps,
@@ -336,7 +338,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         valid_loss, _ = evaluate_main(
             args,
             model=model,
-            model_ema=model_ema,
             accelerator=accelerator,
             dataloader=val_loader,
             max_steps=args.valid_max_steps,
@@ -383,7 +384,6 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         test_loss, _ = evaluate_main(
             args,
             model=model,
-            model_ema=model_ema,
             accelerator=accelerator,
             dataloader=test_loader,
         )
