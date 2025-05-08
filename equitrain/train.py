@@ -398,7 +398,12 @@ def _train(args):
     set_seeds(args.seed)
     set_dtype(args.dtype)
 
-    if args.energy_weight == 0.0:
+    if (
+        args.energy_weight == 0.0
+        or args.freeze_params is not None
+        or args.unfreeze_params is not None
+        or args.find_unused_parameters
+    ):
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     else:
         ddp_kwargs = DistributedDataParallelKwargs()

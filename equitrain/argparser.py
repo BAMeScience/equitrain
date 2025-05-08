@@ -165,6 +165,12 @@ def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         type=float,
         default=0.01,
     )
+    parser.add_argument(
+        '--loss-clipping',
+        help='Clips the loss per batch to prevent extreme outliers from disproportionately influencing the overall loss (default: None)',
+        type=float,
+        default=None,
+    )
     return parser
 
 
@@ -404,6 +410,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help='Shuffle the training dataset',
             type=str2bool,
             default=True,
+        )
+        parser.add_argument(
+            '--find-unused-parameters',
+            help='Find unused parameters in the model',
+            action='store_true',
+            default=False,
         )
         parser.add_argument(
             '--print-freq',

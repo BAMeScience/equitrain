@@ -135,6 +135,9 @@ class LossFn(torch.nn.Module):
         # As opposed to forces, energy is predicted per material. By normalizing
         # the energy by the number of atoms, forces and energy become comparable
         loss_energy_per_atom: bool = True,
+        # Clamping loss to avoid exploding gradients
+        loss_clipping: float = None,
+        # Loss function arguments
         **args,
     ):
         super().__init__()
@@ -148,6 +151,8 @@ class LossFn(torch.nn.Module):
         self.stress_weight = stress_weight
 
         self.loss_energy_per_atom = loss_energy_per_atom
+
+        self.loss_clipping = loss_clipping
 
     def compute_weighted(self, energy_value, forces_value, stress_value):
         result = 0.0
@@ -199,6 +204,15 @@ class LossFn(torch.nn.Module):
             loss_f, error_f = self.loss_forces(f_pred, f_true, y_true.batch)
         if self.stress_weight > 0.0:
             loss_s, error_s = self.loss_stress(s_pred, s_true)
+
+        # Clamp loss to avoid exploding gradients
+        if self.loss_clipping is not None:
+            if loss_e is not None:
+                loss_e = torch.clamp(loss_e, max=self.loss_clipping)
+            if loss_f is not None:
+                loss_f = torch.clamp(loss_f, max=self.loss_clipping)
+            if loss_s is not None:
+                loss_s = torch.clamp(loss_s, max=self.loss_clipping)
 
         # Move results to loss object
         loss['total'].value += self.compute_weighted(loss_e, loss_f, loss_s)
