@@ -167,7 +167,7 @@ def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         '--loss-clipping',
-        help='Clips the loss per batch to prevent extreme outliers from disproportionately influencing the overall loss (default: None)',
+        help='Clips the loss per sample to prevent extreme outliers from disproportionately influencing the overall loss (default: None)',
         type=float,
         default=None,
     )
