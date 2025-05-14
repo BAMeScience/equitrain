@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import torch
 
 from equitrain import get_args_parser_train, train
@@ -13,25 +15,50 @@ class FinetuneMaceWrapper(MaceWrapper):
 
         # Create trainable deltas with same shapes
         self.deltas = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros_like(p)) for p in self.model.parameters()]
+            [
+                torch.nn.Parameter(torch.zeros_like(p, requires_grad=True))
+                for p in self.model.parameters()
+            ]
         )
 
-    def forward(self, *args):
-        # Apply base layer with perturbed weights
+    def parameters(self, recurse: bool = True):
+        """
+        Override parameters() to return only the deltas (trainable parameters).
+        """
+        return self.deltas
+
+    def named_parameters(self, prefix: str = '', recurse: bool = True):
+        """
+        Override named_parameters() to return only the deltas (trainable parameters).
+        """
+        # Use the parameter names of the deltas to mimic the original parameter names.
+        return [
+            (prefix + name, delta)
+            for name, delta in zip(self.model._modules.keys(), self.deltas)
+        ]
+
+    @contextmanager
+    def apply_deltas(self):
+        original = [p.detach().clone() for p in self.model.parameters()]
+        for p, d in zip(self.model.parameters(), self.deltas):
+            p.add_(d)
+        yield
         with torch.no_grad():
-            original_params = [p.clone() for p in self.model.parameters()]
+            for p, o in zip(self.model.parameters(), original):
+                p.data.copy_(o)
 
-        # Temporarily patch base layer weights with (theta_0 + delta)
-        for p, delta in zip(self.model.parameters(), self.deltas):
-            p.data = p.data + delta
+    def forward(self, *args):
+        with self.apply_deltas():
+            return super().forward(*args)
 
-        y = super().forward(*args)
 
-        # Restore original weights
-        for p, orig in zip(self.model.parameters(), original_params):
-            p.data = orig.data
-
-        return y
+def get_params_and_deltas(model):
+    """
+    Get the parameters and deltas of the model.
+    """
+    params = [param.detach().cpu().clone() for param in model.model.parameters()]
+    deltas = [delta.detach().cpu().clone() for delta in model.parameters()]
+    return params, deltas
 
 
 def test_finetune_mace():
@@ -43,14 +70,31 @@ def test_finetune_mace():
     args.output_dir = 'test_finetune_mace'
     args.model = FinetuneMaceWrapper(args)
 
-    args.epochs = 10
+    args.epochs = 2
     args.batch_size = 2
     args.lr = 0.001
-    args.weight_decay = 0.001
+    args.loss_type = 'mse'
+    args.weight_decay = 0.0
+    args.ema = False
     args.verbose = 1
     args.tqdm = True
 
+    params_old, deltas_old = get_params_and_deltas(args.model)
+
     train(args)
+
+    params_new, deltas_new = get_params_and_deltas(args.model)
+
+    # Check if parameters and deltas have changed
+    for old, new in zip(params_old, params_new):
+        if torch.abs(old - new).amin() > 1e-8:
+            print('Parameters have changed after training.')
+            break
+
+    for old, new in zip(deltas_old, deltas_new):
+        if torch.abs(old - new).amin() > 1e-8:
+            print('Deltas have changed after training.')
+            break
 
 
 if __name__ == '__main__':
