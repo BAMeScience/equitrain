@@ -25,13 +25,11 @@ class FinetuneMaceWrapper(MaceWrapper):
         for p, delta in zip(self.model.parameters(), self.deltas):
             p.data = p.data + delta
 
-        y = self.model(*args)
+        y = super().forward(*args)
 
         # Restore original weights
         for p, orig in zip(self.model.parameters(), original_params):
             p.data = orig.data
-
-        print(y)
 
         return y
 
