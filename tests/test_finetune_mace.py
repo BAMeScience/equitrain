@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import torch
 
 from equitrain import get_args_parser_train, train
+from equitrain.checkpoint import load_checkpoint
 from equitrain.utility_test import MaceWrapper
 
 
@@ -25,17 +26,19 @@ class FinetuneMaceWrapper(MaceWrapper):
         """
         Override parameters() to return only the deltas (trainable parameters).
         """
-        return self.deltas
+        return iter(self.deltas)
 
     def named_parameters(self, prefix: str = '', recurse: bool = True):
         """
         Override named_parameters() to return only the deltas (trainable parameters).
         """
         # Use the parameter names of the deltas to mimic the original parameter names.
-        return [
-            (prefix + name, delta)
-            for name, delta in zip(self.model._modules.keys(), self.deltas)
-        ]
+        return iter(
+            [
+                (prefix + name, delta)
+                for name, delta in zip(self.model._modules.keys(), self.deltas)
+            ]
+        )
 
     @contextmanager
     def apply_deltas(self):
@@ -51,6 +54,10 @@ class FinetuneMaceWrapper(MaceWrapper):
         with self.apply_deltas():
             return super().forward(*args)
 
+    def export(self, filename):
+        with self.apply_deltas():
+            torch.save(self.model, filename)
+
 
 def get_params_and_deltas(model):
     """
@@ -59,6 +66,19 @@ def get_params_and_deltas(model):
     params = [param.detach().cpu().clone() for param in model.model.parameters()]
     deltas = [delta.detach().cpu().clone() for delta in model.parameters()]
     return params, deltas
+
+
+def save_result(args, filename):
+    # Import weights from the best checkpoint
+    args.load_best_checkpoint_model = True
+
+    load_checkpoint(
+        args,
+        args.model,
+    )
+    # Add delta weights to the original model and export
+    # to a new file
+    args.model.export(filename)
 
 
 def test_finetune_mace():
@@ -95,6 +115,8 @@ def test_finetune_mace():
         if torch.abs(old - new).amin() > 1e-8:
             print('Deltas have changed after training.')
             break
+
+    save_result(args, 'test_finetune_mace.model')
 
 
 if __name__ == '__main__':

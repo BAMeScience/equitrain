@@ -84,6 +84,15 @@ def load_checkpoint(
     accelerator: Accelerator = None,
     logger: FileLogger = None,
 ):
+    if logger is None:
+        logger = FileLogger(
+            log_to_file=False,
+            enable_logging=accelerator.is_main_process
+            if accelerator is not None
+            else True,
+            verbosity=args.verbose,
+        )
+
     load_checkpoint = getattr(args, 'load_checkpoint', None)
     load_checkpoint_model = getattr(args, 'load_checkpoint_model', None)
     load_best_checkpoint = getattr(args, 'load_best_checkpoint', None)
@@ -154,7 +163,12 @@ def load_checkpoint(
 
 
 def save_checkpoint(
-    args, logger, accelerator: Accelerator, epoch, valid_loss, model, model_ema
+    args,
+    epoch,
+    valid_loss,
+    model_ema,
+    accelerator: Accelerator,
+    logger: FileLogger = None,
 ):
     output_dir = 'best_val_epochs@{}_e@{:0.4g}'.format(epoch, valid_loss['total'].avg)
 
