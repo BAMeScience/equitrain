@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "equitrain"
 dynamic = ["version"]
-description = "A training framework for machine learning interatomic potentials (MLIPs)"
+description = "A training framework for machine learning interatomic potentials (MLIPs) with support for MACE, SevenNet, ANI, and M3GNet models"
 authors = [
     {name = "Carlos Madariaga", email = "carlos.madariaga@bam.de"},
     {name = "Jose M. Pizarro", email = "jose.pizarro-blanco@bam.de"},
@@ -18,7 +18,7 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["MLIP", "machine learning", "materials"]
+keywords = ["MLIP", "machine learning", "materials", "M3GNet", "MACE", "SevenNet", "ANI", "interatomic potential"]
 license = { file = "LICENSE" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -42,16 +42,36 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Development dependencies
 dev = [
   "mypy==1.0.1",
   "ruff",
   "pytest",
 ]
+
+# Documentation dependencies
 docu = [
   "mkdocs",
   "mkdocs-material",
   "pymdown-extensions",
   "mkdocs-click",
+]
+
+# Model-specific dependencies
+m3gnet = [
+  "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
+  "dgl>=1.0.0",    # Deep Graph Library required by MatGL
+]
+
+ani = [
+  "torchani>=2.2",  # TorchANI for ANI models
+]
+
+# All models dependencies
+all-models = [
+  "matgl>=1.0.0",
+  "dgl>=1.0.0",
+  "torchani>=2.2",
 ]
 
 [project.scripts]
@@ -135,7 +155,6 @@ line-ending = "auto"
 strict = false
 ignore_missing_imports = true
 follow_imports = "silent"
-no_strict_optional = true
 disable_error_code = "import, annotation-unchecked"
 
 [tool.setuptools.packages.find]
