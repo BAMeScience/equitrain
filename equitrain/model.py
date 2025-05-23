@@ -1,5 +1,6 @@
 import torch
 
+from equitrain.ani_wrapper import AniWrapper
 from equitrain.model_wrappers import AbstractWrapper, MaceWrapper, SevennetWrapper
 
 
@@ -25,6 +26,8 @@ def get_model(args, logger=None):
             model = MaceWrapper(args, model)
         if args.model_wrapper == 'sevennet':
             model = SevennetWrapper(args, model)
+        if args.model_wrapper == 'ani':
+            model = AniWrapper(args, model)
 
     # Overwrite model parameters
     if hasattr(args, 'r_max') and args.r_max is not None:
