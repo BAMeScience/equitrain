@@ -39,11 +39,11 @@ def test_predict_ani_atoms():
     energy, force, stress = predict_atoms(args.model, atoms_list, z_table, r)
 
     # Print results
-    print("Predicted energies:")
+    print('Predicted energies:')
     print(energy)
-    print("\nPredicted forces:")
+    print('\nPredicted forces:')
     print(force)
-    print("\nPredicted stress:")
+    print('\nPredicted stress:')
     print(stress)
 
     # Verify that energies and forces are not None
@@ -55,5 +55,5 @@ def test_predict_ani_atoms():
     return energy, force, stress
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     test_predict_ani_atoms()
