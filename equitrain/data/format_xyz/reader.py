@@ -59,7 +59,7 @@ class XYZReader:
 
     def update_atomic_energies(self, atoms, i):
         if self.energy_key in atoms.info.keys():
-            self.atomic_energies[atoms.get_atomic_numbers()[0]] = atoms.info[
+            self.atomic_energies[int(atoms.get_atomic_numbers()[0])] = atoms.info[
                 self.energy_key
             ]
         else:
