@@ -9,7 +9,7 @@ import os
 import torch
 import torchani
 
-from equitrain.ani_wrapper import AniWrapper
+from equitrain.model_wrappers import AniWrapper
 
 
 class AniWrapper(AniWrapper):
