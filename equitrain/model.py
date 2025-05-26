@@ -1,6 +1,11 @@
 import torch
 
-from equitrain.model_wrappers import AbstractWrapper, MaceWrapper, SevennetWrapper
+from equitrain.model_wrappers import (
+    AbstractWrapper,
+    MaceWrapper,
+    OrbWrapper,
+    SevennetWrapper,
+)
 
 
 def get_model(args, logger=None):
@@ -25,6 +30,8 @@ def get_model(args, logger=None):
             model = MaceWrapper(args, model)
         if args.model_wrapper == 'sevennet':
             model = SevennetWrapper(args, model)
+        if args.model_wrapper == 'orb':
+            model = OrbWrapper(args, model)
 
     # Overwrite model parameters
     if hasattr(args, 'r_max') and args.r_max is not None:
