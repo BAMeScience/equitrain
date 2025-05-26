@@ -54,6 +54,10 @@ docu = [
   "mkdocs-click",
 ]
 
+ani = [
+  "torchani>=2.2",  # TorchANI for ANI models
+]
+
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
 equitrain-evaluate   = "equitrain.scripts.equitrain_evaluate:main"
