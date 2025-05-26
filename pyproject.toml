@@ -135,7 +135,6 @@ line-ending = "auto"
 strict = false
 ignore_missing_imports = true
 follow_imports = "silent"
-no_strict_optional = true
 disable_error_code = "import, annotation-unchecked"
 
 [tool.setuptools.packages.find]
