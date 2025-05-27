@@ -13,22 +13,22 @@ from equitrain.model_wrappers import OrbWrapper
 class OrbWrapper(OrbWrapper):
     """
     Test utility wrapper for ORB models.
-    
+
     This class extends the OrbWrapper to provide functionality for testing,
     including easy model creation and validation utilities.
     """
-    
+
     def __init__(
         self,
         args,
         model=None,
         model_variant='direct',
         enable_zbl=False,
-        model_size='small'
+        model_size='small',
     ):
         """
         Initialize the test ORB wrapper.
-        
+
         Parameters
         ----------
         args : object
@@ -44,7 +44,7 @@ class OrbWrapper(OrbWrapper):
         """
         self.model_size = model_size
         super().__init__(args, model, model_variant, enable_zbl)
-    
+
     def _create_default_model(self):
         """
         Create a default ORB model from the model zoo.
@@ -76,22 +76,24 @@ class OrbWrapper(OrbWrapper):
                     model = pretrained.orb_v3_large()
                 else:
                     model = pretrained.orb_v3_small()
-            
+
             # Enable ZBL repulsion if requested
             if self.enable_zbl:
                 model.enable_zbl = True
-                
+
             return model
         except ImportError:
             raise ImportError(
                 'ORB models are required. Install with: pip install "orb-models>=3.0"'
             )
-    
+
     @classmethod
-    def get_initial_model(cls, model_variant='direct', model_size='small', enable_zbl=False):
+    def get_initial_model(
+        cls, model_variant='direct', model_size='small', enable_zbl=False
+    ):
         """
         Get an initial ORB model for testing.
-        
+
         Parameters
         ----------
         model_variant : str, optional
@@ -100,7 +102,7 @@ class OrbWrapper(OrbWrapper):
             Size of the model ('small', 'medium', 'large'). Default is 'small'.
         enable_zbl : bool, optional
             Enable ZBL repulsion term. Default is False.
-            
+
         Returns
         -------
         torch.nn.Module
@@ -128,21 +130,21 @@ class OrbWrapper(OrbWrapper):
                     model = pretrained.orb_v3_large()
                 else:
                     model = pretrained.orb_v3_small()
-            
+
             # Enable ZBL repulsion if requested
             if enable_zbl:
                 model.enable_zbl = True
-                
+
             return model
         except ImportError:
             raise ImportError(
                 'ORB models are required. Install with: pip install "orb-models>=3.0"'
             )
-    
+
     def validate_matbench_mae(self, energy_pred, energy_true, forces_pred, forces_true):
         """
         Compute Matbench-style MAE for energy and forces.
-        
+
         Parameters
         ----------
         energy_pred : torch.Tensor
@@ -153,7 +155,7 @@ class OrbWrapper(OrbWrapper):
             Predicted forces
         forces_true : torch.Tensor
             True forces
-            
+
         Returns
         -------
         dict
@@ -161,31 +163,31 @@ class OrbWrapper(OrbWrapper):
         """
         # Energy MAE (eV/atom)
         energy_mae = torch.mean(torch.abs(energy_pred - energy_true)).item()
-        
+
         # Force MAE (eV/Å)
         forces_mae = torch.mean(torch.abs(forces_pred - forces_true)).item()
-        
-        return {
-            'energy_mae_eV_per_atom': energy_mae,
-            'forces_mae_eV_per_A': forces_mae
-        }
-    
+
+        return {'energy_mae_eV_per_atom': energy_mae, 'forces_mae_eV_per_A': forces_mae}
+
     def get_confidence_scores(self, *args):
         """
         Get confidence scores from ORB model if available.
-        
+
         Parameters
         ----------
         *args : tuple
             Input arguments for the model
-            
+
         Returns
         -------
         dict or None
             Confidence scores if available, None otherwise
         """
         # Check if model has confidence head
-        if hasattr(self.model, 'confidence_head') and self.model.confidence_head is not None:
+        if (
+            hasattr(self.model, 'confidence_head')
+            and self.model.confidence_head is not None
+        ):
             try:
                 with torch.no_grad():
                     result = self.forward(*args)
@@ -193,5 +195,5 @@ class OrbWrapper(OrbWrapper):
                         return result['confidence']
             except Exception:
                 pass
-        
+
         return None
