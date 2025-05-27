@@ -10,7 +10,7 @@ from equitrain.utility_test import M3GNetWrapper
 def test_predict_m3gnet_structures():
     """
     Test prediction using M3GNet wrapper on structure data.
-    
+
     This test loads structures from a file, creates a M3GNet wrapper,
     and uses it to predict energy, forces, and stress.
     """
@@ -41,5 +41,5 @@ def test_predict_m3gnet_structures():
     print(stress)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     test_predict_m3gnet_structures()
