@@ -26,7 +26,7 @@ def sanitize_for_json(obj):
         json.dumps(obj)  # Test if it's serializable
         return obj
     except TypeError:
-        return str(obj)  # Fallback: convert to string
+        return None  # Return None if not serializable
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
@@ -155,6 +155,18 @@ def load_checkpoint(
 
         load_model_state(model, load_checkpoint_model)
 
+    if load_checkpoint is not None and (Path(load_checkpoint) / 'args.json').exists():
+        with open(Path(load_checkpoint) / 'args.json') as f:
+            saved_args = json.load(f)
+
+        for k, v in saved_args.items():
+            if hasattr(args, k) and getattr(args, k) != v:
+                logger.log(
+                    1,
+                    f'Warning: Argument `{k}` in saved checkpoint differs from current argument: '
+                    f'{getattr(args, k)} != {v}.',
+                )
+
     if hasattr(args, 'load_checkpoint'):
         args.load_checkpoint = load_checkpoint
     if hasattr(args, 'load_checkpoint_model'):
@@ -195,4 +207,12 @@ def save_checkpoint(
         torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
 
     with open(output_dir / 'args.json', 'w') as f:
-        json.dump({k: sanitize_for_json(v) for k, v in vars(args).items()}, f, indent=4)
+        json.dump(
+            {
+                k: sanitized
+                for k, v in vars(args).items()
+                if (sanitized := sanitize_for_json(v)) is not None
+            },
+            f,
+            indent=4,
+        )
