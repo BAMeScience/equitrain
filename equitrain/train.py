@@ -448,6 +448,19 @@ def train(args):
     ):
         raise ArgumentError('at least one non-zero loss weight is required')
 
+    if args.loss_type_energy is None:
+        args.loss_type_energy = args.loss_type.lower()
+    if args.loss_type_forces is None:
+        args.loss_type_forces = args.loss_type.lower()
+    if args.loss_type_stress is None:
+        args.loss_type_stress = args.loss_type.lower()
+    if (
+        args.loss_type_energy != args.loss_type.lower()
+        or args.loss_type_forces != args.loss_type.lower()
+        or args.loss_type_stress != args.loss_type.lower()
+    ):
+        args.loss_type = 'mixed'
+
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 

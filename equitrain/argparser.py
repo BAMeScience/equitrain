@@ -148,6 +148,55 @@ def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default='huber',
     )
     parser.add_argument(
+        '--loss-type-energy',
+        help='Type of loss function for energy [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-type-forces',
+        help='Type of loss function for forces [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-type-stress',
+        help='Type of loss function for stress [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type',
+        help='Type of loss weighting scheme to apply [groundstate]. If not set, no weighting is applied.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-energy',
+        help='Type of loss weighting scheme for energy [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-forces',
+        help='Type of loss weighting scheme for forces [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-stress',
+        help='Type of loss weighting scheme for stress [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
         '--loss-monitor',
         help='Comma separated list of loss types to monitor in addition to the loss function [default: mae,mse]',
         type=str,
