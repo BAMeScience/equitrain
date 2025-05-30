@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import warnings
@@ -18,6 +19,14 @@ warnings.filterwarnings(
         'which uses the default pickle module implicitly.'
     ),
 )
+
+
+def sanitize_for_json(obj):
+    try:
+        json.dumps(obj)  # Test if it's serializable
+        return obj
+    except TypeError:
+        return str(obj)  # Fallback: convert to string
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
@@ -184,3 +193,6 @@ def save_checkpoint(
 
     if model_ema is not None:
         torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
+
+    with open(output_dir / 'args.json', 'w') as f:
+        json.dump({k: sanitize_for_json(v) for k, v in vars(args).items()}, f, indent=4)
