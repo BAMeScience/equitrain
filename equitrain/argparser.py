@@ -16,9 +16,6 @@ def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     parser.add_argument('--train-file', help='Training data', type=str, default=None)
     parser.add_argument('--valid-file', help='Validation data', type=str, default=None)
     parser.add_argument('--test-file', help='Test data', type=str, default=None)
-    parser.add_argument(
-        '--output-dir', help='Output directory for h5 files', type=str, default=''
-    )
     return parser
 
 
@@ -352,6 +349,8 @@ def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     parser = add_model_checkpoint_args(parser)
     parser = add_model_freeze_args(parser)
 
+    parser.add_argument('--output-dir', help='Output directory', type=str, default='')
+
     return parser
 
 
@@ -362,6 +361,7 @@ def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--model-export', help='Export model to given file', type=str, default=None
     )
+    parser.add_argument('--output-dir', help='Output directory', type=str, default='')
 
     return parser
 
@@ -416,6 +416,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help='Key of reference stress in training xyz',
             type=str,
             default='stress',
+        )
+        parser.add_argument(
+            '--output-dir', help='Output directory', type=str, default=''
         )
 
     elif script_type == 'train':
@@ -477,6 +480,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
         parser.add_argument(
             '--tqdm', help='Show TQDM status bar', action='store_true', default=False
+        )
+        parser.add_argument(
+            '--output-dir', help='Output directory', type=str, default=''
         )
 
     elif script_type == 'predict':

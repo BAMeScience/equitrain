@@ -110,6 +110,8 @@ def load_checkpoint(
     load_last_checkpoint_model = getattr(args, 'load_last_checkpoint_model', None)
     epochs_start = getattr(args, 'epochs_start', 1)
 
+    result = False
+
     if load_checkpoint is None and load_best_checkpoint:
         load_checkpoint, epoch = _find_best_checkpoint(args.output_dir, 'val')
 
@@ -149,18 +151,24 @@ def load_checkpoint(
         if model_ema and ema_path.exists():
             model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
 
+        result = True
+
     if load_checkpoint_model is not None:
         if logger is not None:
             logger.log(1, f'Loading model checkpoint {load_checkpoint_model}...')
 
         load_model_state(model, load_checkpoint_model)
 
+        result = True
+
     if load_checkpoint is not None:
         args_path = Path(load_checkpoint) / 'args.json'
     elif load_checkpoint_model is not None:
         args_path = Path(load_checkpoint_model).parent / 'args.json'
+    else:
+        args_path = None
 
-    if args_path.exists():
+    if args_path is not None and args_path.exists():
         with open(args_path) as f:
             saved_args = json.load(f)
 
@@ -186,6 +194,8 @@ def load_checkpoint(
         args.load_last_checkpoint_model = load_last_checkpoint_model
     if hasattr(args, 'epochs_start'):
         args.epochs_start = epochs_start
+
+    return result
 
 
 def save_checkpoint(
