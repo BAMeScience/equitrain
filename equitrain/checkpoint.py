@@ -128,7 +128,7 @@ def load_checkpoint(
             load_checkpoint_model += '/pytorch_model.bin'
 
         if epoch is not None:
-            args.epochs_start = epoch + 1
+            epochs_start = epoch + 1
 
     if load_checkpoint_model is None and load_last_checkpoint_model:
         load_checkpoint_model, epoch = _find_last_checkpoint(args.output_dir, 'val')
@@ -155,8 +155,13 @@ def load_checkpoint(
 
         load_model_state(model, load_checkpoint_model)
 
-    if load_checkpoint is not None and (Path(load_checkpoint) / 'args.json').exists():
-        with open(Path(load_checkpoint) / 'args.json') as f:
+    if load_checkpoint is not None:
+        args_path = Path(load_checkpoint) / 'args.json'
+    elif load_checkpoint_model is not None:
+        args_path = Path(load_checkpoint_model).parent / 'args.json'
+
+    if args_path.exists():
+        with open(args_path) as f:
             saved_args = json.load(f)
 
         for k, v in saved_args.items():
