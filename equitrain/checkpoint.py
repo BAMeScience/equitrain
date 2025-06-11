@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import re
@@ -170,32 +171,12 @@ def load_checkpoint(
 
     if args_path is not None and args_path.exists():
         with open(args_path) as f:
-            saved_args = json.load(f)
+            args_checkpoint = json.load(f)
 
-        for k, v in saved_args.items():
-            if hasattr(args, k) and getattr(args, k) != v:
-                logger.log(
-                    1,
-                    f'Warning: Argument `{k}` in saved checkpoint differs from current argument: '
-                    f'{getattr(args, k)} != {v}.',
-                )
-
-    if hasattr(args, 'load_checkpoint'):
-        args.load_checkpoint = load_checkpoint
-    if hasattr(args, 'load_checkpoint_model'):
-        args.load_checkpoint_model = load_checkpoint_model
-    if hasattr(args, 'load_best_checkpoint'):
-        args.load_best_checkpoint = load_best_checkpoint
-    if hasattr(args, 'load_last_checkpoint'):
-        args.load_last_checkpoint = load_last_checkpoint
-    if hasattr(args, 'load_best_checkpoint_model'):
-        args.load_best_checkpoint_model = load_best_checkpoint_model
-    if hasattr(args, 'load_last_checkpoint_model'):
-        args.load_last_checkpoint_model = load_last_checkpoint_model
     if hasattr(args, 'epochs_start'):
         args.epochs_start = epochs_start
 
-    return result
+    return result, args_checkpoint
 
 
 def save_checkpoint(

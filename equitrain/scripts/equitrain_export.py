@@ -22,7 +22,7 @@ def _export(args):
     model = get_model(args)
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
-    if not load_checkpoint(args, model, logger=logger):
+    if not load_checkpoint(args, model, logger=logger)[0]:
         logger.log(1, 'No checkpoint found, using initial model')
 
     if isinstance(model, AbstractWrapper):

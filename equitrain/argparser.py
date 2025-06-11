@@ -579,6 +579,20 @@ def get_loss_monitor(args: argparse.ArgumentParser) -> list[str]:
     return loss_monitor
 
 
+def check_args_consistency(args, args_new, logger):
+    for k, v in args_new.items():
+        if k == 'epochs_start':
+            continue
+        if k == 'verbose':
+            continue
+        if hasattr(args, k) and getattr(args, k) != v:
+            logger.log(
+                1,
+                f'Warning: Argument `{k}` in saved checkpoint differs from current argument: '
+                f'{getattr(args, k)} != {v}.',
+            )
+
+
 class ArgumentError(ValueError):
     """Custom exception raised when invalid or missing argument is present."""
 
