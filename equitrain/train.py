@@ -13,6 +13,7 @@ from equitrain.argparser import (
     ArgsFormatter,
     ArgumentError,
     check_args_complete,
+    check_args_consistency,
     get_loss_monitor,
 )
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
@@ -247,7 +248,10 @@ def _train_with_accelerator(args, accelerator: Accelerator):
     lr_scheduler = SchedulerWrapper(args, lr_scheduler)
 
     # Import model, optimizer, lr_scheduler from checkpoint if possible
-    load_checkpoint(args, model, model_ema, accelerator, logger)
+    if (result := load_checkpoint(args, model, model_ema, accelerator, logger))[0]:
+        # Use epochs_start from the checkpoint
+        args_checkpoint = result[1]
+        check_args_consistency(args, args_checkpoint, logger)
 
     # Keep subset of parameters fixed during training
     model_freeze_params(args, model, logger=logger)
@@ -447,6 +451,19 @@ def train(args):
         and args.stress_weight == 0.0
     ):
         raise ArgumentError('at least one non-zero loss weight is required')
+
+    if args.loss_type_energy is None:
+        args.loss_type_energy = args.loss_type.lower()
+    if args.loss_type_forces is None:
+        args.loss_type_forces = args.loss_type.lower()
+    if args.loss_type_stress is None:
+        args.loss_type_stress = args.loss_type.lower()
+    if (
+        args.loss_type_energy != args.loss_type.lower()
+        or args.loss_type_forces != args.loss_type.lower()
+        or args.loss_type_stress != args.loss_type.lower()
+    ):
+        args.loss_type = 'mixed'
 
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)

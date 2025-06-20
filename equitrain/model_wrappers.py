@@ -95,11 +95,11 @@ class MaceWrapper(AbstractWrapper):
 
     @property
     def atomic_numbers(self):
-        return AtomicNumberTable(self.model.atomic_numbers.tolist())
+        return AtomicNumberTable(self.model.atomic_numbers.cpu().tolist())
 
     @property
     def atomic_energies(self):
-        return self.model.atomic_energies_fn.atomic_energies.tolist()
+        return self.model.atomic_energies_fn.atomic_energies.cpu().tolist()
 
     @property
     def r_max(self):
@@ -223,7 +223,7 @@ class SevennetWrapper(AbstractWrapper):
     @property
     def atomic_numbers(self):
         return AtomicNumberTable(
-            torch.nonzero(self.model.z_to_onehot_tensor != -1).squeeze().tolist()
+            torch.nonzero(self.model.z_to_onehot_tensor != -1).squeeze().cpu().tolist()
         )
 
     @property
@@ -232,7 +232,7 @@ class SevennetWrapper(AbstractWrapper):
 
     @property
     def r_max(self):
-        return self.model.cutoff
+        return self.model.cutoff.item()
 
     @r_max.setter
     def r_max(self, value):

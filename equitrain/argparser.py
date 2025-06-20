@@ -16,9 +16,6 @@ def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     parser.add_argument('--train-file', help='Training data', type=str, default=None)
     parser.add_argument('--valid-file', help='Validation data', type=str, default=None)
     parser.add_argument('--test-file', help='Test data', type=str, default=None)
-    parser.add_argument(
-        '--output-dir', help='Output directory for h5 files', type=str, default=''
-    )
     return parser
 
 
@@ -146,6 +143,55 @@ def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         choices=['mae', 'smooth-l1', 'mse', 'huber'],
         type=str,
         default='huber',
+    )
+    parser.add_argument(
+        '--loss-type-energy',
+        help='Type of loss function for energy [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-type-forces',
+        help='Type of loss function for forces [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-type-stress',
+        help='Type of loss function for stress [mae, smooth-l1, mse, huber]. If not set, defaults to --loss-type.',
+        choices=['mae', 'smooth-l1', 'mse', 'huber'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type',
+        help='Type of loss weighting scheme to apply [groundstate]. If not set, no weighting is applied.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-energy',
+        help='Type of loss weighting scheme for energy [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-forces',
+        help='Type of loss weighting scheme for forces [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        '--loss-weight-type-stress',
+        help='Type of loss weighting scheme for stress [groundstate]. If not set, defaults to --loss-weight-type.',
+        choices=['groundstate'],
+        type=str,
+        default=None,
     )
     parser.add_argument(
         '--loss-monitor',
@@ -303,6 +349,8 @@ def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     parser = add_model_checkpoint_args(parser)
     parser = add_model_freeze_args(parser)
 
+    parser.add_argument('--output-dir', help='Output directory', type=str, default='')
+
     return parser
 
 
@@ -313,6 +361,7 @@ def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--model-export', help='Export model to given file', type=str, default=None
     )
+    parser.add_argument('--output-dir', help='Output directory', type=str, default='')
 
     return parser
 
@@ -367,6 +416,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help='Key of reference stress in training xyz',
             type=str,
             default='stress',
+        )
+        parser.add_argument(
+            '--output-dir', help='Output directory', type=str, default=''
         )
 
     elif script_type == 'train':
@@ -428,6 +480,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         )
         parser.add_argument(
             '--tqdm', help='Show TQDM status bar', action='store_true', default=False
+        )
+        parser.add_argument(
+            '--output-dir', help='Output directory', type=str, default=''
         )
 
     elif script_type == 'predict':
@@ -522,6 +577,20 @@ def get_loss_monitor(args: argparse.ArgumentParser) -> list[str]:
         loss_monitor.remove(args.loss_type)
 
     return loss_monitor
+
+
+def check_args_consistency(args, args_new, logger):
+    for k, v in args_new.items():
+        if k == 'epochs_start':
+            continue
+        if k == 'verbose':
+            continue
+        if hasattr(args, k) and getattr(args, k) != v:
+            logger.log(
+                1,
+                f'Warning: Argument `{k}` in saved checkpoint differs from current argument: '
+                f'{getattr(args, k)} != {v}.',
+            )
 
 
 class ArgumentError(ValueError):

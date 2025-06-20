@@ -1,3 +1,5 @@
+import copy
+
 import torch
 
 from equitrain.data.scatter import scatter_mean
@@ -8,6 +10,7 @@ class ErrorFn(torch.nn.Module):
     def __init__(
         self,
         loss_type: str = None,
+        loss_weight_type: str = None,
         smooth_l1_beta: float = None,
         huber_delta: float = None,
         loss_clipping: float = None,
@@ -15,9 +18,10 @@ class ErrorFn(torch.nn.Module):
     ):
         super().__init__()
 
-        loss_type = loss_type.lower()
+        loss_type = loss_type.lower() if loss_type else None
+        loss_weight_type = loss_weight_type.lower() if loss_weight_type else None
 
-        if type is None or loss_type == 'mae' or loss_type == 'l1':
+        if loss_type is None or loss_type == 'mae' or loss_type == 'l1':
             self.error_fn = lambda x, y: torch.nn.functional.l1_loss(
                 x, y, reduction='none'
             )
@@ -40,6 +44,14 @@ class ErrorFn(torch.nn.Module):
         else:
             raise ValueError(f'Invalid loss type: {loss_type}')
 
+        if loss_weight_type == 'groundstate':
+            self.weight_fn = (
+                lambda x, y: torch.exp(-1000.0 * self.rowwise_norm(y) ** 2) + 1.0
+            )
+
+        else:
+            self.weight_fn = None
+
         self.loss_clipping = loss_clipping
 
     def forward(self, input, target):
@@ -48,12 +60,34 @@ class ErrorFn(torch.nn.Module):
         if self.loss_clipping is not None:
             x = torch.clamp(x, max=self.loss_clipping)
 
+        if self.weight_fn is not None:
+            weights = self.weight_fn(input, target)
+            if x.ndim > 1:
+                x = weights[:, None] * x
+            else:
+                x = weights * x
+
         return x
+
+    @staticmethod
+    def rowwise_norm(x):
+        return x.norm(dim=-1) if x.ndim > 1 else x.abs()
 
 
 class LossFnEnergy(torch.nn.Module):
     def __init__(self, **args):
         super().__init__()
+
+        args = copy.deepcopy(args)
+
+        if 'loss_type_energy' in args and args['loss_type_energy'] is not None:
+            args['loss_type'] = args['loss_type_energy']
+
+        if (
+            'loss_weight_type_energy' in args
+            and args['loss_weight_type_energy'] is not None
+        ):
+            args['loss_weight_type'] = args['loss_weight_type_energy']
 
         self.error_fn = ErrorFn(**args)
 
@@ -70,6 +104,15 @@ class LossFnEnergy(torch.nn.Module):
 class LossFnForces(torch.nn.Module):
     def __init__(self, **args):
         super().__init__()
+
+        if 'loss_type_forces' in args and args['loss_type_forces'] is not None:
+            args['loss_type'] = args['loss_type_forces']
+
+        if (
+            'loss_weight_type_forces' in args
+            and args['loss_weight_type_forces'] is not None
+        ):
+            args['loss_weight_type'] = args['loss_weight_type_forces']
 
         self.error_fn = ErrorFn(**args)
 
@@ -88,6 +131,15 @@ class LossFnForces(torch.nn.Module):
 class LossFnStress(torch.nn.Module):
     def __init__(self, **args):
         super().__init__()
+
+        if 'loss_type_stress' in args and args['loss_type_stress'] is not None:
+            args['loss_type'] = args['loss_type_stress']
+
+        if (
+            'loss_weight_type_stress' in args
+            and args['loss_weight_type_stress'] is not None
+        ):
+            args['loss_weight_type'] = args['loss_weight_type_stress']
 
         self.error_fn = ErrorFn(**args)
 

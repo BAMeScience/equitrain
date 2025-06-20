@@ -1,3 +1,5 @@
+import copy
+import json
 import os
 import re
 import warnings
@@ -18,6 +20,14 @@ warnings.filterwarnings(
         'which uses the default pickle module implicitly.'
     ),
 )
+
+
+def sanitize_for_json(obj):
+    try:
+        json.dumps(obj)  # Test if it's serializable
+        return obj
+    except TypeError:
+        return None  # Return None if not serializable
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
@@ -101,6 +111,8 @@ def load_checkpoint(
     load_last_checkpoint_model = getattr(args, 'load_last_checkpoint_model', None)
     epochs_start = getattr(args, 'epochs_start', 1)
 
+    result = False
+
     if load_checkpoint is None and load_best_checkpoint:
         load_checkpoint, epoch = _find_best_checkpoint(args.output_dir, 'val')
 
@@ -119,7 +131,7 @@ def load_checkpoint(
             load_checkpoint_model += '/pytorch_model.bin'
 
         if epoch is not None:
-            args.epochs_start = epoch + 1
+            epochs_start = epoch + 1
 
     if load_checkpoint_model is None and load_last_checkpoint_model:
         load_checkpoint_model, epoch = _find_last_checkpoint(args.output_dir, 'val')
@@ -140,26 +152,33 @@ def load_checkpoint(
         if model_ema and ema_path.exists():
             model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
 
+        result = True
+
     if load_checkpoint_model is not None:
         if logger is not None:
             logger.log(1, f'Loading model checkpoint {load_checkpoint_model}...')
 
         load_model_state(model, load_checkpoint_model)
 
-    if hasattr(args, 'load_checkpoint'):
-        args.load_checkpoint = load_checkpoint
-    if hasattr(args, 'load_checkpoint_model'):
-        args.load_checkpoint_model = load_checkpoint_model
-    if hasattr(args, 'load_best_checkpoint'):
-        args.load_best_checkpoint = load_best_checkpoint
-    if hasattr(args, 'load_last_checkpoint'):
-        args.load_last_checkpoint = load_last_checkpoint
-    if hasattr(args, 'load_best_checkpoint_model'):
-        args.load_best_checkpoint_model = load_best_checkpoint_model
-    if hasattr(args, 'load_last_checkpoint_model'):
-        args.load_last_checkpoint_model = load_last_checkpoint_model
+        result = True
+
+    if load_checkpoint is not None:
+        args_path = Path(load_checkpoint) / 'args.json'
+    elif load_checkpoint_model is not None:
+        args_path = Path(load_checkpoint_model).parent / 'args.json'
+    else:
+        args_path = None
+
+    args_checkpoint = None
+
+    if args_path is not None and args_path.exists():
+        with open(args_path) as f:
+            args_checkpoint = json.load(f)
+
     if hasattr(args, 'epochs_start'):
         args.epochs_start = epochs_start
+
+    return result, args_checkpoint
 
 
 def save_checkpoint(
@@ -184,3 +203,14 @@ def save_checkpoint(
 
     if model_ema is not None:
         torch.save(model_ema.state_dict(), output_dir / 'ema.bin')
+
+    with open(output_dir / 'args.json', 'w') as f:
+        json.dump(
+            {
+                k: sanitized
+                for k, v in vars(args).items()
+                if (sanitized := sanitize_for_json(v)) is not None
+            },
+            f,
+            indent=4,
+        )
