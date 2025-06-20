@@ -169,6 +169,8 @@ def load_checkpoint(
     else:
         args_path = None
 
+    args_checkpoint = None
+
     if args_path is not None and args_path.exists():
         with open(args_path) as f:
             args_checkpoint = json.load(f)
