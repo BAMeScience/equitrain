@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from ase.constraints import FixAtoms
 from torch_geometric.data import Data
 
 from equitrain.data.utility import atomic_numbers_to_indices, to_one_hot
@@ -110,8 +111,6 @@ class AtomsToGraphs:
         if self.r_fixed:
             fixed_idx = torch.zeros(natoms)
             if hasattr(atoms, 'constraints'):
-                from ase.constraints import FixAtoms
-
                 for constraint in atoms.constraints:
                     if isinstance(constraint, FixAtoms):
                         fixed_idx[constraint.index] = 1

@@ -4,6 +4,21 @@ import torch
 
 from equitrain.data.atomic import AtomicNumberTable
 
+try:
+    from mace.modules.blocks import RadialEmbeddingBlock
+    from mace.modules.radial import (
+        AgnesiTransform,
+        BesselBasis,
+        ChebychevBasis,
+        GaussianBasis,
+        SoftTransform,
+        ZBLBasis,
+    )
+
+    _HAS_MACE = True
+except ImportError:
+    _HAS_MACE = False
+
 
 class AbstractWrapper(torch.nn.Module, ABC):
     def __init__(self, model):
@@ -93,14 +108,10 @@ class MaceWrapper(AbstractWrapper):
     @r_max.setter
     def r_max(self, r_max):
         if hasattr(self.model, 'radial_embedding'):
-            from mace.modules.blocks import RadialEmbeddingBlock
-            from mace.modules.radial import (
-                AgnesiTransform,
-                BesselBasis,
-                ChebychevBasis,
-                GaussianBasis,
-                SoftTransform,
-            )
+            if _HAS_MACE is False:
+                raise ImportError(
+                    "Optional dependency 'mace' is required for MaceWrapper."
+                )
 
             num_bessel = self.model.radial_embedding.out_dim
             num_polynomial_cutoff = self.model.radial_embedding.cutoff_fn.p.item()
@@ -136,7 +147,10 @@ class MaceWrapper(AbstractWrapper):
             )
 
         if hasattr(self.model, 'pair_repulsion'):
-            from mace.modules.radial import ZBLBasis
+            if _HAS_MACE is False:
+                raise ImportError(
+                    "Optional dependency 'mace' is required for MaceWrapper."
+                )
 
             if self.model.pair_repulsion:
                 p = self.model.pair_repulsion_fn.p

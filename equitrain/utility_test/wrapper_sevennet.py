@@ -1,6 +1,15 @@
 from equitrain.data import Statistics
 from equitrain.model_wrappers import SevennetWrapper
 
+try:
+    import sevenn._keys as KEY
+    from sevenn.model_build import build_E3_equivariant_model
+    from sevenn.parse_input import read_config_yaml
+
+    _HAS_SEVENN = True
+except ImportError:
+    _HAS_SEVENN = False
+
 
 class SevennetWrapper(SevennetWrapper):
     def __init__(self, args, filename_config, filename_statistics):
@@ -10,8 +19,10 @@ class SevennetWrapper(SevennetWrapper):
 
     @classmethod
     def get_config(cls, filename_config, filename_statistics):
-        import sevenn._keys as KEY
-        from sevenn.parse_input import read_config_yaml
+        if _HAS_SEVENN is False:
+            raise ImportError(
+                "Optional dependency 'sevenn' is required for SevennetWrapper."
+            )
 
         print(f'Reading statistics from `{filename_statistics}`')
 
@@ -44,7 +55,10 @@ class SevennetWrapper(SevennetWrapper):
 
     @classmethod
     def get_initial_model(cls, filename_config, filename_statistics):
-        from sevenn.model_build import build_E3_equivariant_model
+        if _HAS_SEVENN is False:
+            raise ImportError(
+                "Optional dependency 'sevenn' is required for SevennetWrapper."
+            )
 
         config = cls.get_config(filename_config, filename_statistics)
 
