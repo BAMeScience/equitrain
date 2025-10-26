@@ -16,6 +16,7 @@ from equitrain.backends.common import (
     validate_evaluate_args,
     validate_training_args,
 )
+from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_utils import (
     ModelBundle,
     build_loss_fn,
@@ -126,7 +127,10 @@ def train(args):
 
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
     loss_fn = build_loss_fn(apply_fn, args.energy_weight)
+    mask = build_trainable_mask(args, bundle.params, logger)
     optimizer = optax.adam(args.lr)
+    if mask is not None:
+        optimizer = optax.masked(optimizer, mask)
     opt_state = optimizer.init(bundle.params)
 
     num_epochs = args.epochs

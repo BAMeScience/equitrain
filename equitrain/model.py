@@ -1,39 +1,18 @@
-import torch
+"""Backend-agnostic model loader shim."""
 
-from equitrain.backends.torch_wrappers import (
-    AbstractWrapper,
-    MaceWrapper,
-    SevennetWrapper,
-)
+from __future__ import annotations
 
 
 def get_model(args, logger=None):
-    if isinstance(args.model, torch.nn.Module):
-        model = args.model
+    backend_name = getattr(args, 'backend', 'torch') or 'torch'
+    if backend_name != 'torch':
+        raise NotImplementedError(
+            f'No model loader implemented for backend "{backend_name}".'
+        )
 
-    else:
-        # TODO: Check if file exists. Through a meaningful error if not
-        model = torch.load(args.model, weights_only=False)
+    from equitrain.backends.torch_model import get_model as _get_model
 
-    # Apply model wrapper
-    if not isinstance(model, AbstractWrapper):
-        # Set attributes that might be required for the wrapper
-        if not hasattr(args, 'energy_weight'):
-            setattr(args, 'energy_weight', 0.0)
-        if not hasattr(args, 'forces_weight'):
-            setattr(args, 'forces_weight', 0.0)
-        if not hasattr(args, 'stress_weight'):
-            setattr(args, 'stress_weight', 0.0)
+    return _get_model(args, logger=logger)
 
-        if args.model_wrapper == 'mace':
-            model = MaceWrapper(args, model)
-        if args.model_wrapper == 'sevennet':
-            model = SevennetWrapper(args, model)
 
-    # Overwrite model parameters
-    if hasattr(args, 'r_max') and args.r_max is not None:
-        if logger is not None:
-            logger.log(1, f'Overwriting r_max model parameter with r_max={args.r_max}')
-        model.r_max = args.r_max
-
-    return model
+__all__ = ['get_model']

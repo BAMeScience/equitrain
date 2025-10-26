@@ -25,14 +25,14 @@ from equitrain.data.backend_torch.loaders import (
     get_dataloaders,
 )
 from equitrain.logger import FileLogger
-from equitrain.loss import LossCollection
-from equitrain.loss_fn import LossFnCollection
-from equitrain.loss_metrics import BestMetric, LossMetrics
+from .torch_loss import LossCollection
+from .torch_loss_fn import LossFnCollection
+from .torch_loss_metrics import BestMetric, LossMetrics
 from equitrain.model import get_model
-from equitrain.model_freeze import model_freeze_params
+from .torch_freeze import model_freeze_params
 from equitrain.train_optimizer import create_optimizer, update_weight_decay
 from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
-from equitrain.utility import set_dtype, set_seeds
+from .torch_utils import set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 

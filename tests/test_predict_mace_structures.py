@@ -4,8 +4,8 @@ import ase.io
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from equitrain import get_args_parser_predict, predict_structures
+from equitrain.backends.torch_utils import set_dtype
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.utility import set_dtype
 from equitrain.utility_test import MaceWrapper
 
 

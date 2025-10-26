@@ -3,8 +3,8 @@ from pathlib import Path
 import ase.io
 
 from equitrain import get_args_parser_predict, predict_atoms
+from equitrain.backends.torch_utils import set_dtype
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.utility import set_dtype
 from equitrain.utility_test import MaceWrapper
 
 

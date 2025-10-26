@@ -1,49 +1,18 @@
-import torch
+"""Compatibility shim for torch stress derivatives."""
+
+from __future__ import annotations
 
 
-def compute_stress(
-    energy: torch.Tensor,
-    displacement: torch.Tensor,
-    cell: torch.Tensor,
-    training: bool = True,
-) -> torch.Tensor:
-    grad_outputs: list[torch.Tensor | None] = torch.ones_like(energy)
+def compute_stress(*args, **kwargs):
+    from equitrain.backends.torch_derivatives.stress import compute_stress as _impl
 
-    virials = torch.autograd.grad(
-        outputs=energy,  # [n_graphs, ]
-        inputs=displacement,  # [n_nodes, 3]
-        grad_outputs=grad_outputs,
-        retain_graph=training,  # Make sure the graph is not destroyed during training
-        create_graph=training,  # Create graph for second derivative
-        allow_unused=True,
-    )[0]
-
-    cell = cell.view(-1, 3, 3)
-    volume = torch.einsum(
-        'zi,zi->z',
-        cell[:, 0, :],
-        torch.cross(cell[:, 1, :], cell[:, 2, :], dim=1),
-    ).unsqueeze(-1)
-    stress = virials / volume.view(-1, 1, 1)
-
-    return stress
+    return _impl(*args, **kwargs)
 
 
-def get_displacement(
-    positions: torch.Tensor, num_graphs: int, batch: torch.Tensor
-) -> torch.Tensor:
-    displacement = torch.zeros(
-        (num_graphs, 3, 3),
-        dtype=positions.dtype,
-        device=positions.device,
-    )
-    displacement.requires_grad_(True)
+def get_displacement(*args, **kwargs):
+    from equitrain.backends.torch_derivatives.stress import get_displacement as _impl
 
-    symmetric_displacement = 0.5 * (
-        displacement + displacement.transpose(-1, -2)
-    )  # From https://github.com/mir-group/nequip
-    positions = positions + torch.einsum(
-        'be,bec->bc', positions, symmetric_displacement[batch]
-    )
+    return _impl(*args, **kwargs)
 
-    return positions, displacement
+
+__all__ = ['compute_stress', 'get_displacement']

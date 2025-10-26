@@ -1,6 +1,8 @@
 import os
+import random
 from pathlib import Path
 
+import numpy as np
 import torch_geometric
 
 from equitrain.argparser import ArgumentError, check_args_complete
@@ -10,7 +12,6 @@ from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
 from equitrain.data.statistics_data import Statistics, get_atomic_energies
 from equitrain.logger import FileLogger
-from equitrain.utility import set_dtype, set_seeds
 
 
 def _convert_xyz_to_hdf5(
@@ -55,8 +56,24 @@ def _preprocess(args):
         log_to_file=False, enable_logging=True, output_dir=None, verbosity=args.verbose
     )
 
-    set_seeds(args.seed)
-    set_dtype(args.dtype)
+    backend_name = getattr(args, 'backend', 'torch') or 'torch'
+
+    if backend_name == 'torch':
+        from equitrain.backends.torch_utils import (
+            set_dtype as torch_set_dtype,
+            set_seeds as torch_set_seeds,
+        )
+
+        torch_set_seeds(args.seed)
+        torch_set_dtype(args.dtype)
+    elif backend_name == 'jax':
+        from equitrain.backends.jax_utils import set_jax_dtype
+
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+        set_jax_dtype(args.dtype)
+    else:
+        raise ArgumentError(f'Unsupported backend: {backend_name}')
 
     filename_train = os.path.join(args.output_dir, 'train.h5')
     filename_valid = os.path.join(args.output_dir, 'valid.h5')

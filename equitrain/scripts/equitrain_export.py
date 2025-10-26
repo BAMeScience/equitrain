@@ -1,13 +1,11 @@
 import sys
 
-import torch
-
 from equitrain import check_args_complete, get_args_parser_export
 from equitrain.argparser import ArgsFormatter
+from equitrain.backends.torch_wrappers import AbstractWrapper
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.logger import FileLogger
 from equitrain.model import get_model
-from equitrain.backends.torch_wrappers import AbstractWrapper
 
 
 # %%
@@ -29,6 +27,8 @@ def _export(args):
         model = model.model
 
     model = model.cpu()
+
+    import torch
 
     torch.save(model, args.model_export)
 
