@@ -4,7 +4,7 @@ from equitrain import get_args_parser_train, train
 from equitrain.utility_test import MaceWrapper
 
 
-def test_train_mace(tmp_path):
+def test_train_mace(tmp_path, mace_model_path):
     args = get_args_parser_train().parse_args([])
 
     data_dir = Path(__file__).with_name('data')
@@ -13,7 +13,7 @@ def test_train_mace(tmp_path):
     args.test_file = str(data_dir / 'train.h5')
     output_dir = tmp_path / 'train_mace'
     args.output_dir = str(output_dir)
-    args.model = MaceWrapper(args)
+    args.model = MaceWrapper(args, filename_model=mace_model_path)
 
     args.epochs = 10
     args.batch_size = 2

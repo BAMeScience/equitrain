@@ -24,6 +24,14 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from .jax_optimizer import (
+    create_optimizer,
+    optimizer_kwargs,
+)
+from .jax_scheduler import (
+    create_scheduler,
+    scheduler_kwargs,
+)
 
 
 def _ensure_forces_not_requested(args):
@@ -128,9 +136,12 @@ def train(args):
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
     loss_fn = build_loss_fn(apply_fn, args.energy_weight)
     mask = build_trainable_mask(args, bundle.params, logger)
-    optimizer = optax.adam(args.lr)
-    if mask is not None:
-        optimizer = optax.masked(optimizer, mask)
+    schedule = create_scheduler(**scheduler_kwargs(args))
+    optimizer = create_optimizer(
+        mask=mask,
+        learning_rate_schedule=schedule,
+        **optimizer_kwargs(args),
+    )
     opt_state = optimizer.init(bundle.params)
 
     num_epochs = args.epochs

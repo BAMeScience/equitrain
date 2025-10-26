@@ -19,8 +19,8 @@ class MaceWrapper(TorchMaceWrapper):
         url='https://github.com/ACEsuit/mace-mp/releases/download/mace_mp_0/2023-12-10-mace-128-L0_epoch-199.model',
     ):
         if filename_model is None:
-            filename_model = (
-                Path(__file__).resolve().parents[1] / 'tests' / 'mace.model'
+            raise ValueError(
+                'MaceWrapper requires a `filename_model` path provided by the caller.'
             )
 
         model_path = Path(filename_model)

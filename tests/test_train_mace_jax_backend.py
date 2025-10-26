@@ -9,6 +9,15 @@ import numpy as np
 import pytest
 from flax import serialization
 
+try:  # Ensure torch can deserialize e3nn constants safely (torch 2.6+)
+    import torch.serialization as _torch_serialization
+except Exception:  # pragma: no cover
+    _torch_serialization = None
+else:  # pragma: no branch
+    add_safe_globals = getattr(_torch_serialization, 'add_safe_globals', None)
+    if callable(add_safe_globals):
+        add_safe_globals([slice])
+
 # Ensure the sibling mace-jax repository is importable when tests run in-tree
 _MACE_JAX_REPO = Path(__file__).resolve().parents[2] / 'mace-jax'
 if _MACE_JAX_REPO.exists():

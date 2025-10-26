@@ -34,7 +34,7 @@ class FinetuneMaceWrapper(MaceWrapper):
             self.model.readouts[i] = FineTuneModule(readout)
 
 
-def test_finetune_mace(tmp_path):
+def test_finetune_mace(tmp_path, mace_model_path):
     args = get_args_parser_train().parse_args([])
 
     data_dir = Path(__file__).with_name('data')
@@ -43,7 +43,7 @@ def test_finetune_mace(tmp_path):
     args.test_file = str(data_dir / 'train.h5')
     output_dir = tmp_path / 'finetune_mace_readout'
     args.output_dir = str(output_dir)
-    args.model = FinetuneMaceWrapper(args)
+    args.model = FinetuneMaceWrapper(args, filename_model=mace_model_path)
     # Freeze all weights except for fine-tuning layers
     args.unfreeze_params = ['.*finetune_train.*']
 

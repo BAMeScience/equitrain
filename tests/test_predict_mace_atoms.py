@@ -8,7 +8,7 @@ from equitrain.data.atomic import AtomicNumberTable
 from equitrain.utility_test import MaceWrapper
 
 
-def test_predict_mace_atoms():
+def test_predict_mace_atoms(mace_model_path):
     set_dtype('float64')
 
     r = 4.5
@@ -16,7 +16,7 @@ def test_predict_mace_atoms():
 
     args = get_args_parser_predict().parse_args([])
 
-    args.model = MaceWrapper(args)
+    args.model = MaceWrapper(args, filename_model=mace_model_path)
 
     atoms_list = ase.io.read(filename, index=':')
     z_table = AtomicNumberTable(list(args.model.model.atomic_numbers.numpy()))

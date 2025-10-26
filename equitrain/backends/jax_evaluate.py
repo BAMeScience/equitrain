@@ -9,8 +9,9 @@ from equitrain.backends.common import (
     init_logger,
     validate_evaluate_args,
 )
-from equitrain.backends.jax_utils import build_loss_fn, load_model_bundle
+from equitrain.backends.jax_utils import load_model_bundle
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
+from equitrain.backends.jax_loss import build_eval_loss, JaxLossCollection
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
 
 
@@ -83,13 +84,18 @@ def evaluate(args):
     )
 
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
-    loss_fn = build_loss_fn(apply_fn, args.energy_weight)
-    test_loss = _evaluate_loop(bundle.params, loss_fn, test_loader)
+    loss_fn = build_eval_loss(apply_fn, args.energy_weight)
+    loss_collection = JaxLossCollection()
+    for graph in test_loader:
+        loss_value = loss_fn(bundle.params, graph)
+        loss_collection.append(float(jax.device_get(loss_value)))
+
+    test_loss = loss_collection.mean()
 
     logger.log(
         1,
         f'Test loss: {test_loss:.6f}'
-        if test_loss is not None
+        if jnp.isfinite(test_loss)
         else 'No test loss computed',
     )
     return test_loss

@@ -30,8 +30,8 @@ from .torch_loss_fn import LossFnCollection
 from .torch_loss_metrics import BestMetric, LossMetrics
 from equitrain.model import get_model
 from .torch_freeze import model_freeze_params
-from equitrain.train_optimizer import create_optimizer, update_weight_decay
-from equitrain.train_scheduler import SchedulerWrapper, create_scheduler
+from .torch_optimizer import create_optimizer, update_weight_decay
+from .torch_scheduler import SchedulerWrapper, create_scheduler
 from .torch_utils import set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
