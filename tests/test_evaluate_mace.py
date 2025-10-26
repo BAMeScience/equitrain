@@ -1,11 +1,14 @@
+from pathlib import Path
+
 from equitrain import evaluate, get_args_parser_evaluate
 from equitrain.utility_test import MaceWrapper
 
 
 def test_mace_predict():
-    args = get_args_parser_evaluate().parse_args()
+    args = get_args_parser_evaluate().parse_args([])
 
-    args.test_file = 'data/valid.h5'
+    data_dir = Path(__file__).with_name('data')
+    args.test_file = str(data_dir / 'valid.h5')
     args.batch_size = 5
     args.model = MaceWrapper(args)
     args.verbose = 1

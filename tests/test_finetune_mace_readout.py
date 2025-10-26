@@ -1,4 +1,5 @@
 import copy
+from pathlib import Path
 
 import torch
 
@@ -33,13 +34,15 @@ class FinetuneMaceWrapper(MaceWrapper):
             self.model.readouts[i] = FineTuneModule(readout)
 
 
-def test_finetune_mace():
-    args = get_args_parser_train().parse_args()
+def test_finetune_mace(tmp_path):
+    args = get_args_parser_train().parse_args([])
 
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
-    args.test_file = 'data/train.h5'
-    args.output_dir = 'test_finetune_mace_readout'
+    data_dir = Path(__file__).with_name('data')
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = str(data_dir / 'train.h5')
+    output_dir = tmp_path / 'finetune_mace_readout'
+    args.output_dir = str(output_dir)
     args.model = FinetuneMaceWrapper(args)
     # Freeze all weights except for fine-tuning layers
     args.unfreeze_params = ['.*finetune_train.*']

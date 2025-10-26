@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from pathlib import Path
 
 import torch
 
@@ -15,12 +16,10 @@ class FinetuneMaceWrapper(MaceWrapper):
             param.requires_grad = False  # Freeze base params
 
         # Create trainable deltas with same shapes
-        self.deltas = torch.nn.ParameterList(
-            [
-                torch.nn.Parameter(torch.zeros_like(p, requires_grad=True))
-                for p in self.model.parameters()
-            ]
-        )
+        self.deltas = torch.nn.ParameterList([
+            torch.nn.Parameter(torch.zeros_like(p, requires_grad=True))
+            for p in self.model.parameters()
+        ])
 
     def parameters(self, recurse: bool = True):
         """
@@ -33,12 +32,10 @@ class FinetuneMaceWrapper(MaceWrapper):
         Override named_parameters() to return only the deltas (trainable parameters).
         """
         # Use the parameter names of the deltas to mimic the original parameter names.
-        return iter(
-            [
-                (prefix + name, delta)
-                for name, delta in zip(self.model._modules.keys(), self.deltas)
-            ]
-        )
+        return iter([
+            (prefix + name, delta)
+            for name, delta in zip(self.model._modules.keys(), self.deltas)
+        ])
 
     @contextmanager
     def apply_deltas(self):
@@ -81,13 +78,15 @@ def save_result(args, filename):
     args.model.export(filename)
 
 
-def test_finetune_mace():
-    args = get_args_parser_train().parse_args()
+def test_finetune_mace(tmp_path):
+    args = get_args_parser_train().parse_args([])
 
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
-    args.test_file = 'data/train.h5'
-    args.output_dir = 'test_finetune_mace'
+    data_dir = Path(__file__).with_name('data')
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = str(data_dir / 'train.h5')
+    output_dir = tmp_path / 'finetune_mace'
+    args.output_dir = str(output_dir)
     args.model = FinetuneMaceWrapper(args)
 
     args.epochs = 2
@@ -116,7 +115,7 @@ def test_finetune_mace():
             print('Deltas have changed after training.')
             break
 
-    save_result(args, 'test_finetune_mace.model')
+    save_result(args, str(tmp_path / 'finetune_mace.model'))
 
 
 if __name__ == '__main__':

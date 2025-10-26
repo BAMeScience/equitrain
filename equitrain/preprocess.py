@@ -170,3 +170,9 @@ def preprocess(args):
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     _preprocess(args)
+
+
+import sys as _sys
+
+if 'equitrain' in _sys.modules:
+    setattr(_sys.modules['equitrain'], 'preprocess', preprocess)

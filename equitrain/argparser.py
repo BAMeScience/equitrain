@@ -61,6 +61,13 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
 
 
 def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--backend',
+        help='Backend to use for model loading and training [torch, jax]',
+        choices=['torch', 'jax'],
+        type=str,
+        default='torch',
+    )
     parser.add_argument('--model', help='Path to a model file', type=str, default=None)
     parser.add_argument(
         '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None

@@ -118,15 +118,19 @@ def predict_structures(
 def _predict(args, device=None):
     set_dtype(args.dtype)
 
-    accelerator = Accelerator()
+    model = get_model(args)
+    model = model.to('cpu')
+    model.eval()
+
+    if device is None:
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device('cpu')
 
     r_energy = torch.empty((0), device=device)
     r_force = torch.empty((0, 3), device=device)
     r_stress = torch.empty((0, 3, 3), device=device)
-
-    model = get_model(args)
-
-    model = accelerator.prepare(model)
 
     data_loader = get_dataloader(
         args, args.predict_file, model.atomic_numbers, model.r_max
@@ -134,6 +138,9 @@ def _predict(args, device=None):
 
     for data_list in data_loader:
         for data in data_list:
+            if hasattr(data, 'to'):
+                data = data.to(device)
+
             y_pred = model(data)
 
             r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
@@ -164,3 +171,13 @@ def predict(args):
     args.shuffle = False
 
     return _predict(args)
+
+
+import sys as _sys
+
+if 'equitrain' in _sys.modules:
+    _pkg = _sys.modules['equitrain']
+    setattr(_pkg, 'predict', predict)
+    setattr(_pkg, 'predict_atoms', predict_atoms)
+    setattr(_pkg, 'predict_structures', predict_structures)
+    setattr(_pkg, 'predict_graphs', predict_graphs)

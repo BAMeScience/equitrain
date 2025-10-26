@@ -8,21 +8,50 @@ from .argparser import (
     get_args_parser_preprocess,
     get_args_parser_train,
 )
-from .evaluate import (
-    evaluate,
-)
-from .model import (
-    get_model,
-)
-from .predict import (
-    predict,
-    predict_atoms,
-    predict_graphs,
-    predict_structures,
-)
-from .preprocess import (
-    preprocess,
-)
-from .train import (
-    train,
-)
+
+def train(args):
+    from .train import train as _train
+
+    return _train(args)
+
+
+def evaluate(args):
+    from .evaluate import evaluate as _evaluate
+
+    return _evaluate(args)
+
+
+def get_model(*args, **kwargs):
+    from .model import get_model as _get_model
+
+    return _get_model(*args, **kwargs)
+
+
+def preprocess(*args, **kwargs):
+    from .preprocess import preprocess as _preprocess
+
+    return _preprocess(*args, **kwargs)
+
+
+def predict(*args, **kwargs):
+    from .predict import predict as _predict
+
+    return _predict(*args, **kwargs)
+
+
+def predict_atoms(*args, **kwargs):
+    from .predict import predict_atoms as _predict_atoms
+
+    return _predict_atoms(*args, **kwargs)
+
+
+def predict_structures(*args, **kwargs):
+    from .predict import predict_structures as _predict_structures
+
+    return _predict_structures(*args, **kwargs)
+
+
+def predict_graphs(*args, **kwargs):
+    from .predict import predict_graphs as _predict_graphs
+
+    return _predict_graphs(*args, **kwargs)
