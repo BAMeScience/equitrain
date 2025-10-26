@@ -6,9 +6,9 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from equitrain.argparser import check_args_complete
-from equitrain.data.graphs import AtomsToGraphs
-from equitrain.data.loaders import get_dataloader
-from equitrain.data.statistics import AtomicNumberTable
+from equitrain.data.backend_torch.atoms_to_graphs import AtomsToGraphs
+from equitrain.data.backend_torch.loaders import get_dataloader
+from equitrain.data.atomic import AtomicNumberTable
 from equitrain.model import get_model
 from equitrain.utility import set_dtype
 

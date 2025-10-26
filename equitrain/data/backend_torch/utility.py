@@ -1,13 +1,9 @@
-###########################################################################################
-# Data parsing utilities
-# Authors: Ilyes Batatia, Gregor Simm and David Kovacs
-# This program is distributed under the MIT License (see MIT.md)
-###########################################################################################
+from __future__ import annotations
 
 import numpy as np
 import torch
 
-from .atomic import AtomicNumberTable
+from ..atomic import AtomicNumberTable
 
 
 def to_numpy(t: torch.Tensor) -> np.ndarray:
@@ -26,7 +22,6 @@ def to_one_hot(indices: torch.Tensor, num_classes: int) -> torch.Tensor:
     Generates one-hot encoding with <num_classes> classes from <indices>
     :param indices: (N x 1) tensor
     :param num_classes: number of classes
-    :param device: torch device
     :return: (N x num_classes) tensor
     """
     shape = indices.shape[:-1] + (num_classes,)
@@ -47,3 +42,11 @@ def compute_one_hot(batch, atomic_numbers):
         num_classes=len(atomic_numbers),
     )
     return one_hot
+
+
+__all__ = [
+    'to_numpy',
+    'atomic_numbers_to_indices',
+    'to_one_hot',
+    'compute_one_hot',
+]

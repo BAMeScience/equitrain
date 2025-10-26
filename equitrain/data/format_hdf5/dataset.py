@@ -4,9 +4,8 @@ import h5py
 import numpy as np
 from ase import Atoms
 
-from equitrain.data import AtomicNumberTable
+from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.configuration import CachedCalc
-from equitrain.data.graphs import AtomsToGraphs
 
 
 class HDF5Dataset:
@@ -158,12 +157,18 @@ class HDF5GraphDataset(HDF5Dataset):
         filename: Path | str,
         r_max: float,
         atomic_numbers: AtomicNumberTable,
+        *,
+        atoms_to_graphs_cls=None,
         **kwargs,
     ):
         super().__init__(filename, mode='r', **kwargs)
 
-        # TODO: Allow users to control what data is returned (i.e. forces, stress)
-        self.converter = AtomsToGraphs(
+        if atoms_to_graphs_cls is None:
+            from equitrain.data.backend_torch import (
+                AtomsToGraphs as atoms_to_graphs_cls,
+            )
+
+        self.converter = atoms_to_graphs_cls(
             atomic_numbers,
             r_edges=True,
             r_energy=True,

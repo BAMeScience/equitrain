@@ -1,6 +1,10 @@
 import torch
 
-from equitrain.model_wrappers import AbstractWrapper, MaceWrapper, SevennetWrapper
+from equitrain.backends.torch_wrappers import (
+    AbstractWrapper,
+    MaceWrapper,
+    SevennetWrapper,
+)
 
 
 def get_model(args, logger=None):

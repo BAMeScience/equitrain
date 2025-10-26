@@ -1,11 +1,14 @@
-import logging
+from __future__ import annotations
 
 import numpy as np
 import torch
 from e3nn.util.jit import compile_mode
 
-from .atomic import AtomicNumberTable
-from .format_hdf5 import HDF5Dataset
+from ..atomic import AtomicNumberTable
+from ..format_hdf5 import HDF5Dataset
+from ..statistics_data import (
+    compute_average_atomic_energies as _compute_average_atomic_energies,
+)
 from .scatter import scatter_sum
 from .utility import compute_one_hot, to_numpy
 
@@ -38,7 +41,7 @@ def compute_statistics(
     data_loader: torch.utils.data.DataLoader,
     atomic_energies: dict,
     atomic_numbers: AtomicNumberTable,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float]:
     atomic_energies_list: np.ndarray = np.array([
         atomic_energies[z] for z in atomic_numbers
     ])
@@ -105,54 +108,13 @@ def compute_average_atomic_energies(
     z_table: AtomicNumberTable,
     max_n: int = None,
 ) -> dict[int, float]:
-    """
-    Function to compute the average interaction energy of each chemical element
-    returns dictionary of E0s
-    """
+    return _compute_average_atomic_energies(dataset, z_table, max_n=max_n)
 
-    if max_n is None:
-        len_train = len(dataset)
-    else:
-        len_train = max_n
 
-    len_zs = len(z_table)
-
-    # Use data loader for shuffling
-    data_loader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=1,
-        # shuffle data in case we only use a subset of the data
-        shuffle=True,
-        drop_last=False,
-        pin_memory=False,
-        num_workers=2,
-        collate_fn=lambda data: data,
-    )
-
-    A = np.zeros((len_train, len_zs))
-    B = np.zeros(len_train)
-
-    for i, batch in enumerate(data_loader):
-        B[i] = batch[0].get_potential_energy()
-        for j, z in enumerate(z_table):
-            A[i, j] = np.count_nonzero(batch[0].get_atomic_numbers() == z)
-
-        # break if max_n is reached
-        if i >= len_train:
-            break
-
-    try:
-        E0s = np.linalg.lstsq(A, B, rcond=None)[0]
-        atomic_energies_dict = {}
-        for i, z in enumerate(z_table):
-            atomic_energies_dict[z] = E0s[i]
-
-    except np.linalg.LinAlgError:
-        logging.warning(
-            'Failed to compute E0s using least squares regression, using the same for all atoms'
-        )
-        atomic_energies_dict = {}
-        for i, z in enumerate(z_table.zs):
-            atomic_energies_dict[z] = 0.0
-
-    return atomic_energies_dict
+__all__ = [
+    'AtomicNumberTable',
+    'AtomicEnergiesBlock',
+    'compute_statistics',
+    'compute_atomic_numbers',
+    'compute_average_atomic_energies',
+]

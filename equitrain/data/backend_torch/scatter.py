@@ -1,11 +1,6 @@
-"""basic scatter_sum operations from torch_scatter from
-https://github.com/mir-group/pytorch_runstats/blob/main/torch_runstats/scatter_sum.py
-Using code from https://github.com/rusty1s/pytorch_scatter, but cut down to avoid a dependency.
-PyTorch plans to move these features into the main repo, but until then,
-to make installation simpler, we need this pure python set of wrappers
-that don't require installing PyTorch C++ extensions.
-See https://github.com/pytorch/pytorch/issues/63780.
-"""
+"""Torch scatter utilities used throughout the training code."""
+
+from __future__ import annotations
 
 import torch
 
@@ -31,7 +26,7 @@ def scatter_sum(
     dim_size: int | None = None,
     reduce: str = 'sum',
 ) -> torch.Tensor:
-    assert reduce == 'sum'  # for now, TODO
+    assert reduce == 'sum'
     index = _broadcast(index, src, dim)
     if out is None:
         size = list(src.size())
@@ -111,3 +106,6 @@ def scatter_mean(
     else:
         out.div_(count, rounding_mode='floor')
     return out
+
+
+__all__ = ['scatter_sum', 'scatter_mean', 'scatter_std']

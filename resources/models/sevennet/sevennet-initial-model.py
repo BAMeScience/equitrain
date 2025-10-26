@@ -6,7 +6,7 @@ from sevenn import __version__
 from sevenn.model_build import build_E3_equivariant_model
 from sevenn.parse_input import read_config_yaml
 
-from equitrain.data import Statistics
+from equitrain.data.statistics_data import Statistics
 
 
 def get_statistics(filename='../../data/alexandria+mptraj-statistics.json'):

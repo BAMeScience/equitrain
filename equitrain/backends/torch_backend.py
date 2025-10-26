@@ -20,7 +20,10 @@ from equitrain.backends.common import (
 )
 from equitrain.backends.torch_evaluate import evaluate_main
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
-from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
+from equitrain.data.backend_torch.loaders import (
+    dataloader_update_errors,
+    get_dataloaders,
+)
 from equitrain.logger import FileLogger
 from equitrain.loss import LossCollection
 from equitrain.loss_fn import LossFnCollection

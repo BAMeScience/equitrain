@@ -4,15 +4,11 @@ from pathlib import Path
 import torch_geometric
 
 from equitrain.argparser import ArgumentError, check_args_complete
-from equitrain.data import (
-    AtomicNumberTable,
-    Statistics,
-    compute_atomic_numbers,
-    compute_statistics,
-    get_atomic_energies,
-)
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_torch import statistics as torch_statistics
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_xyz import XYZReader
+from equitrain.data.statistics_data import Statistics, get_atomic_energies
 from equitrain.logger import FileLogger
 from equitrain.utility import set_dtype, set_seeds
 
@@ -123,7 +119,9 @@ def _preprocess(args):
         with HDF5Dataset(filename_train) as train_dataset:
             # If training set did not contain any single atom entries, estimate E0s...
             if statistics.atomic_numbers is None or len(statistics.atomic_numbers) == 0:
-                statistics.atomic_numbers = compute_atomic_numbers(train_dataset)
+                statistics.atomic_numbers = torch_statistics.compute_atomic_numbers(
+                    train_dataset
+                )
 
             # If training set did not contain any single atom entries, estimate E0s...
             if (
@@ -134,28 +132,66 @@ def _preprocess(args):
                     args.atomic_energies, train_dataset, statistics.atomic_numbers
                 )
 
-        with HDF5GraphDataset(
-            filename_train,
-            r_max=statistics.r_max,
-            atomic_numbers=statistics.atomic_numbers,
-        ) as train_dataset:
-            train_loader = torch_geometric.loader.DataLoader(
-                dataset=train_dataset,
+        if getattr(args, 'backend', 'torch') == 'jax':
+            try:
+                from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
+            except ImportError as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    'The JAX backend requires the mace-jax package to be installed.'
+                ) from exc
+
+            from equitrain.data.backend_jax import atoms_to_graphs, build_loader
+            from equitrain.data.backend_jax import statistics as jax_statistics
+
+            if statistics.r_max is None:
+                raise RuntimeError('JAX preprocessing requires --r-max to be specified.')
+
+            jax_z_table = JaxAtomicNumberTable(list(statistics.atomic_numbers))
+            jax_graphs = atoms_to_graphs(filename_train, statistics.r_max, jax_z_table)
+            if not jax_graphs:
+                raise RuntimeError('Training dataset is empty.')
+
+            jax_loader = build_loader(
+                jax_graphs,
                 batch_size=args.batch_size,
                 shuffle=False,
-                drop_last=False,
+                max_nodes=args.batch_max_nodes,
+                max_edges=args.batch_max_edges,
             )
+
             statistics.avg_num_neighbors, statistics.mean, statistics.std = (
-                compute_statistics(
-                    train_loader,
+                jax_statistics.compute_statistics(
+                    jax_loader,
                     statistics.atomic_energies,
                     statistics.atomic_numbers,
                 )
             )
 
-            logger.log(1, f'Final statistics to be saved: {statistics}')
+        else:
+            with HDF5GraphDataset(
+                filename_train,
+                r_max=statistics.r_max,
+                atomic_numbers=statistics.atomic_numbers,
+            ) as train_dataset:
+                train_loader = torch_geometric.loader.DataLoader(
+                    dataset=train_dataset,
+                    batch_size=args.batch_size,
+                    shuffle=False,
+                    drop_last=False,
+                )
+                (
+                    statistics.avg_num_neighbors,
+                    statistics.mean,
+                    statistics.std,
+                ) = torch_statistics.compute_statistics(
+                    train_loader,
+                    statistics.atomic_energies,
+                    statistics.atomic_numbers,
+                )
 
-            statistics.dump(os.path.join(args.output_dir, 'statistics.json'))
+        logger.log(1, f'Final statistics to be saved: {statistics}')
+
+        statistics.dump(os.path.join(args.output_dir, 'statistics.json'))
 
 
 def preprocess(args):

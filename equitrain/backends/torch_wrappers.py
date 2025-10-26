@@ -1,3 +1,13 @@
+"""
+Torch-specific model wrappers.
+
+These modules adapt raw Torch models to the interface expected by the shared
+training/evaluation logic. They are imported by the torch backend and re-exported
+from the legacy ``equitrain.model_wrappers`` module for compatibility.
+"""
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 
 import torch
@@ -27,42 +37,28 @@ class AbstractWrapper(torch.nn.Module, ABC):
 
     @abstractmethod
     def forward(self, *args):
-        """
-        Defines the forward pass. Should implement the forward pass for the model.
-        """
-        pass
+        """Defines the forward pass."""
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def atomic_numbers(self):
-        """
-        Property that should return atomic numbers from the model.
-        """
-        pass
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def atomic_energies(self):
-        """
-        Property that should return atomic numbers from the model.
-        """
-        pass
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def r_max(self):
-        """
-        Property that should return the r_max value from the model.
-        """
-        pass
+        raise NotImplementedError
 
     @r_max.setter
     @abstractmethod
     def r_max(self, value):
-        """
-        Setter for r_max. Should modify the model's r_max.
-        """
-        pass
+        raise NotImplementedError
 
 
 class MaceWrapper(AbstractWrapper):
@@ -120,8 +116,6 @@ class MaceWrapper(AbstractWrapper):
                 radial_type = 'bessel'
             elif isinstance(self.model.radial_embedding.bessel_fn, ChebychevBasis):
                 radial_type = 'chebychev'
-            elif isinstance(self.model.radial_embedding.bessel_fn, GaussianBasis):
-                radial_type = 'gaussian'
             elif isinstance(self.model.radial_embedding.bessel_fn, GaussianBasis):
                 radial_type = 'gaussian'
             else:
@@ -186,38 +180,27 @@ class SevennetWrapper(AbstractWrapper):
     @classmethod
     def get_edge_vectors_and_lengths(
         cls,
-        positions: torch.Tensor,  # [n_nodes, 3]
-        edge_index: torch.Tensor,  # [2, n_edges]
-        shifts: torch.Tensor,  # [n_edges, 3]
+        positions: torch.Tensor,
+        edge_index: torch.Tensor,
+        shifts: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         sender = edge_index[0]
         receiver = edge_index[1]
-        vectors = positions[receiver] - positions[sender] + shifts  # [n_edges, 3]
-        lengths = torch.linalg.norm(vectors, dim=-1, keepdim=True)  # [n_edges, 1]
-
+        vectors = positions[receiver] - positions[sender] + shifts
+        lengths = torch.linalg.norm(vectors, dim=-1, keepdim=True)
         return vectors, lengths
 
     @classmethod
-    def batch_voigt_to_tensor(cls, voigts):
-        """
-        Convert a batch of Voigt notation arrays back to 3x3 stress tensors.
-
-        Parameters:
-            voigts (torch.Tensor): Tensor of shape (N, 6) representing N Voigt stress vectors.
-                                Gradients will be preserved if attached.
-
-        Returns:
-            torch.Tensor: Tensor of shape (N, 3, 3) with full stress tensors.
-        """
+    def batch_voigt_to_tensor(cls, voigts: torch.Tensor) -> torch.Tensor:
         tensors = torch.zeros(
             (voigts.shape[0], 3, 3), dtype=voigts.dtype, device=voigts.device
         )
-        tensors[:, 0, 0] = voigts[:, 0]  # σ_xx
-        tensors[:, 1, 1] = voigts[:, 1]  # σ_yy
-        tensors[:, 2, 2] = voigts[:, 2]  # σ_zz
-        tensors[:, 1, 2] = tensors[:, 2, 1] = voigts[:, 3]  # σ_yz
-        tensors[:, 0, 2] = tensors[:, 2, 0] = voigts[:, 4]  # σ_xz
-        tensors[:, 0, 1] = tensors[:, 1, 0] = voigts[:, 5]  # σ_xy
+        tensors[:, 0, 0] = voigts[:, 0]
+        tensors[:, 1, 1] = voigts[:, 1]
+        tensors[:, 2, 2] = voigts[:, 2]
+        tensors[:, 1, 2] = tensors[:, 2, 1] = voigts[:, 3]
+        tensors[:, 0, 2] = tensors[:, 2, 0] = voigts[:, 4]
+        tensors[:, 0, 1] = tensors[:, 1, 0] = voigts[:, 5]
         return tensors
 
     @property
@@ -237,3 +220,6 @@ class SevennetWrapper(AbstractWrapper):
     @r_max.setter
     def r_max(self, value):
         self.model.cutoff.fill_(value)
+
+
+__all__ = ['AbstractWrapper', 'MaceWrapper', 'SevennetWrapper']

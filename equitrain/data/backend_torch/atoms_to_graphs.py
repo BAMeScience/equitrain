@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import numpy as np
 import torch
 from ase.constraints import FixAtoms
 from torch_geometric.data import Data
 
-from equitrain.data.utility import atomic_numbers_to_indices, to_one_hot
+from equitrain.data.neighborhood import get_neighborhood
 
-from .neighborhood import get_neighborhood
+from .utility import atomic_numbers_to_indices, to_one_hot
 
 
 class AtomsToGraphs:
@@ -36,29 +38,13 @@ class AtomsToGraphs:
             atoms.get_positions(), self.radius, atoms.pbc, np.array(atoms.get_cell())
         )
 
-    def convert(
-        self,
-        atoms,
-    ):
-        """Convert a single atomic stucture to a graph.
-
-        Args:
-            atoms (ase.atoms.Atoms): An ASE atoms object.
-
-        Returns:
-            data (torch_geometric.data.Data): A torch geometic data object with positions, atomic_numbers, tags,
-            and optionally, energy, forces, distances, edges, and periodic boundary conditions.
-        """
-
-        # set the atomic numbers, positions, and cell
+    def convert(self, atoms):
         atomic_numbers = torch.tensor(atoms.get_atomic_numbers())
         positions = torch.tensor(atoms.get_positions(), dtype=torch.get_default_dtype())
         cell = torch.tensor(
             np.array(atoms.get_cell()), dtype=torch.get_default_dtype()
         ).view(1, 3, 3)
         natoms = positions.shape[0]
-        # initialized to torch.zeros(natoms) if tags missing.
-        # https://wiki.fysik.dtu.dk/ase/_modules/ase/atoms.html#Atoms.get_tags
         tags = torch.Tensor(atoms.get_tags())
 
         indices = atomic_numbers_to_indices(atomic_numbers, self.atomic_numbers)
@@ -67,25 +53,19 @@ class AtomsToGraphs:
             num_classes=len(self.atomic_numbers),
         )
 
-        # put the minimum data in torch geometric data object
         data = Data(
             cell=cell,
             cell_volume=atoms.cell.volume,
-            # atomic positions are sometimes expected as `pos`, or `positions`
             pos=positions,
             positions=positions,
-            # atomic numbers represented as one hot encoding
             node_attrs=node_attrs,
-            # plain atomic numbers
             atomic_numbers=atomic_numbers,
             natoms=natoms,
             tags=tags,
         )
 
-        # optionally include other properties
         if self.r_edges:
             edge_index, shifts, unit_shifts, cell = self._get_neighbors(atoms)
-
             if cell is None:
                 cell = 3 * [0.0, 0.0, 0.0]
 
@@ -120,3 +100,6 @@ class AtomsToGraphs:
             data.pbc = torch.tensor(atoms.pbc)
 
         return data
+
+
+__all__ = ['AtomsToGraphs']

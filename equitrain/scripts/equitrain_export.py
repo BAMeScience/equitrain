@@ -7,7 +7,7 @@ from equitrain.argparser import ArgsFormatter
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.logger import FileLogger
 from equitrain.model import get_model
-from equitrain.model_wrappers import AbstractWrapper
+from equitrain.backends.torch_wrappers import AbstractWrapper
 
 
 # %%

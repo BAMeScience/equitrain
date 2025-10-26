@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip('sevenn')
 
 from equitrain import get_args_parser_train, train
-from equitrain.data import Statistics
+from equitrain.data.statistics_data import Statistics
 from equitrain.utility_test import SevennetWrapper
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch_geometric
 from torch.utils.data import WeightedRandomSampler
 
@@ -21,7 +23,6 @@ class DynamicGraphCollater:
                 and self.drop
                 and item.num_edges > self.max_edges
             ):
-                # Drop item which has more nodes than allowed
                 continue
 
             if (
@@ -29,16 +30,13 @@ class DynamicGraphCollater:
                 and self.drop
                 and item.num_nodes > self.max_nodes
             ):
-                # Drop item which has more edges than allowed
                 continue
 
-            # Further checks only if there is at least one graph in the current batch
             if current_batch:
                 if (
                     self.max_nodes is not None
                     and current_node_sum + item.num_nodes > self.max_nodes
                 ):
-                    # Maximum number of edges reached
                     dynamic_batches.append(self.collate_fn(current_batch))
                     current_batch = []
                     current_node_sum = 0
@@ -48,7 +46,6 @@ class DynamicGraphCollater:
                     self.max_edges is not None
                     and current_edge_sum + item.num_edges > self.max_edges
                 ):
-                    # Maximum number of edges reached
                     dynamic_batches.append(self.collate_fn(current_batch))
                     current_batch = []
                     current_node_sum = 0
@@ -78,10 +75,8 @@ class DynamicGraphLoader(torch_geometric.loader.DataLoader):
     ):
         if errors is not None:
             if errors_threshold is not None:
-                errors[errors >= args.weighted_sampler_threshold] = 0.0
-            # Errors might be zero, in case a sample was not used during training
+                errors[errors >= errors_threshold] = 0.0
             errors[errors == 0.0] = errors.mean()
-            # Add sampler to the keyword arguments, use errors as weights
             kwargs['sampler'] = WeightedRandomSampler(
                 errors, num_samples=len(errors), replacement=True, generator=generator
             )

@@ -2,7 +2,7 @@ import copy
 
 import torch
 
-from equitrain.data.scatter import scatter_mean
+from equitrain.data.backend_torch.scatter import scatter_mean
 from equitrain.loss import Loss, LossCollection
 
 

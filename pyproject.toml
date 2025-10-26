@@ -148,3 +148,11 @@ conda_env_file = "environment.yml"
 
 [tool.setuptools_scm]
 write_to = "equitrain/_version.py"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected:UserWarning",
+    "ignore:`torch_geometric.distributed` has been deprecated since 2.7.0:DeprecationWarning",
+    "ignore:This process \\(pid=.*\\) is multi-threaded, use of fork\\(\\):DeprecationWarning",
+    "ignore:Creating NamedTuple classes using keyword arguments is deprecated:DeprecationWarning",
+]
