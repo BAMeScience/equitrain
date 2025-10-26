@@ -12,7 +12,7 @@ from equitrain.loss import LossCollection
 from equitrain.loss_fn import LossFnCollection
 from equitrain.loss_metrics import LossMetrics
 from equitrain.model import get_model
-from equitrain.utility import set_dtype, set_seeds
+from equitrain.utility import set_dtype
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 

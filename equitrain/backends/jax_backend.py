@@ -1,33 +1,37 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import jax
 import jax.numpy as jnp
+import jraph
 import numpy as np
 import optax
 from flax import serialization
-import jraph
 from mace_jax.cli import mace_torch2jax
 from mace_jax.data.utils import (
     AtomicNumberTable as JaxAtomicNumberTable,
+)
+from mace_jax.data.utils import (
     Configuration as JaxConfiguration,
+)
+from mace_jax.data.utils import (
     GraphDataLoader,
     graph_from_configuration,
 )
 
 from equitrain.argparser import ArgsFormatter, ArgumentError
-from equitrain.data.configuration import Configuration as EqConfiguration
-from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.backends.common import (
     ensure_output_dir,
     init_logger,
     validate_evaluate_args,
     validate_training_args,
 )
+from equitrain.data.configuration import Configuration as EqConfiguration
+from equitrain.data.format_hdf5.dataset import HDF5Dataset
 
 _DEFAULT_CONFIG_NAME = 'config.json'
 _DEFAULT_PARAMS_NAME = 'params.msgpack'
@@ -164,7 +168,9 @@ def _compute_padding_limits(
     return max_nodes + 1, max_edges + 1
 
 
-def _graph_to_data_jax(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.ndarray]:
+def _graph_to_data_jax(
+    graph: jraph.GraphsTuple, num_species: int
+) -> dict[str, jnp.ndarray]:
     positions = jnp.asarray(graph.nodes.positions, dtype=jnp.float32)
     shifts = jnp.asarray(graph.edges.shifts, dtype=positions.dtype)
     cell = jnp.asarray(graph.globals.cell, dtype=positions.dtype)
@@ -195,12 +201,10 @@ def _graph_to_data_jax(graph: jraph.GraphsTuple, num_species: int) -> dict[str, 
     batch = jnp.repeat(
         graph_indices, graph.n_node, total_repeat_length=positions.shape[0]
     )
-    ptr = jnp.concatenate(
-        [
-            jnp.array([0], dtype=jnp.int32),
-            jnp.cumsum(graph.n_node.astype(jnp.int32)),
-        ]
-    )
+    ptr = jnp.concatenate([
+        jnp.array([0], dtype=jnp.int32),
+        jnp.cumsum(graph.n_node.astype(jnp.int32)),
+    ])
 
     data_dict: dict[str, jnp.ndarray] = {
         'positions': positions,
@@ -292,7 +296,9 @@ def _train_loop(
     @jax.jit
     def train_step(current_vars, current_opt_state, graph):
         loss, grads = grad_fn(current_vars, graph)
-        updates, new_opt_state = optimizer.update(grads, current_opt_state, current_vars)
+        updates, new_opt_state = optimizer.update(
+            grads, current_opt_state, current_vars
+        )
         new_vars = optax.apply_updates(current_vars, updates)
         return new_vars, new_opt_state, loss
 
@@ -403,7 +409,9 @@ def train(args):
             train_loader,
             loss_fn,
         )
-        bundle = ModelBundle(config=bundle.config, params=updated_params, module=bundle.module)
+        bundle = ModelBundle(
+            config=bundle.config, params=updated_params, module=bundle.module
+        )
 
         val_loss = _evaluate_loop(bundle.params, loss_fn, valid_loader)
 
@@ -464,5 +472,10 @@ def evaluate(args):
     loss_fn = _build_loss_fn(bundle.module, z_table, args.energy_weight)
     test_loss = _evaluate_loop(bundle.params, loss_fn, test_loader)
 
-    logger.log(1, f'Test loss: {test_loss:.6f}' if test_loss is not None else 'No test loss computed')
+    logger.log(
+        1,
+        f'Test loss: {test_loss:.6f}'
+        if test_loss is not None
+        else 'No test loss computed',
+    )
     return test_loss

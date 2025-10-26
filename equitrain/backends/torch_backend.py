@@ -1,6 +1,7 @@
 import time
 import warnings
 from collections.abc import Iterable
+
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from torch_ema import ExponentialMovingAverage
@@ -17,9 +18,9 @@ from equitrain.backends.common import (
     init_logger,
     validate_training_args,
 )
+from equitrain.backends.torch_evaluate import evaluate_main
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.data.loaders import dataloader_update_errors, get_dataloaders
-from equitrain.backends.torch_evaluate import evaluate_main
 from equitrain.logger import FileLogger
 from equitrain.loss import LossCollection
 from equitrain.loss_fn import LossFnCollection

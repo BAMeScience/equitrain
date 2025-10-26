@@ -25,24 +25,22 @@ class HDF5Dataset:
             self.create_dataset()
 
     def create_dataset(self):
-        atom_dtype = np.dtype(
-            [
-                ('atomic_numbers', h5py.special_dtype(vlen=np.int32)),
-                ('positions', h5py.special_dtype(vlen=np.float64)),
-                ('cell', np.float64, (3, 3)),
-                ('pbc', np.bool_, (3,)),
-                ('energy', np.float64),
-                ('forces', h5py.special_dtype(vlen=np.float64)),
-                ('stress', np.float64, (6,)),
-                ('virials', np.float64, (3, 3)),
-                ('dipole', np.float64, (3,)),
-                ('energy_weight', np.float32),
-                ('forces_weight', np.float32),
-                ('stress_weight', np.float32),
-                ('virials_weight', np.float32),
-                ('dipole_weight', np.float32),
-            ]
-        )
+        atom_dtype = np.dtype([
+            ('atomic_numbers', h5py.special_dtype(vlen=np.int32)),
+            ('positions', h5py.special_dtype(vlen=np.float64)),
+            ('cell', np.float64, (3, 3)),
+            ('pbc', np.bool_, (3,)),
+            ('energy', np.float64),
+            ('forces', h5py.special_dtype(vlen=np.float64)),
+            ('stress', np.float64, (6,)),
+            ('virials', np.float64, (3, 3)),
+            ('dipole', np.float64, (3,)),
+            ('energy_weight', np.float32),
+            ('forces_weight', np.float32),
+            ('stress_weight', np.float32),
+            ('virials_weight', np.float32),
+            ('dipole_weight', np.float32),
+        ])
         # There are some parameters that should be accessible through
         # command-line options, i.e. chunking and compression
         self.file.create_dataset(

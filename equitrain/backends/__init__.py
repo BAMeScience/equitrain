@@ -1,6 +1,5 @@
 from importlib import import_module
 
-
 _BACKEND_MODULES = {
     'torch': 'equitrain.backends.torch_backend',
     'jax': 'equitrain.backends.jax_backend',

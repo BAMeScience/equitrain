@@ -622,12 +622,10 @@ class ArgsFormatter:
         max_key_length = max(
             len(key) for key in self.args.keys()
         )  # Determine alignment width
-        return ''.join(
-            [
-                f'  {key:<{max_key_length}} : {value}\n' if key != 'model' else ''
-                for key, value in self.args.items()
-            ]
-        )
+        return ''.join([
+            f'  {key:<{max_key_length}} : {value}\n' if key != 'model' else ''
+            for key, value in self.args.items()
+        ])
 
     def __str__(self):
         """
