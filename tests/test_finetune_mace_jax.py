@@ -1,32 +1,27 @@
-import os
-import warnings
-from pathlib import Path
+from __future__ import annotations
 
+import warnings
 import numpy as np
 import pytest
 import torch
+import jax
 from ase import Atoms
 from ase.build import bulk
+from jax import numpy as jnp
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
 from mace.tools import torch_geometric
 from mace.tools.model_script_utils import configure_model as configure_model_torch
 from mace.tools.multihead_tools import AtomicNumberTable, prepare_default_head
+from mace.tools.scripts_utils import extract_config_mace_model
 from mace.tools.torch_geometric.batch import Batch
-
-collect_ignore_glob = ['tmp/*.py', 'tmp/*.ipynb']
-
-warnings.filterwarnings(
-    'ignore',
-    message=r'.*TorchScript type system doesn\'t support instance-level annotations.*',
-    category=UserWarning,
-)
+from mace_jax.cli import mace_torch2jax
 
 
 def _build_structures() -> list[Atoms]:
     structures: list[Atoms] = []
 
-    base = bulk('NaCl', 'rocksalt', a=5.0).repeat((1, 1, 1))
+    base = bulk('NaCl', 'rocksalt', a=5.64).repeat((1, 1, 1))
     structures.append(base)
 
     displaced = base.copy()
@@ -49,8 +44,8 @@ def _build_statistics(zs: list[int]) -> dict:
     }
 
 
-def _create_args(statistics: dict):
-    from mace.tools import build_default_arg_parser, check_args  # local import
+def _create_args(statistics: dict) -> object:
+    from mace.tools import build_default_arg_parser, check_args
 
     args_list = [
         '--name',
@@ -60,7 +55,7 @@ def _create_args(statistics: dict):
         '--interaction',
         'RealAgnosticResidualInteractionBlock',
         '--num_channels',
-        '4',
+        '8',
         '--max_L',
         '1',
         '--max_ell',
@@ -74,7 +69,7 @@ def _create_args(statistics: dict):
         '--num_cutoff_basis',
         '4',
         '--MLP_irreps',
-        '4x0e',
+        '8x0e',
         '--distance_transform',
         'Agnesi',
         '--pair_repulsion',
@@ -89,7 +84,6 @@ def _create_args(statistics: dict):
     args.compute_forces = False
     args.compute_dipole = False
     args.compute_polarizability = False
-    args.compute_stress = True
     args.loss = 'energy'
     args.device = 'cpu'
     args.train_file = ''
@@ -102,6 +96,9 @@ def _create_args(statistics: dict):
     args.valid_fraction = None
     args.config_type_weights = None
     args.keep_isolated_atoms = False
+    args.heads = prepare_default_head(args)
+    args.avg_num_neighbors = statistics['avg_num_neighbors']
+    args.r_max = statistics['r_max']
     args.only_cueq = False
     args.apply_cutoff = True
     args.use_reduced_cg = False
@@ -110,15 +107,26 @@ def _create_args(statistics: dict):
     args.use_embedding_readout = False
     args.use_last_readout_only = False
     args.use_agnostic_product = False
-    args.heads = prepare_default_head(args)
-    args.avg_num_neighbors = statistics['avg_num_neighbors']
-    args.r_max = statistics['r_max']
+    args.compute_stress = True
 
     return args
 
 
-def _write_small_mace_model(path: Path) -> None:
+def _batch_to_jax(batch: Batch) -> dict[str, jnp.ndarray]:
+    converted: dict[str, jnp.ndarray] = {}
+    for key in batch.keys:
+        value = batch[key]
+        if isinstance(value, torch.Tensor):
+            converted[key] = jnp.asarray(value.detach().cpu().numpy())
+        else:
+            converted[key] = value
+    return converted
+
+
+@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
+def test_finetune_mace_jax_matches_torch():
     pytest.importorskip('mace')
+    pytest.importorskip('mace_jax')
 
     structures = _build_structures()
     zs = sorted({int(z) for atoms in structures for z in atoms.get_atomic_numbers()})
@@ -137,8 +145,11 @@ def _write_small_mace_model(path: Path) -> None:
         )
 
     batch = torch_geometric.batch.Batch.from_data_list(atomic_data_list)
-    batch = batch.to(torch.float32)
-    Batch.validate(batch)
+    for key in batch.keys:
+        value = getattr(batch, key)
+        if isinstance(value, torch.Tensor) and value.dtype.is_floating_point:
+            setattr(batch, key, value.float())
+    batch_jax = _batch_to_jax(batch)
 
     args = _create_args(statistics)
     with warnings.catch_warnings():
@@ -155,26 +166,23 @@ def _write_small_mace_model(path: Path) -> None:
             z_table=statistics['atomic_numbers'],
         )
     torch_model = torch_model.float().eval()
+    torch_output = torch_model(batch, compute_stress=True)
 
-    torch.save(torch_model, path)
+    torch_energy = torch_output['energy'].detach().cpu().numpy()
+    torch_forces = torch_output['forces'].detach().cpu().numpy()
+    torch_stress = torch_output['stress'].detach().cpu().numpy()
 
+    config = extract_config_mace_model(torch_model)
+    config['atomic_energies'] = statistics['atomic_energies']
+    config['atomic_numbers'] = statistics['atomic_numbers'].zs
 
-@pytest.fixture(scope='session')
-def mace_model_path():
-    path = Path(__file__).resolve().parents[2] / 'tests' / 'mace.model'
-    path.parent.mkdir(parents=True, exist_ok=True)
+    jax_model, jax_variables, _ = mace_torch2jax.convert_model(torch_model, config)
+    jax_output = jax_model.apply(jax_variables, batch_jax, compute_stress=True)
 
-    if not path.exists():
-        _write_small_mace_model(path)
-    return path
+    energy_jax = np.asarray(jax_output['energy'])
+    forces_jax = np.asarray(jax_output['forces'])
+    stress_jax = np.asarray(jax_output['stress'])
 
-
-if os.getenv('_PYTEST_RAISE', '0') != '0':
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_exception_interact(call):
-        raise call.excinfo.value
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_internalerror(excinfo):
-        raise excinfo.value
+    np.testing.assert_allclose(energy_jax, torch_energy, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(forces_jax, torch_forces, rtol=1e-6, atol=2e-6)
+    np.testing.assert_allclose(stress_jax, torch_stress, rtol=1e-6, atol=1e-6)

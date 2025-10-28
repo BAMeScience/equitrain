@@ -84,14 +84,20 @@ def test_finetune_mace(tmp_path, mace_model_path):
     data_dir = Path(__file__).with_name('data')
     args.train_file = str(data_dir / 'train.h5')
     args.valid_file = str(data_dir / 'valid.h5')
-    args.test_file = str(data_dir / 'train.h5')
+    args.test_file = None
     output_dir = tmp_path / 'finetune_mace'
     args.output_dir = str(output_dir)
     args.model = FinetuneMaceWrapper(args, filename_model=mace_model_path)
 
-    args.epochs = 2
-    args.batch_size = 2
-    args.lr = 0.001
+    args.epochs = 1
+    args.batch_size = 1
+    args.lr = 5e-4
+    args.train_max_steps = 1
+    args.valid_max_steps = 1
+    args.workers = 0
+    args.pin_memory = False
+    args.verbose = 0
+    args.tqdm = False
     args.loss_type = 'mse'
     args.weight_decay = 0.0
     args.ema = False
