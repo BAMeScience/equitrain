@@ -1,4 +1,4 @@
-"""Utility helpers for JAX backends (model loading, loss helpers)."""
+"""Utility helpers for JAX backends (model loading)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
-import jraph
 from flax import serialization
 from mace_jax.cli import mace_torch2jax
 
@@ -74,36 +72,9 @@ def load_model_bundle(model_arg: str, dtype: str) -> ModelBundle:
     return ModelBundle(config=config, params=variables, module=jax_module)
 
 
-def build_loss_fn(apply_fn, energy_weight: float):
-    if energy_weight <= 0.0:
-        raise ArgumentError(
-            'The JAX backend currently requires a positive --energy-weight value.'
-        )
-
-    loss_weight = jnp.float32(energy_weight)
-
-    def loss_fn(variables, graph):
-        mask = jraph.get_graph_padding_mask(graph).astype(jnp.float32)
-        outputs = apply_fn(variables, graph)
-
-        pred_energy = jnp.reshape(outputs['energy'], mask.shape)
-        target_energy = jnp.reshape(jnp.asarray(graph.globals.energy), mask.shape)
-        weights = jnp.reshape(jnp.asarray(graph.globals.weight), mask.shape)
-
-        diff = pred_energy - target_energy
-        sq_error = diff * diff
-        weighted = sq_error * weights * mask
-
-        denom = jnp.maximum(jnp.sum(weights * mask), 1.0)
-        return loss_weight * jnp.sum(weighted) / denom
-
-    return loss_fn
-
-
 __all__ = [
     'ModelBundle',
     'set_jax_dtype',
     'resolve_model_paths',
     'load_model_bundle',
-    'build_loss_fn',
 ]

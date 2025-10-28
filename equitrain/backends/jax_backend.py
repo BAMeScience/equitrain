@@ -17,9 +17,9 @@ from equitrain.backends.common import (
     validate_training_args,
 )
 from equitrain.backends.jax_freeze import build_trainable_mask
+from equitrain.backends.jax_loss import build_loss_fn
 from equitrain.backends.jax_utils import (
     ModelBundle,
-    build_loss_fn,
     load_model_bundle,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
