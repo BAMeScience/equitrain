@@ -5,8 +5,8 @@ import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from tqdm import tqdm
 
-from equitrain.argparser import ArgsFormatter, get_loss_monitor
-from equitrain.backends.common import init_logger, validate_evaluate_args
+from equitrain.argparser import ArgsFormatter, get_loss_monitor, validate_evaluate_args
+from equitrain.logger import init_logger
 from equitrain.data.backend_torch.loaders import get_dataloader
 from .torch_loss import LossCollection
 from .torch_loss_fn import LossFnCollection

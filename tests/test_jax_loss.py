@@ -10,7 +10,7 @@ pytest.importorskip('jax')
 import jax.numpy as jnp
 import jraph
 
-from equitrain.backends.jax_loss import LossSettings, build_loss_fn
+from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 
 
 def _make_graph(

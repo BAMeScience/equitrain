@@ -12,12 +12,9 @@ from equitrain.argparser import (
     ArgsFormatter,
     check_args_consistency,
     get_loss_monitor,
-)
-from equitrain.backends.common import (
-    ensure_output_dir,
-    init_logger,
     validate_training_args,
 )
+from equitrain.logger import ensure_output_dir, init_logger
 from equitrain.backends.torch_evaluate import evaluate_main
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.data.backend_torch.loaders import (

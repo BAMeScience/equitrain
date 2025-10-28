@@ -12,7 +12,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.data.atomic import AtomicNumberTable
+
+
+ensure_multiprocessing_spawn()
 
 
 class MaceWrapper:

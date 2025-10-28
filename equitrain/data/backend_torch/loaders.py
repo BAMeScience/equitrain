@@ -11,6 +11,26 @@ from equitrain.logger import FileLogger
 from .loaders_dynamic import DynamicGraphLoader
 
 
+def _should_pin_memory(requested: bool, accelerator: Accelerator | None) -> bool:
+    if not requested:
+        return False
+    if accelerator is None:
+        return torch.cuda.is_available()
+    device = getattr(accelerator, 'device', None)
+    return device is not None and getattr(device, 'type', '').startswith('cuda')
+
+
+def _resolve_num_workers(requested: int, accelerator: Accelerator | None) -> int:
+    if requested <= 0:
+        return 0
+    if accelerator is None:
+        return 0
+    device = getattr(accelerator, 'device', None)
+    if device is None or getattr(device, 'type', '') != 'cuda':
+        return 0
+    return requested
+
+
 def dataloader_update_errors(
     args,
     dataloader,
@@ -18,7 +38,13 @@ def dataloader_update_errors(
     accelerator: Accelerator = None,
     logger: FileLogger = None,
 ):
-    generator = torch.Generator(device=accelerator.device)
+    pin_memory = _should_pin_memory(args.pin_memory, accelerator)
+    num_workers = _resolve_num_workers(args.workers, accelerator)
+
+    if accelerator is not None and getattr(accelerator.device, 'type', '') == 'cuda':
+        generator = torch.Generator(device=accelerator.device)
+    else:
+        generator = torch.Generator()
 
     dataloader = DynamicGraphLoader(
         dataset=dataloader.dataset,
@@ -27,8 +53,8 @@ def dataloader_update_errors(
         batch_size=args.batch_size,
         shuffle=False,
         drop_last=False,
-        pin_memory=args.pin_memory,
-        num_workers=args.workers,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         drop=args.batch_drop,
@@ -56,14 +82,17 @@ def get_dataloader(
 
     data_set = HDF5GraphDataset(data_file, r_max=r_max, atomic_numbers=atomic_numbers)
 
+    pin_memory = _should_pin_memory(args.pin_memory, accelerator)
+    num_workers = _resolve_num_workers(args.workers, accelerator)
+
     data_loader = DynamicGraphLoader(
         dataset=data_set,
         errors=None,
         batch_size=args.batch_size,
         shuffle=args.shuffle,
         drop_last=False,
-        pin_memory=args.pin_memory,
-        num_workers=args.workers,
+        pin_memory=pin_memory,
+        num_workers=num_workers,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         drop=args.batch_drop,

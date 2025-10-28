@@ -4,19 +4,18 @@ import jax
 import jax.numpy as jnp
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
-from equitrain.argparser import ArgsFormatter
-from equitrain.backends.common import (
-    init_logger,
-    validate_evaluate_args,
-)
+from equitrain.argparser import ArgsFormatter, validate_evaluate_args
+from equitrain.logger import init_logger
+from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
+from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
+from equitrain.backends.jax_loss_metrics import LossMetrics
 from equitrain.backends.jax_utils import load_model_bundle
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-from equitrain.backends.jax_loss import (
-    JaxLossCollection,
-    LossSettings,
-    build_eval_loss,
-)
+from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+
+
+ensure_multiprocessing_spawn()
 
 
 def evaluate(args):
@@ -65,31 +64,23 @@ def evaluate(args):
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_eval_loss(apply_fn, loss_settings)
 
-    def _aux_to_metrics(aux):
-        aux_host = jax.device_get(aux)
-        return {
-            key: (float(value), float(count))
-            for key, (value, count) in aux_host['metrics'].items()
-        }
-
     loss_collection = JaxLossCollection()
     for graph in test_loader:
         _, aux = loss_fn(bundle.params, graph)
-        loss_collection.update_from_metrics(_aux_to_metrics(aux))
+        update_collection_from_aux(loss_collection, aux)
 
-    test_values = loss_collection.as_dict()
-    test_total = test_values['total']
+    metric = LossMetrics(
+        include_energy=loss_settings.energy_weight > 0.0,
+        include_forces=loss_settings.forces_weight > 0.0,
+        include_stress=loss_settings.stress_weight > 0.0,
+        loss_label=loss_settings.loss_type,
+    )
+    metric.update(loss_collection)
 
-    if jnp.isfinite(test_total):
-        message = [f'Test loss: total={test_total:.6f}']
-        if loss_settings.energy_weight > 0.0:
-            message.append(f'energy={test_values["energy"]:.6f}')
-        if loss_settings.forces_weight > 0.0:
-            message.append(f'forces={test_values["forces"]:.6f}')
-        if loss_settings.stress_weight > 0.0:
-            message.append(f'stress={test_values["stress"]:.6f}')
-        logger.log(1, ', '.join(message))
+    total = loss_collection.components['total'].value
+    if loss_collection.components['total'].count and jnp.isfinite(total):
+        metric.log(logger, 'test')
     else:
         logger.log(1, 'No test loss computed')
 
-    return test_total
+    return total
