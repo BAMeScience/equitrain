@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import jax
-import numpy as np
+import jax.numpy as jnp
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import ArgsFormatter
@@ -11,38 +11,16 @@ from equitrain.backends.common import (
 )
 from equitrain.backends.jax_utils import load_model_bundle
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-from equitrain.backends.jax_loss import build_eval_loss, JaxLossCollection
+from equitrain.backends.jax_loss import (
+    JaxLossCollection,
+    LossSettings,
+    build_eval_loss,
+)
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
-
-
-def _ensure_forces_not_requested(args):
-    if getattr(args, 'forces_weight', 0.0) not in (0.0, None):
-        raise NotImplementedError(
-            'The current JAX backend only supports energy evaluation.'
-        )
-    if getattr(args, 'stress_weight', 0.0) not in (0.0, None):
-        raise NotImplementedError(
-            'The current JAX backend only supports energy evaluation.'
-        )
-
-
-def _evaluate_loop(variables, loss_fn, loader):
-    if loader is None:
-        return None
-
-    eval_step = jax.jit(loss_fn)
-    losses = []
-    for graph in loader:
-        loss = eval_step(variables, graph)
-        losses.append(float(jax.device_get(loss)))
-
-    return float(np.mean(losses)) if losses else None
 
 
 def evaluate(args):
     validate_evaluate_args(args, 'jax')
-
-    _ensure_forces_not_requested(args)
 
     logger = init_logger(
         args,
@@ -84,18 +62,34 @@ def evaluate(args):
     )
 
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
-    loss_fn = build_eval_loss(apply_fn, args.energy_weight)
+    loss_settings = LossSettings.from_args(args)
+    loss_fn = build_eval_loss(apply_fn, loss_settings)
+
+    def _aux_to_metrics(aux):
+        aux_host = jax.device_get(aux)
+        return {
+            key: (float(value), float(count))
+            for key, (value, count) in aux_host['metrics'].items()
+        }
+
     loss_collection = JaxLossCollection()
     for graph in test_loader:
-        loss_value = loss_fn(bundle.params, graph)
-        loss_collection.append(float(jax.device_get(loss_value)))
+        _, aux = loss_fn(bundle.params, graph)
+        loss_collection.update_from_metrics(_aux_to_metrics(aux))
 
-    test_loss = loss_collection.mean()
+    test_values = loss_collection.as_dict()
+    test_total = test_values['total']
 
-    logger.log(
-        1,
-        f'Test loss: {test_loss:.6f}'
-        if jnp.isfinite(test_loss)
-        else 'No test loss computed',
-    )
-    return test_loss
+    if jnp.isfinite(test_total):
+        message = [f'Test loss: total={test_total:.6f}']
+        if loss_settings.energy_weight > 0.0:
+            message.append(f'energy={test_values["energy"]:.6f}')
+        if loss_settings.forces_weight > 0.0:
+            message.append(f'forces={test_values["forces"]:.6f}')
+        if loss_settings.stress_weight > 0.0:
+            message.append(f'stress={test_values["stress"]:.6f}')
+        logger.log(1, ', '.join(message))
+    else:
+        logger.log(1, 'No test loss computed')
+
+    return test_total

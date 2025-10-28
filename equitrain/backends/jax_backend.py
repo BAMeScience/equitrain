@@ -17,7 +17,11 @@ from equitrain.backends.common import (
     validate_training_args,
 )
 from equitrain.backends.jax_freeze import build_trainable_mask
-from equitrain.backends.jax_loss import build_loss_fn
+from equitrain.backends.jax_loss import (
+    JaxLossCollection,
+    LossSettings,
+    build_loss_fn,
+)
 from equitrain.backends.jax_utils import (
     ModelBundle,
     load_model_bundle,
@@ -32,56 +36,68 @@ from .jax_scheduler import (
     create_scheduler,
     scheduler_kwargs,
 )
-
-
-def _ensure_forces_not_requested(args):
-    if getattr(args, 'forces_weight', 0.0) not in (0.0, None):
-        raise NotImplementedError(
-            'The current JAX backend only supports energy training.'
-        )
-    if getattr(args, 'stress_weight', 0.0) not in (0.0, None):
-        raise NotImplementedError(
-            'The current JAX backend only supports energy training.'
-        )
+def _aux_to_metrics(aux) -> tuple[dict[str, tuple[float, float]], np.ndarray]:
+    aux_host = jax.device_get(aux)
+    metrics = {
+        key: (float(value), float(count))
+        for key, (value, count) in aux_host['metrics'].items()
+    }
+    per_graph_error = np.asarray(aux_host['per_graph_error'])
+    return metrics, per_graph_error
 
 
 def _train_loop(variables, optimizer, opt_state, train_loader, loss_fn):
-    grad_fn = jax.value_and_grad(loss_fn)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
 
     @jax.jit
     def train_step(current_vars, current_opt_state, graph):
-        loss, grads = grad_fn(current_vars, graph)
+        (loss, aux), grads = grad_fn(current_vars, graph)
         updates, new_opt_state = optimizer.update(
             grads, current_opt_state, current_vars
         )
         new_vars = optax.apply_updates(current_vars, updates)
-        return new_vars, new_opt_state, loss
+        return new_vars, new_opt_state, loss, aux
 
-    losses = []
+    loss_collection = JaxLossCollection()
+    per_graph_errors: list[np.ndarray] = []
+
     for graph in train_loader:
-        variables, opt_state, loss = train_step(variables, opt_state, graph)
-        losses.append(float(jax.device_get(loss)))
+        variables, opt_state, loss, aux = train_step(variables, opt_state, graph)
+        metrics, per_graph_error = _aux_to_metrics(aux)
+        loss_collection.update_from_metrics(metrics)
+        if per_graph_error.size:
+            per_graph_errors.append(per_graph_error)
 
-    return variables, opt_state, float(np.mean(losses)) if losses else 0.0
+    return variables, opt_state, loss_collection, per_graph_errors
 
 
 def _evaluate_loop(variables, loss_fn, loader):
     if loader is None:
-        return None
+        return None, JaxLossCollection(), []
 
     eval_step = jax.jit(loss_fn)
     losses = []
+    loss_collection = JaxLossCollection()
+    per_graph_errors: list[np.ndarray] = []
+
     for graph in loader:
-        loss = eval_step(variables, graph)
+        loss, aux = eval_step(variables, graph)
         losses.append(float(jax.device_get(loss)))
 
-    return float(np.mean(losses)) if losses else None
+        metrics, per_graph_error = _aux_to_metrics(aux)
+        loss_collection.update_from_metrics(metrics)
+        if per_graph_error.size:
+            per_graph_errors.append(per_graph_error)
+
+    mean_loss = loss_collection.components['total'].value
+    if not np.isfinite(mean_loss):
+        mean_loss = float(np.mean(losses)) if losses else None
+
+    return (mean_loss if losses else None), loss_collection, per_graph_errors
 
 
 def train(args):
     validate_training_args(args, 'jax')
-
-    _ensure_forces_not_requested(args)
 
     ensure_output_dir(getattr(args, 'output_dir', None))
 
@@ -134,7 +150,8 @@ def train(args):
     )
 
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
-    loss_fn = build_loss_fn(apply_fn, args.energy_weight)
+    loss_settings = LossSettings.from_args(args)
+    loss_fn = build_loss_fn(apply_fn, loss_settings)
     mask = build_trainable_mask(args, bundle.params, logger)
     schedule = create_scheduler(**scheduler_kwargs(args))
     optimizer = create_optimizer(
@@ -149,12 +166,17 @@ def train(args):
 
     best_val = None
     best_params = bundle.params
-    train_loss = 0.0
+    train_metrics = JaxLossCollection()
 
     for epoch_offset in range(num_epochs):
         epoch = start_epoch + epoch_offset
 
-        updated_params, opt_state, train_loss = _train_loop(
+        (
+            updated_params,
+            opt_state,
+            train_metrics,
+            _,
+        ) = _train_loop(
             bundle.params,
             optimizer,
             opt_state,
@@ -165,23 +187,61 @@ def train(args):
             config=bundle.config, params=updated_params, module=bundle.module
         )
 
-        val_loss = _evaluate_loop(bundle.params, loss_fn, valid_loader)
-
-        logger.log(
-            1,
-            f'Epoch {epoch}: train_loss={train_loss:.6f}'
-            + (f', val_loss={val_loss:.6f}' if val_loss is not None else ''),
+        val_loss_value, val_metrics, _ = _evaluate_loop(
+            bundle.params, loss_fn, valid_loader
         )
 
-        if val_loss is None:
+        train_values = train_metrics.as_dict()
+        val_values = val_metrics.as_dict()
+
+        message = [
+            f'Epoch {epoch}: train_total={train_values["total"]:.6f}',
+        ]
+        if loss_settings.energy_weight > 0.0 and train_metrics.components[
+            'energy'
+        ].count:
+            message.append(f'train_energy={train_values["energy"]:.6f}')
+        if loss_settings.forces_weight > 0.0 and train_metrics.components[
+            'forces'
+        ].count:
+            message.append(f'train_forces={train_values["forces"]:.6f}')
+        if loss_settings.stress_weight > 0.0 and train_metrics.components[
+            'stress'
+        ].count:
+            message.append(f'train_stress={train_values["stress"]:.6f}')
+
+        if val_loss_value is not None:
+            message.append(f'val_total={val_values["total"]:.6f}')
+            if (
+                loss_settings.energy_weight > 0.0
+                and val_metrics.components['energy'].count
+            ):
+                message.append(f'val_energy={val_values["energy"]:.6f}')
+            if (
+                loss_settings.forces_weight > 0.0
+                and val_metrics.components['forces'].count
+            ):
+                message.append(f'val_forces={val_values["forces"]:.6f}')
+            if (
+                loss_settings.stress_weight > 0.0
+                and val_metrics.components['stress'].count
+            ):
+                message.append(f'val_stress={val_values["stress"]:.6f}')
+
+        logger.log(1, ', '.join(message))
+
+        if val_loss_value is None:
             best_params = bundle.params
-        elif best_val is None or val_loss < best_val:
-            best_val = val_loss
+        elif best_val is None or val_loss_value < best_val:
+            best_val = val_loss_value
             best_params = bundle.params
 
     _save_parameters(Path(args.output_dir), best_params)
 
-    return {'train_loss': train_loss, 'val_loss': best_val}
+    return {
+        'train_loss': train_metrics.components['total'].value,
+        'val_loss': best_val,
+    }
 
 
 def _save_parameters(output_dir: Path, variables) -> None:

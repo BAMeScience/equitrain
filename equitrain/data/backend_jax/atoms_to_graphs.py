@@ -129,8 +129,8 @@ def make_apply_fn(wrapper, num_species: int):
         return wrapper.apply(
             variables,
             data_dict,
-            compute_force=False,
-            compute_stress=False,
+            compute_force=wrapper.compute_force,
+            compute_stress=wrapper.compute_stress,
         )
 
     return apply_fn
