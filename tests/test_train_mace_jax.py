@@ -19,18 +19,23 @@ from mace.tools.scripts_utils import extract_config_mace_model
 from mace_jax.cli import mace_torch2jax
 from mace_jax.data.utils import (
     AtomicNumberTable as JaxAtomicNumberTable,
+)
+from mace_jax.data.utils import (
     Configuration as JaxConfiguration,
+)
+from mace_jax.data.utils import (
     graph_from_configuration,
 )
 
-from equitrain import get_args_parser_train, train as equitrain_train
+from equitrain import get_args_parser_train
+from equitrain import train as equitrain_train
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     load_model_bundle,
 )
-from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
+from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
 
 
@@ -202,9 +207,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
 
     torch_model_pre = args_torch.model.float().eval()
     batch = _make_torch_batch(structures, torch_model_pre)
-    torch_energy_pre = (
-        torch_model_pre(batch)['energy'].detach().cpu().numpy()
-    )
+    torch_energy_pre = torch_model_pre(batch)['energy'].detach().cpu().numpy()
     torch_model_path = tmp_path / 'torch_pre.model'
     torch.save(torch_model_pre.model, torch_model_path)
 
@@ -283,9 +286,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         and 'interactions' in template_state['params']
     ):
         raw_state['params']['interactions'] = template_state['params']['interactions']
-    jax_trained_params = serialization.from_state_dict(
-        jax_template_params, raw_state
-    )
+    jax_trained_params = serialization.from_state_dict(jax_template_params, raw_state)
 
     jax_energy_post = np.asarray(
         bundle.module.apply(
@@ -297,10 +298,12 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     )
 
     assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
-    assert not np.isnan(torch_energy_post).any(), 'Torch training produced NaN predictions'
+    assert not np.isnan(torch_energy_post).any(), (
+        'Torch training produced NaN predictions'
+    )
 
     gap_pre = np.max(np.abs(jax_energy_pre - torch_energy_pre))
     gap_post = np.max(np.abs(jax_energy_post - torch_energy_post))
 
     assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
-    assert gap_post <= 2.5e-2, f'Post-training gap too large: {gap_post:.6f}'
+    assert gap_post <= 1e-4, f'Post-training gap too large: {gap_post:.6f}'
