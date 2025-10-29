@@ -161,7 +161,7 @@ def _export_jax_model(
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
-def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
+def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
