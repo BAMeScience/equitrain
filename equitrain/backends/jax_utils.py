@@ -8,6 +8,7 @@ from pathlib import Path
 
 import jax
 from flax import serialization
+from flax import core as flax_core
 from mace_jax.cli import mace_torch2jax
 
 from equitrain.argparser import ArgumentError
@@ -72,6 +73,7 @@ def load_model_bundle(model_arg: str, dtype: str) -> ModelBundle:
     template = mace_torch2jax._prepare_template_data(config)
     variables = jax_module.init(jax.random.PRNGKey(0), template)
     variables = serialization.from_bytes(variables, params_path.read_bytes())
+    variables = flax_core.freeze(variables)
 
     return ModelBundle(config=config, params=variables, module=jax_module)
 

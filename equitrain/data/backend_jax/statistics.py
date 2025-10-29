@@ -61,7 +61,9 @@ def compute_statistics(
     processed_any = False
 
     graph_iterable: Iterable[jraph.GraphsTuple]
-    if hasattr(graphs, 'graphs'):
+    if hasattr(graphs, '_graphs'):
+        graph_iterable = getattr(graphs, '_graphs')
+    elif hasattr(graphs, 'graphs'):
         graph_iterable = getattr(graphs, 'graphs')
     else:
         graph_iterable = graphs
@@ -71,13 +73,21 @@ def compute_statistics(
             continue
 
         processed_any = True
-        if isinstance(item, jraph.GraphsTuple) and np.asarray(item.n_node).size > 1:
-            sub_graphs = jraph.unbatch(item)
+        if isinstance(item, jraph.GraphsTuple):
+            mask = np.asarray(jraph.get_graph_padding_mask(item), dtype=bool)
+            n_node = np.asarray(item.n_node)
+            if np.all(n_node > 0):
+                mask = np.ones_like(mask, dtype=bool)
+            sub_graphs = list(jraph.unbatch(item))
         else:
+            mask = np.array([True], dtype=bool)
             sub_graphs = [item]
 
-        for graph in sub_graphs:
-            species_idx = np.asarray(graph.nodes.species)
+        for graph, include in zip(sub_graphs, mask):
+            if not include or graph is None:
+                continue
+
+            species_idx = np.asarray(graph.nodes.species, dtype=np.int32)
             if species_idx.size == 0:
                 continue
 
@@ -107,9 +117,9 @@ def compute_statistics(
 
             receivers = np.asarray(graph.receivers)
             if receivers.size:
-                counts = np.bincount(receivers, minlength=graph_size)
+                _, counts = np.unique(receivers, return_counts=True)
             else:
-                counts = np.zeros(graph_size, dtype=np.int32)
+                counts = np.zeros(0, dtype=np.int32)
             neighbor_counts.append(counts.astype(np.float64))
 
     if not processed_any or not per_atom_residuals:

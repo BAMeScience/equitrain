@@ -79,11 +79,25 @@ class GraphDataLoader:
                 continue
 
             batched = jraph.batch_np(batch_graphs)
+
+            needs_padding = (
+                batched.n_node.shape[0] < self._n_graph
+                or int(np.max(batched.n_node)) > self._n_node
+                or int(np.max(batched.n_edge)) > self._n_edge
+            )
+            if not needs_padding:
+                yield batched
+                continue
+
+            padding_graphs = max(self._n_graph, batched.n_node.shape[0] + 1)
+            target_nodes = max(self._n_node, int(np.max(batched.n_node))) * padding_graphs
+            target_edges = max(self._n_edge, int(np.max(batched.n_edge))) * padding_graphs
+
             batched = jraph.pad_with_graphs(
                 batched,
-                n_node=self._n_node,
-                n_edge=self._n_edge,
-                n_graph=self._n_graph,
+                n_node=target_nodes,
+                n_edge=target_edges,
+                n_graph=padding_graphs,
             )
             yield batched
 

@@ -128,6 +128,8 @@ def _sanitize_config(config: dict) -> dict:
             return [_convert(v) for v in value]
         if isinstance(value, (bool, int, float, str)) or value is None:
             return value
+        if callable(value):
+            return getattr(value, '__name__', str(value))
         if isinstance(value, np.ndarray):
             return value.tolist()
         if hasattr(value, 'tolist'):
@@ -231,7 +233,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
     graphs = _make_jax_graph(structures, torch_model_pre)
     data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-    jax_energy_pre_raw = np.asarray(
+    jax_energy_pre = np.asarray(
         bundle.module.apply(
             bundle.params,
             data_dict,
@@ -239,8 +241,13 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
             compute_stress=False,
         )['energy']
     )
-    bias = jax_energy_pre_raw - torch_energy_pre
-    jax_energy_pre = jax_energy_pre_raw - bias
+    np.testing.assert_allclose(
+        jax_energy_pre,
+        torch_energy_pre,
+        rtol=1e-5,
+        atol=1e-4,
+        err_msg='Torch and JAX predictions differ before training.',
+    )
 
     args_jax = get_args_parser_train().parse_args([])
     args_jax.backend = 'jax'
@@ -280,9 +287,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         jax_template_params, raw_state
     )
 
-    bias = jax_energy_pre - torch_energy_pre
-    jax_energy_pre = jax_energy_pre - bias
-    jax_energy_post_raw = np.asarray(
+    jax_energy_post = np.asarray(
         bundle.module.apply(
             jax_trained_params,
             data_dict,
@@ -290,7 +295,6 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
             compute_stress=False,
         )['energy']
     )
-    jax_energy_post = jax_energy_post_raw - bias
 
     assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
     assert not np.isnan(torch_energy_post).any(), 'Torch training produced NaN predictions'
@@ -299,11 +303,4 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     gap_post = np.max(np.abs(jax_energy_post - torch_energy_post))
 
     assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
-    raw_gap_pre = np.max(np.abs(jax_energy_pre_raw - torch_energy_pre))
-    raw_gap_post = np.max(np.abs(jax_energy_post_raw - torch_energy_post))
-    assert raw_gap_post <= raw_gap_pre + 1e-6
-    improvement = float(raw_gap_pre - raw_gap_post)
-    assert improvement >= 0.05, (
-        f'post-training gap {gap_post:.4f} should be at least 0.05 smaller than '
-        f'pre-training gap {raw_gap_pre:.4f}'
-    )
+    assert gap_post <= 2.5e-2, f'Post-training gap too large: {gap_post:.6f}'
