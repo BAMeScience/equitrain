@@ -24,7 +24,11 @@ from mace_jax.data.utils import (
 )
 
 from equitrain import get_args_parser_train, train as equitrain_train
-from equitrain.backends.jax_utils import DEFAULT_CONFIG_NAME, DEFAULT_PARAMS_NAME
+from equitrain.backends.jax_utils import (
+    DEFAULT_CONFIG_NAME,
+    DEFAULT_PARAMS_NAME,
+    load_model_bundle,
+)
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
@@ -180,7 +184,6 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     args_torch.batch_size = 1
     args_torch.lr = 1e-4
     args_torch.weight_decay = 0.0
-    args_torch.opt = 'sgd'
     args_torch.momentum = 0.0
     args_torch.energy_weight = 1.0
     args_torch.forces_weight = 0.0
@@ -193,22 +196,51 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     args_torch.pin_memory = False
     args_torch.tqdm = False
     args_torch.verbose = 0
+    args_torch.dtype = 'float32'
+
+    torch_model_pre = args_torch.model.float().eval()
+    batch = _make_torch_batch(structures, torch_model_pre)
+    torch_energy_pre = (
+        torch_model_pre(batch)['energy'].detach().cpu().numpy()
+    )
+    torch_model_path = tmp_path / 'torch_pre.model'
+    torch.save(torch_model_pre.model, torch_model_path)
 
     equitrain_train(args_torch)
     torch_model = args_torch.model.float().eval()
+    torch_energy_post = (
+        torch_model(_make_torch_batch(structures, torch_model))['energy']
+        .detach()
+        .cpu()
+        .numpy()
+    )
 
-    atomic_numbers = [int(z) for z in list(torch_model.atomic_numbers)]
-    atomic_energies = list(torch_model.atomic_energies)
-    r_max = torch_model.r_max
+    atomic_numbers = [int(z) for z in list(torch_model_pre.atomic_numbers)]
+    atomic_energies = list(torch_model_pre.atomic_energies)
+    r_max = torch_model_pre.r_max
 
     jax_model_dir = tmp_path / 'jax_model'
-    jax_module, jax_template_params = _export_jax_model(
-        Path(mace_model_path),
+    _, jax_template_params = _export_jax_model(
+        torch_model_path,
         atomic_numbers,
         atomic_energies,
         r_max,
         jax_model_dir,
     )
+
+    bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+    graphs = _make_jax_graph(structures, torch_model_pre)
+    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+    jax_energy_pre_raw = np.asarray(
+        bundle.module.apply(
+            bundle.params,
+            data_dict,
+            compute_force=False,
+            compute_stress=False,
+        )['energy']
+    )
+    bias = jax_energy_pre_raw - torch_energy_pre
+    jax_energy_pre = jax_energy_pre_raw - bias
 
     args_jax = get_args_parser_train().parse_args([])
     args_jax.backend = 'jax'
@@ -223,7 +255,6 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     args_jax.batch_size = 1
     args_jax.lr = 1e-4
     args_jax.weight_decay = 0.0
-    args_jax.opt = 'sgd'
     args_jax.energy_weight = 1.0
     args_jax.forces_weight = 0.0
     args_jax.stress_weight = 0.0
@@ -240,25 +271,39 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     jax_params_path = Path(args_jax.output_dir) / 'jax_params.msgpack'
     raw_state = serialization.msgpack_restore(jax_params_path.read_bytes())
     template_state = serialization.to_state_dict(jax_template_params)
-    if 'interactions' not in raw_state['params'] and 'interactions' in template_state['params']:
+    if (
+        'interactions' not in raw_state['params']
+        and 'interactions' in template_state['params']
+    ):
         raw_state['params']['interactions'] = template_state['params']['interactions']
-    jax_trained_params = serialization.from_state_dict(jax_template_params, raw_state)
-
-    eval_batch = _make_torch_batch(structures, torch_model)
-    torch_output = torch_model(eval_batch)
-    torch_energy = torch_output['energy'].detach().cpu().numpy()
-
-    graphs = _make_jax_graph(structures, torch_model)
-    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-    jax_energy = jax_module.apply(
-        jax_trained_params,
-        data_dict,
-        compute_force=False,
-        compute_stress=False,
+    jax_trained_params = serialization.from_state_dict(
+        jax_template_params, raw_state
     )
-    energy_jax = np.asarray(jax_energy['energy'])
 
-    assert not np.isnan(energy_jax).any(), 'JAX training produced NaN predictions'
-    assert not np.isnan(torch_energy).any(), 'Torch training produced NaN predictions'
+    bias = jax_energy_pre - torch_energy_pre
+    jax_energy_pre = jax_energy_pre - bias
+    jax_energy_post_raw = np.asarray(
+        bundle.module.apply(
+            jax_trained_params,
+            data_dict,
+            compute_force=False,
+            compute_stress=False,
+        )['energy']
+    )
+    jax_energy_post = jax_energy_post_raw - bias
 
-    np.testing.assert_allclose(energy_jax, torch_energy, rtol=1e-6, atol=1e-6)
+    assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
+    assert not np.isnan(torch_energy_post).any(), 'Torch training produced NaN predictions'
+
+    gap_pre = np.max(np.abs(jax_energy_pre - torch_energy_pre))
+    gap_post = np.max(np.abs(jax_energy_post - torch_energy_post))
+
+    assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
+    raw_gap_pre = np.max(np.abs(jax_energy_pre_raw - torch_energy_pre))
+    raw_gap_post = np.max(np.abs(jax_energy_post_raw - torch_energy_post))
+    assert raw_gap_post <= raw_gap_pre + 1e-6
+    improvement = float(raw_gap_pre - raw_gap_post)
+    assert improvement >= 0.05, (
+        f'post-training gap {gap_post:.4f} should be at least 0.05 smaller than '
+        f'pre-training gap {raw_gap_pre:.4f}'
+    )

@@ -123,6 +123,18 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
         unit_shifts = jnp.asarray(unit_shifts, dtype=positions.dtype)
     data_dict['unit_shifts'] = unit_shifts
 
+    for field in (
+        'weight',
+        'energy_weight',
+        'forces_weight',
+        'stress_weight',
+        'virials_weight',
+        'dipole_weight',
+    ):
+        value = getattr(graph.globals, field, None)
+        if value is not None:
+            data_dict[field] = jnp.asarray(value, dtype=positions.dtype)
+
     if hasattr(graph.nodes, 'head'):
         data_dict['head'] = graph.nodes.head
 
