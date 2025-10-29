@@ -79,9 +79,15 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
     receivers = jnp.asarray(graph.receivers, dtype=jnp.int32)
 
     n_node = jnp.asarray(graph.n_node, dtype=jnp.int32)
-    mask = jraph.get_graph_padding_mask(graph).astype(jnp.float32)
+    graph_mask = jraph.get_graph_padding_mask(graph)
+    all_positive = jnp.all(n_node > 0)
+    graph_mask = jnp.where(
+        all_positive,
+        jnp.ones_like(graph_mask, dtype=graph_mask.dtype),
+        graph_mask,
+    )
     node_mask = jnp.repeat(
-        mask, graph.n_node, total_repeat_length=positions.shape[0]
+        graph_mask, graph.n_node, total_repeat_length=positions.shape[0]
     ).astype(positions.dtype)
 
     node_attrs = jax.nn.one_hot(

@@ -173,30 +173,48 @@ def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
     if 'energy' not in outputs:
         raise ValueError('Model outputs must include energy predictions for loss computation.')
 
-    pred = jnp.reshape(jnp.asarray(outputs['energy'], dtype=dtype), mask.shape)
+    mask = jnp.asarray(mask, dtype=dtype)
+    mask_sum = jnp.sum(mask)
+    mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
+
+    pred = jnp.asarray(outputs['energy'], dtype=dtype)
+    if pred.ndim == 0:
+        pred = pred[None]
+    pred = pred[: mask.shape[0]]
 
     raw_target = getattr(graph.globals, 'energy', None)
     if raw_target is None:
         raise ValueError('Graph globals must contain energy targets for loss computation.')
-    target = jnp.reshape(jnp.asarray(raw_target, dtype=dtype), mask.shape)
+    target = jnp.asarray(raw_target, dtype=dtype)
+    if target.ndim == 0:
+        target = target[None]
+    target = target[: mask.shape[0]]
 
     raw_weights = getattr(graph.globals, 'weight', None)
     if raw_weights is None:
-        weights = jnp.ones(mask.shape, dtype=dtype)
+        weights = jnp.ones_like(mask, dtype=dtype)
     else:
-        weights = jnp.reshape(jnp.asarray(raw_weights, dtype=dtype), mask.shape)
+        weights = jnp.asarray(raw_weights, dtype=dtype)
+        if weights.ndim == 0:
+            weights = weights[None]
+        weights = weights[: mask.shape[0]]
 
     if settings.loss_energy_per_atom:
         num_atoms = jnp.asarray(graph.n_node, dtype=dtype)
+        if num_atoms.ndim == 0:
+            num_atoms = num_atoms[None]
+        num_atoms = num_atoms[: mask.shape[0]]
         num_atoms = jnp.maximum(num_atoms, 1.0)
         weights = weights / num_atoms
 
     weights = weights * mask
 
     error = error_fn(pred, target)
+    error = jnp.nan_to_num(error)
     weighted_error = error * weights
+    weighted_error = jnp.nan_to_num(weighted_error)
 
-    denom = jnp.maximum(jnp.sum(weights), 1.0)
+    denom = jnp.maximum(jnp.sum(mask), 1.0)
     loss = jnp.sum(weighted_error) / denom
 
     count = jnp.sum(mask)
@@ -213,6 +231,8 @@ def _forces_component(outputs, graph, mask, error_fn, dtype):
     target = jnp.asarray(getattr(graph.nodes, 'forces'), dtype=dtype)
 
     node_mask = _node_padding_mask(graph, mask).astype(dtype)
+    node_mask_sum = jnp.sum(node_mask)
+    node_mask = jnp.where(node_mask_sum > 0.0, node_mask, jnp.ones_like(node_mask))
     node_batch = _node_batch_indices(graph)
 
     error = error_fn(pred, target)
@@ -257,6 +277,9 @@ def _stress_component(outputs, graph, mask, error_fn, dtype):
         )
 
     mask_expanded = mask[:, None, None]
+    mask_sum = jnp.sum(mask_expanded)
+    mask_expanded = jnp.where(mask_sum > 0.0, mask_expanded, jnp.ones_like(mask_expanded))
+    mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
 
     error = error_fn(pred, target)
     masked_error = error * mask_expanded
@@ -303,9 +326,43 @@ def build_loss_fn(apply_fn, settings: LossSettings):
 
     def loss_fn(variables, graph: jraph.GraphsTuple):
         mask = jraph.get_graph_padding_mask(graph).astype(jnp.float32)
+        mask_sum = jnp.sum(mask)
+        mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
         outputs = apply_fn(variables, graph)
 
         dtype = jnp.asarray(graph.nodes.positions).dtype
+
+        if isinstance(outputs, dict):
+            outputs = dict(outputs)
+            if 'energy' in outputs:
+                energy = jnp.asarray(outputs['energy'], dtype=dtype)
+                if energy.ndim == 0:
+                    energy = energy[None]
+                energy_mask = mask[: energy.shape[0]]
+                energy = jnp.nan_to_num(energy)
+                energy = energy * energy_mask
+                outputs['energy'] = energy
+            if 'forces' in outputs:
+                forces_value = outputs['forces']
+                if forces_value is not None:
+                    forces = jnp.asarray(forces_value, dtype=dtype)
+                    forces = jnp.nan_to_num(forces)
+                    node_mask = _node_padding_mask(graph, mask).astype(dtype)
+                    forces = forces * node_mask[:, None]
+                    outputs['forces'] = forces
+            if 'stress' in outputs:
+                stress_value = outputs['stress']
+                if stress_value is not None:
+                    stress = jnp.asarray(stress_value, dtype=dtype)
+                    if stress.ndim == 2:
+                        stress = stress[None, ...]
+                    stress_mask = mask[: stress.shape[0]]
+                    stress = jnp.nan_to_num(stress)
+                    stress = stress * stress_mask[:, None, None]
+                    outputs['stress'] = stress
+            for key, value in list(outputs.items()):
+                if isinstance(value, jnp.ndarray) and key not in {'energy', 'forces', 'stress'}:
+                    outputs[key] = jnp.nan_to_num(value)
 
         metrics = {
             'total': (jnp.array(0.0, dtype), jnp.array(0.0, dtype)),

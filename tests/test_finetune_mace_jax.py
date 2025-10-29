@@ -180,9 +180,12 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     args_torch.batch_size = 1
     args_torch.lr = 1e-4
     args_torch.weight_decay = 0.0
+    args_torch.opt = 'sgd'
+    args_torch.momentum = 0.0
     args_torch.energy_weight = 1.0
     args_torch.forces_weight = 0.0
     args_torch.stress_weight = 0.0
+    args_torch.shuffle = False
     args_torch.scheduler = 'step'
     args_torch.gamma = 1.0
     args_torch.step_size = 1
@@ -220,10 +223,12 @@ def test_finetune_torch_and_jax_match(tmp_path, mace_model_path):
     args_jax.batch_size = 1
     args_jax.lr = 1e-4
     args_jax.weight_decay = 0.0
+    args_jax.opt = 'sgd'
     args_jax.energy_weight = 1.0
     args_jax.forces_weight = 0.0
     args_jax.stress_weight = 0.0
     args_jax.scheduler = 'constant'
+    args_jax.shuffle = False
     args_jax.workers = 0
     args_jax.pin_memory = False
     args_jax.tqdm = False

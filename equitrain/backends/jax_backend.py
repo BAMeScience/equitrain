@@ -6,6 +6,7 @@ import jax
 import numpy as np
 import optax
 from flax import serialization
+from flax.core import frozen_dict
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import (
@@ -83,6 +84,12 @@ def _evaluate_loop(variables, loss_fn, loader):
     return (mean_loss if loss_collection.components['total'].count else None), loss_collection, per_graph_errors
 
 
+def _restore_atomic_energies(params, reference):
+    params_dict = frozen_dict.unfreeze(params)
+    params_dict['params']['atomic_energies_fn'] = reference
+    return frozen_dict.freeze(params_dict)
+
+
 def train(args):
     validate_training_args(args, 'jax')
 
@@ -154,6 +161,7 @@ def train(args):
     best_val = None
     best_params = bundle.params
     train_metrics = JaxLossCollection()
+    atomic_reference = bundle.params['params'].get('atomic_energies_fn')
 
     for epoch_offset in range(num_epochs):
         epoch = start_epoch + epoch_offset
@@ -170,6 +178,8 @@ def train(args):
             train_loader,
             loss_fn,
         )
+        if atomic_reference is not None:
+            updated_params = _restore_atomic_energies(updated_params, atomic_reference)
         bundle = ModelBundle(
             config=bundle.config, params=updated_params, module=bundle.module
         )
