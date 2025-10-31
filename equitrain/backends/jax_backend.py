@@ -10,10 +10,12 @@ from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import (
     ArgsFormatter,
+    check_args_consistency,
     validate_evaluate_args,
     validate_training_args,
 )
 from equitrain.logger import ensure_output_dir, init_logger
+from equitrain.backends import jax_checkpoint
 from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
@@ -38,7 +40,25 @@ from .jax_scheduler import (
 ensure_multiprocessing_spawn()
 
 
-def _train_loop(variables, optimizer, opt_state, train_loader, loss_fn):
+def _normalize_max_steps(value):
+    if value is None:
+        return None
+    try:
+        steps = int(value)
+    except (TypeError, ValueError):
+        return None
+    return steps if steps > 0 else None
+
+
+def _train_loop(
+    variables,
+    optimizer,
+    opt_state,
+    train_loader,
+    loss_fn,
+    *,
+    max_steps=None,
+):
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
 
     @jax.jit
@@ -53,7 +73,9 @@ def _train_loop(variables, optimizer, opt_state, train_loader, loss_fn):
     loss_collection = JaxLossCollection()
     per_graph_errors: list[np.ndarray] = []
 
-    for graph in train_loader:
+    for step_index, graph in enumerate(train_loader):
+        if max_steps is not None and step_index >= max_steps:
+            break
         variables, opt_state, loss, aux = train_step(variables, opt_state, graph)
         per_graph_error = update_collection_from_aux(loss_collection, aux)
         if per_graph_error.size:
@@ -62,7 +84,7 @@ def _train_loop(variables, optimizer, opt_state, train_loader, loss_fn):
     return variables, opt_state, loss_collection, per_graph_errors
 
 
-def _evaluate_loop(variables, loss_fn, loader):
+def _evaluate_loop(variables, loss_fn, loader, *, max_steps=None):
     if loader is None:
         return None, JaxLossCollection(), []
 
@@ -70,7 +92,9 @@ def _evaluate_loop(variables, loss_fn, loader):
     loss_collection = JaxLossCollection()
     per_graph_errors: list[np.ndarray] = []
 
-    for graph in loader:
+    for step_index, graph in enumerate(loader):
+        if max_steps is not None and step_index >= max_steps:
+            break
         _, aux = eval_step(variables, graph)
         per_graph_error = update_collection_from_aux(loss_collection, aux)
         if per_graph_error.size:
@@ -148,8 +172,18 @@ def train(args):
     )
     opt_state = optimizer.init(bundle.params)
 
+    bundle, opt_state, args_checkpoint = jax_checkpoint.load_checkpoint(
+        args, bundle, opt_state, logger
+    )
+    if args_checkpoint is not None:
+        check_args_consistency(args, args_checkpoint, logger)
+    start_epoch = getattr(args, 'epochs_start', 1)
+
     num_epochs = args.epochs
     start_epoch = args.epochs_start
+
+    train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
+    valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
 
     best_val = None
     best_params = bundle.params
@@ -169,13 +203,17 @@ def train(args):
             opt_state,
             train_loader,
             loss_fn,
+            max_steps=train_max_steps,
         )
         bundle = ModelBundle(
             config=bundle.config, params=updated_params, module=bundle.module
         )
 
         val_loss_value, val_metrics, _ = _evaluate_loop(
-            bundle.params, loss_fn, valid_loader
+            bundle.params,
+            loss_fn,
+            valid_loader,
+            max_steps=valid_max_steps,
         )
 
         train_metric = LossMetrics(
@@ -203,6 +241,14 @@ def train(args):
         elif best_val is None or val_loss_value < best_val:
             best_val = val_loss_value
             best_params = bundle.params
+            jax_checkpoint.save_checkpoint(
+                args,
+                epoch,
+                val_metric,
+                bundle,
+                opt_state,
+                logger,
+            )
 
     _save_parameters(Path(args.output_dir), best_params)
 

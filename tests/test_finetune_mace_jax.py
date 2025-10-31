@@ -30,6 +30,7 @@ from equitrain.backends.jax_utils import (
     DEFAULT_PARAMS_NAME,
     load_model_bundle,
 )
+from equitrain.backends.torch_checkpoint import load_model_state as load_torch_model_state
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from tests.test_finetune_mace import FinetuneMaceWrapper as TorchFinetuneWrapper
@@ -43,6 +44,27 @@ def _load_structures(path: Path) -> list[Atoms]:
         return [dataset[idx] for idx in range(len(dataset))]
     finally:
         dataset.close()
+
+
+_CKPT_PATTERN = re.compile(r'best_val_epochs@(\d+)_e@([0-9]*\.[0-9]+)')
+
+
+def _find_best_checkpoint_dir(base_dir: Path) -> Path:
+    best_dir: Path | None = None
+    best_val: float | None = None
+    for candidate in base_dir.glob('best_val_epochs@*_e@*'):
+        if not candidate.is_dir():
+            continue
+        match = _CKPT_PATTERN.match(candidate.name)
+        if match is None:
+            continue
+        val = float(match.group(2))
+        if best_val is None or val < best_val:
+            best_val = val
+            best_dir = candidate
+    if best_dir is None:
+        raise AssertionError(f'No checkpoint directories found in {base_dir}')
+    return best_dir
 
 
 def _make_torch_batch(structures: list[Atoms], wrapper: TorchFinetuneWrapper):
@@ -294,4 +316,141 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
         ],
         atol=0.0,
         err_msg='JAX fine-tuning modified atomic energies.',
+    )
+
+
+@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
+def test_jax_checkpoint_parity(tmp_path, mace_model_path):
+    pytest.importorskip('mace')
+    pytest.importorskip('mace_jax')
+
+    data_dir = Path(__file__).with_name('data')
+    train_file = data_dir / 'train.h5'
+    valid_file = data_dir / 'valid.h5'
+    structures = _load_structures(train_file)
+
+    torch_base_model = torch.load(mace_model_path, weights_only=False).float().eval()
+    torch_pre_path = tmp_path / 'torch_pre.model'
+    torch.save(torch_base_model, torch_pre_path)
+    atomic_numbers = [int(z) for z in torch_base_model.atomic_numbers]
+    atomic_energies = (
+        torch_base_model.atomic_energies_fn.atomic_energies.detach().cpu().tolist()
+    )
+    r_max = torch_base_model.r_max.item()
+
+    args_torch = get_args_parser_train().parse_args([])
+    args_torch.backend = 'torch'
+    args_torch.train_file = str(train_file)
+    args_torch.valid_file = str(valid_file)
+    args_torch.test_file = None
+    args_torch.output_dir = str(tmp_path / 'torch_checkpoint')
+    args_torch.model = TorchFinetuneWrapper(args_torch, filename_model=mace_model_path)
+    args_torch.model = args_torch.model.float()
+    args_torch.epochs = 1
+    args_torch.train_max_steps = 2
+    args_torch.valid_max_steps = 1
+    args_torch.batch_size = 1
+    args_torch.lr = 1e-4
+    args_torch.weight_decay = 0.0
+    args_torch.momentum = 0.0
+    args_torch.scheduler = 'step'
+    args_torch.gamma = 1.0
+    args_torch.step_size = 1
+    args_torch.shuffle = False
+    args_torch.workers = 0
+    args_torch.pin_memory = False
+    args_torch.tqdm = False
+    args_torch.verbose = 0
+    args_torch.dtype = 'float32'
+    args_torch.energy_weight = 1.0
+    args_torch.forces_weight = 0.0
+    args_torch.stress_weight = 0.0
+
+    equitrain_train(args_torch)
+
+    torch_batch = _make_torch_batch(structures, args_torch.model)
+    torch_predictions = (
+        args_torch.model(torch_batch)['energy'].detach().cpu().numpy()
+    )
+
+    torch_best_dir = _find_best_checkpoint_dir(Path(args_torch.output_dir))
+    torch_model_path = torch_best_dir / 'pytorch_model.bin'
+    if not torch_model_path.exists():
+        torch_model_path = torch_best_dir / 'model.safetensors'
+    assert torch_model_path.exists(), 'Torch checkpoint missing model weights.'
+
+    args_torch_reload = get_args_parser_train().parse_args([])
+    args_torch_reload.backend = 'torch'
+    reloaded_torch = TorchFinetuneWrapper(
+        args_torch_reload, filename_model=mace_model_path
+    )
+    reloaded_torch = reloaded_torch.float().eval()
+    load_torch_model_state(reloaded_torch, str(torch_model_path))
+    torch_batch_reload = _make_torch_batch(structures, reloaded_torch)
+    torch_predictions_reload = (
+        reloaded_torch(torch_batch_reload)['energy'].detach().cpu().numpy()
+    )
+    np.testing.assert_allclose(
+        torch_predictions_reload,
+        torch_predictions,
+        rtol=1e-5,
+        atol=1e-5,
+        err_msg='Torch checkpoint reload altered predictions.',
+    )
+
+    jax_model_dir = tmp_path / 'jax_model'
+    _export_jax_model(
+        torch_pre_path,
+        atomic_numbers,
+        atomic_energies,
+        r_max,
+        jax_model_dir,
+    )
+
+    args_jax = get_args_parser_train().parse_args([])
+    args_jax.backend = 'jax'
+    args_jax.model = str(jax_model_dir)
+    args_jax.train_file = str(train_file)
+    args_jax.valid_file = str(valid_file)
+    args_jax.test_file = None
+    args_jax.output_dir = str(tmp_path / 'jax_checkpoint')
+    args_jax.epochs = 1
+    args_jax.train_max_steps = 2
+    args_jax.valid_max_steps = 1
+    args_jax.batch_size = 1
+    args_jax.opt = 'momentum'
+    args_jax.lr = 1e-4
+    args_jax.weight_decay = 0.0
+    args_jax.energy_weight = 1.0
+    args_jax.forces_weight = 0.0
+    args_jax.stress_weight = 0.0
+    args_jax.scheduler = 'constant'
+    args_jax.shuffle = False
+    args_jax.workers = 0
+    args_jax.pin_memory = False
+    args_jax.tqdm = False
+    args_jax.verbose = 0
+    args_jax.dtype = 'float32'
+
+    equitrain_train(args_jax)
+
+    jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
+    bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
+    graphs = _make_jax_graph(structures, args_torch.model)
+    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+    jax_predictions = np.asarray(
+        bundle.module.apply(
+            bundle.params,
+            data_dict,
+            compute_force=False,
+            compute_stress=False,
+        )['energy']
+    )
+
+    np.testing.assert_allclose(
+        jax_predictions,
+        torch_predictions,
+        rtol=1e-5,
+        atol=1e-5,
+        err_msg='Checkpointed JAX model predictions differ from Torch.',
     )

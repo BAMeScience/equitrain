@@ -3,44 +3,8 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 
-import jax
-import jax.numpy as jnp
 import jraph
 import numpy as np
-
-
-def _pad_array(array: jnp.ndarray, pad: int) -> jnp.ndarray:
-    if pad <= 0:
-        return array
-    pad_config = [(0, pad)] + [(0, 0)] * (array.ndim - 1)
-    return jnp.pad(array, pad_config, mode='constant', constant_values=0)
-
-
-def _pad_pytree(tree, pad: int):
-    if tree is None or pad <= 0:
-        return tree
-    return jax.tree_util.tree_map(lambda x: _pad_array(jnp.asarray(x), pad), tree)
-
-
-def _pad_single_graph(
-    graph: jraph.GraphsTuple, target_nodes: int, target_edges: int
-) -> jraph.GraphsTuple:
-    actual_nodes = int(graph.n_node.sum())
-    actual_edges = int(graph.n_edge.sum())
-
-    if actual_nodes > target_nodes or actual_edges > target_edges:
-        return graph
-
-    pad_nodes = target_nodes - actual_nodes
-    pad_edges = target_edges - actual_edges
-
-    nodes = _pad_pytree(graph.nodes, pad_nodes)
-    edges = _pad_pytree(graph.edges, pad_edges)
-
-    senders = jnp.pad(graph.senders, (0, pad_edges), constant_values=0)
-    receivers = jnp.pad(graph.receivers, (0, pad_edges), constant_values=0)
-
-    return graph._replace(nodes=nodes, edges=edges, senders=senders, receivers=receivers)
 
 
 class GraphDataLoader:
@@ -74,8 +38,7 @@ class GraphDataLoader:
             batch_graphs = [self._graphs[i] for i in batch_indices]
 
             if self._n_graph == 1:
-                graph = batch_graphs[0]
-                yield _pad_single_graph(graph, self._n_node, self._n_edge)
+                yield batch_graphs[0]
                 continue
 
             batched = jraph.batch_np(batch_graphs)
