@@ -138,12 +138,15 @@ def train(args):
     if not train_graphs:
         raise RuntimeError('Training dataset is empty.')
 
+    train_seed = getattr(args, 'seed', None)
+
     train_loader = build_loader(
         train_graphs,
         batch_size=args.batch_size,
         shuffle=args.shuffle,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        seed=train_seed,
     )
     valid_loader = build_loader(
         valid_graphs,
@@ -151,6 +154,7 @@ def train(args):
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        seed=train_seed,
     )
 
     wrapper = JaxMaceWrapper(

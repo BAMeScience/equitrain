@@ -18,12 +18,14 @@ class GraphDataLoader:
         n_edge: int,
         n_graph: int,
         shuffle: bool = True,
+        rng: np.random.Generator | None = None,
     ) -> None:
         self._graphs = list(graphs)
         self._n_node = int(max(n_node, 0))
         self._n_edge = int(max(n_edge, 0))
         self._n_graph = max(int(n_graph), 1)
         self._shuffle = shuffle
+        self._rng = rng if rng is not None else np.random.default_rng()
 
     def __iter__(self):
         if not self._graphs:
@@ -31,7 +33,7 @@ class GraphDataLoader:
 
         indices = np.arange(len(self._graphs))
         if self._shuffle and len(indices) > 1:
-            np.random.default_rng().shuffle(indices)
+            self._rng.shuffle(indices)
 
         for start in range(0, len(indices), self._n_graph):
             batch_indices = indices[start : start + self._n_graph]
@@ -96,6 +98,8 @@ def build_loader(
     shuffle: bool,
     max_nodes: int | None,
     max_edges: int | None,
+    seed: int | None = None,
+    rng: np.random.Generator | None = None,
 ) -> GraphDataLoader | None:
     if not graphs:
         return None
@@ -116,10 +120,14 @@ def build_loader(
         pad_nodes += 1
         pad_edges += 1
 
+    if rng is None and seed is not None:
+        rng = np.random.default_rng(seed)
+
     return GraphDataLoader(
         graphs=graphs,
         n_node=pad_nodes,
         n_edge=pad_edges,
         n_graph=max(int(batch_size), 1),
         shuffle=shuffle,
+        rng=rng,
     )
