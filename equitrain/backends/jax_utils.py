@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import jax
-from flax import serialization
 from flax import core as flax_core
+from flax import serialization
 from mace_jax.cli import mace_torch2jax
 
 from equitrain.argparser import ArgumentError

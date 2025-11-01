@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import jraph
 import numpy as np
 import pytest
@@ -13,6 +16,7 @@ import torch
 from ase import Atoms
 from flax import core as flax_core
 from flax import serialization
+from flax import traverse_util
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
 from mace.tools import torch_geometric
@@ -29,6 +33,7 @@ from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     load_model_bundle,
+    ModelBundle,
 )
 from equitrain.backends.torch_checkpoint import load_model_state as load_torch_model_state
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
@@ -36,6 +41,101 @@ from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from tests.test_finetune_mace import FinetuneMaceWrapper as TorchFinetuneWrapper
 
 add_safe_globals([slice])
+
+
+class _DeltaWrapperModule:
+    def __init__(self, inner_module):
+        self._inner = inner_module
+
+    def init(self, rng, template):
+        base_vars = self._inner.init(rng, template)
+        base_vars = flax_core.unfreeze(base_vars)
+        params_tree = base_vars.get('params', {})
+        delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), params_tree)
+        base_vars['params'] = {'base': params_tree, 'delta': delta_tree}
+        return flax_core.freeze(base_vars)
+
+    def apply(self, variables, *args, **kwargs):
+        params = variables.get('params', {})
+        if 'base' in params and 'delta' in params:
+            base_tree = jtu.tree_map(jax.lax.stop_gradient, params['base'])
+            combined = jtu.tree_map(lambda b, d: b + d, base_tree, params['delta'])
+            vars_unfrozen = flax_core.unfreeze(variables)
+            vars_unfrozen['params'] = combined
+            actual_vars = flax_core.freeze(vars_unfrozen)
+        else:
+            actual_vars = variables
+        return self._inner.apply(actual_vars, *args, **kwargs)
+
+
+def _wrap_bundle_for_deltas(bundle: ModelBundle) -> ModelBundle:
+    if not bundle.config.get('train_deltas'):
+        return bundle
+
+    params = bundle.params
+    params_keys = set(params.keys()) if hasattr(params, 'keys') else set()
+    param_tree = params['params'] if 'params' in params_keys else params
+    tree_keys = set(param_tree.keys()) if hasattr(param_tree, 'keys') else set()
+
+    if 'base' in tree_keys and 'delta' in tree_keys:
+        if 'params' in params_keys:
+            params_frozen = params
+        else:
+            params_frozen = flax_core.freeze({'params': param_tree})
+    else:
+        base_tree = param_tree
+        delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), base_tree)
+        params_frozen = flax_core.freeze({'params': {'base': base_tree, 'delta': delta_tree}})
+    return ModelBundle(
+        config=bundle.config,
+        params=params_frozen,
+        module=_DeltaWrapperModule(bundle.module),
+    )
+
+
+@contextmanager
+def _patch_jax_loader_for_deltas():
+    from equitrain.backends import jax_utils as jax_utils_module
+
+    original = jax_utils_module.load_model_bundle
+
+    def patched(model_arg, dtype):
+        config_path, params_path = jax_utils_module.resolve_model_paths(model_arg)
+        config = json.loads(Path(config_path).read_text())
+
+        if not config.get('train_deltas'):
+            return _wrap_bundle_for_deltas(original(model_arg, dtype))
+
+        jax_utils_module.set_jax_dtype(dtype)
+
+        base_module = mace_torch2jax._build_jax_model(config)
+        template = mace_torch2jax._prepare_template_data(config)
+        params_bytes = Path(params_path).read_bytes()
+
+        wrapped_module = _DeltaWrapperModule(base_module)
+        variables = wrapped_module.init(jax.random.PRNGKey(0), template)
+        try:
+            variables = serialization.from_bytes(variables, params_bytes)
+        except ValueError:
+            base_variables = base_module.init(jax.random.PRNGKey(0), template)
+            base_variables = serialization.from_bytes(base_variables, params_bytes)
+            base_unfrozen = flax_core.unfreeze(base_variables)
+            base_params = base_unfrozen.get('params', {})
+            delta_params = jtu.tree_map(lambda x: jnp.zeros_like(x), base_params)
+            base_unfrozen['params'] = {'base': base_params, 'delta': delta_params}
+            variables = flax_core.freeze(base_unfrozen)
+        else:
+            variables = flax_core.freeze(variables)
+
+        return ModelBundle(
+            config=config,
+            params=variables,
+            module=wrapped_module,
+        )
+
+    with mock.patch('equitrain.backends.jax_utils.load_model_bundle', patched), \
+         mock.patch('tests.test_finetune_mace_jax.load_model_bundle', patched):
+        yield
 
 
 def _load_structures(path: Path) -> list[Atoms]:
@@ -150,6 +250,7 @@ def _export_jax_model(
     config['atomic_numbers'] = [int(z) for z in atomic_numbers]
     config['atomic_energies'] = [float(x) for x in atomic_energies]
     config['r_max'] = float(r_max)
+    config['train_deltas'] = True
 
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / DEFAULT_CONFIG_NAME).write_text(json.dumps(_sanitize_config(config)))
@@ -159,7 +260,7 @@ def _export_jax_model(
     return jax_module, jax_params
 
 
-def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int]):
+def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int], base_params=None):
     torch_model = torch_model.float().eval()
     config = extract_config_mace_model(torch_model)
     config['atomic_numbers'] = [int(z) for z in atomic_numbers]
@@ -168,7 +269,29 @@ def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int]):
     ]
     config['r_max'] = float(torch_model.r_max.item())
     _, params, _ = mace_torch2jax.convert_model(torch_model, config)
-    return flax_core.freeze(params)
+    params_tree = flax_core.unfreeze(params.get('params', {}))
+
+    if base_params is None or 'base' not in base_params.get('params', {}):
+        return flax_core.freeze({'params': params_tree})
+
+    base_tree = flax_core.unfreeze(base_params['params']['base'])
+
+    flat_params = traverse_util.flatten_dict(params_tree)
+    flat_base = traverse_util.flatten_dict(base_tree)
+
+    delta_flat = {}
+    for key, base_val in flat_base.items():
+        new_val = flat_params.get(key, base_val)
+        delta_flat[key] = jnp.asarray(new_val) - jnp.asarray(base_val)
+
+    delta_tree = traverse_util.unflatten_dict(delta_flat)
+
+    return flax_core.freeze({
+        'params': {
+            'base': flax_core.freeze(base_tree),
+            'delta': flax_core.freeze(delta_tree),
+        }
+    })
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
@@ -256,67 +379,60 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
         jax_model_dir,
     )
 
-    bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-    graphs = _make_jax_graph(structures, torch_model_pre)
-    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-    jax_energy_pre = np.asarray(
-        bundle.module.apply(
-            bundle.params,
-            data_dict,
-            compute_force=False,
-            compute_stress=False,
-        )['energy']
-    )
+    with _patch_jax_loader_for_deltas():
+        bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+        graphs = _make_jax_graph(structures, torch_model_pre)
+        data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+        jax_energy_pre = np.asarray(
+            bundle.module.apply(
+                bundle.params,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
 
-    np.testing.assert_allclose(
-        jax_energy_pre,
-        torch_energy_pre,
-        rtol=1e-5,
-        atol=1e-4,
-        err_msg='Torch and JAX predictions differ before fine-tuning.',
-    )
+        np.testing.assert_allclose(
+            jax_energy_pre,
+            torch_energy_pre,
+            rtol=1e-5,
+            atol=1e-4,
+            err_msg='Torch and JAX predictions differ before fine-tuning.',
+        )
 
-    jax_params_from_torch_raw = _convert_torch_model_to_jax_params(
-        torch.load(torch_post_path, weights_only=False).float().eval(),
-        atomic_numbers,
-    )
-    target_state = serialization.to_state_dict(jax_params_from_torch_raw)
-    base_state = serialization.to_state_dict(bundle.params)
-    if (
-        'interactions' not in target_state['params']
-        and 'interactions' in base_state['params']
-    ):
-        target_state['params']['interactions'] = base_state['params']['interactions']
-    jax_params_from_torch = serialization.from_state_dict(bundle.params, target_state)
-    jax_energy_post = np.asarray(
-        bundle.module.apply(
-            jax_params_from_torch,
-            data_dict,
-            compute_force=False,
-            compute_stress=False,
-        )['energy']
-    )
-    np.testing.assert_allclose(
-        jax_energy_post,
-        torch_energy_post,
-        rtol=1e-5,
-        atol=1e-5,
-        err_msg='Torch and JAX predictions differ after fine-tuning.',
-    )
+        torch_post = torch.load(torch_post_path, weights_only=False).float().eval()
+        jax_params_from_torch = _convert_torch_model_to_jax_params(
+            torch_post,
+            atomic_numbers,
+            base_params=bundle.params,
+        )
+        jax_energy_post = np.asarray(
+            bundle.module.apply(
+                jax_params_from_torch,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
+        np.testing.assert_allclose(
+            jax_energy_post,
+            torch_energy_post,
+            rtol=1e-5,
+            atol=1e-5,
+            err_msg='Torch and JAX predictions differ after fine-tuning.',
+        )
 
-    jax_atomic_post = np.asarray(
-        serialization.to_state_dict(jax_params_from_torch)['params'][
-            'atomic_energies_fn'
-        ]['atomic_energies']
-    )
-    np.testing.assert_allclose(
-        jax_atomic_post,
-        serialization.to_state_dict(bundle.params)['params']['atomic_energies_fn'][
-            'atomic_energies'
-        ],
-        atol=0.0,
-        err_msg='JAX fine-tuning modified atomic energies.',
-    )
+        delta_atomic = np.asarray(
+            serialization.to_state_dict(jax_params_from_torch)['params']['delta'][
+                'atomic_energies_fn'
+            ]['atomic_energies']
+        )
+        np.testing.assert_allclose(
+            delta_atomic,
+            0.0,
+            atol=0.0,
+            err_msg='Delta parameters modified atomic energies.',
+        )
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
@@ -397,6 +513,8 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         atol=1e-5,
         err_msg='Torch checkpoint reload altered predictions.',
     )
+    torch_export_path = tmp_path / 'torch_finetuned.model'
+    args_torch.model.export(str(torch_export_path))
 
     jax_model_dir = tmp_path / 'jax_model'
     _export_jax_model(
@@ -435,21 +553,31 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     args_jax.tqdm = False
     args_jax.verbose = 0
     args_jax.dtype = 'float32'
+    args_jax.freeze_params = [r'params\.base\..*']
+    args_jax.unfreeze_params = [r'params\.delta\..*']
 
-    equitrain_train(args_jax)
+    with _patch_jax_loader_for_deltas():
+        base_bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+        equitrain_train(args_jax)
 
-    jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
-    bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
-    graphs = _make_jax_graph(structures, args_torch.model)
-    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-    jax_predictions = np.asarray(
-        bundle.module.apply(
-            bundle.params,
-            data_dict,
-            compute_force=False,
-            compute_stress=False,
-        )['energy']
-    )
+        jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
+        bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
+        graphs = _make_jax_graph(structures, args_torch.model)
+        data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+        torch_post = torch.load(torch_export_path, weights_only=False).float().eval()
+        jax_params_from_torch = _convert_torch_model_to_jax_params(
+            torch_post,
+            atomic_numbers,
+            base_params=bundle.params,
+        )
+        jax_predictions = np.asarray(
+            bundle.module.apply(
+                jax_params_from_torch,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
 
     np.testing.assert_allclose(
         jax_predictions,
@@ -458,3 +586,24 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         atol=1e-5,
         err_msg='Checkpointed JAX model predictions differ from Torch.',
     )
+
+    delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
+    np.testing.assert_allclose(
+        np.asarray(delta_state['atomic_energies_fn']['atomic_energies']),
+        0.0,
+        atol=0.0,
+        err_msg='Delta parameters modified atomic energies after checkpoint conversion.',
+    )
+
+    base_state = serialization.to_state_dict(base_bundle.params)['params']['base']
+    ckpt_state = serialization.to_state_dict(bundle.params)['params']['base']
+    flat_base = traverse_util.flatten_dict(flax_core.unfreeze(base_state))
+    flat_ckpt = traverse_util.flatten_dict(flax_core.unfreeze(ckpt_state))
+    for key, base_val in flat_base.items():
+        key_str = '.'.join(key)
+        np.testing.assert_allclose(
+            np.asarray(flat_ckpt[key]),
+            np.asarray(base_val),
+            atol=0.0,
+            err_msg=f'Base parameter changed during JAX fine-tuning at {key_str}',
+        )
