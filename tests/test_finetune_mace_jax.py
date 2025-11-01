@@ -13,6 +13,7 @@ import jraph
 import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
 from ase import Atoms
 from flax import core as flax_core
 from flax import serialization
@@ -29,16 +30,23 @@ from torch.serialization import add_safe_globals
 
 from equitrain import get_args_parser_train
 from equitrain import train as equitrain_train
+from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     load_model_bundle,
     ModelBundle,
 )
+from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
+from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
 from equitrain.backends.torch_checkpoint import load_model_state as load_torch_model_state
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from tests.test_finetune_mace import FinetuneMaceWrapper as TorchFinetuneWrapper
+from tests.test_train_mace_jax import (
+    _build_structures as _build_match_structures,
+    _write_dataset as _write_match_dataset,
+)
 
 add_safe_globals([slice])
 
@@ -56,44 +64,48 @@ class _DeltaWrapperModule:
     def init(self, rng, template):
         base_vars = self._inner.init(rng, template)
         base_vars = flax_core.unfreeze(base_vars)
-        params_tree = base_vars.get('params', {})
+        params_tree = base_vars.pop('params', {})
         delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), params_tree)
-        base_vars['params'] = {'base': params_tree, 'delta': delta_tree}
+        base_vars['params'] = {'delta': delta_tree}
+        base_vars['base_params'] = params_tree
         return flax_core.freeze(base_vars)
 
     def apply(self, variables, *args, **kwargs):
         params = variables.get('params', {})
-        if 'base' in params and 'delta' in params:
-            base_tree = jtu.tree_map(jax.lax.stop_gradient, params['base'])
+        base_tree = variables.get('base_params', {})
+        if base_tree and 'delta' in params:
+            base_tree = jtu.tree_map(jax.lax.stop_gradient, base_tree)
             combined = jtu.tree_map(lambda b, d: b + d, base_tree, params['delta'])
-            vars_unfrozen = flax_core.unfreeze(variables)
-            vars_unfrozen['params'] = combined
-            actual_vars = flax_core.freeze(vars_unfrozen)
-        else:
-            actual_vars = variables
-        return self._inner.apply(actual_vars, *args, **kwargs)
+            actual_vars = flax_core.freeze({'params': combined})
+            return self._inner.apply(actual_vars, *args, **kwargs)
+        return self._inner.apply(variables, *args, **kwargs)
 
 
 def _ensure_delta_params(variables: flax_core.FrozenDict) -> flax_core.FrozenDict:
     unfrozen = flax_core.unfreeze(variables)
     params_tree = unfrozen.get('params')
-    wraps_root = True
 
     if params_tree is None:
-        params_tree = unfrozen
-        wraps_root = False
+        return flax_core.freeze(unfrozen)
 
     if 'base' in params_tree and 'delta' in params_tree:
-        return flax_core.freeze(unfrozen if wraps_root else {'params': params_tree})
-
-    base_tree = jtu.tree_map(lambda x: x, params_tree)
-    delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), base_tree)
-    params_with_delta = {'base': base_tree, 'delta': delta_tree}
-
-    if wraps_root:
-        unfrozen['params'] = params_with_delta
+        base_tree = params_tree['base']
+        delta_tree = params_tree['delta']
+        unfrozen['params'] = {'delta': delta_tree}
+        unfrozen['base_params'] = base_tree
         return flax_core.freeze(unfrozen)
-    return flax_core.freeze({'params': params_with_delta})
+
+    if 'delta' in params_tree:
+        if 'base_params' not in unfrozen:
+            base_shape = jtu.tree_map(lambda x: jnp.zeros_like(x), params_tree['delta'])
+            unfrozen['base_params'] = base_shape
+        return flax_core.freeze(unfrozen)
+
+    base_tree = params_tree
+    delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), base_tree)
+    unfrozen['params'] = {'delta': delta_tree}
+    unfrozen['base_params'] = base_tree
+    return flax_core.freeze(unfrozen)
 
 
 def _init_common_args(args, train_file, valid_file, output_dir, *, lr=_FINE_TUNE_LR, max_steps=_MAX_STEPS):
@@ -364,27 +376,165 @@ def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int], b
     _, params, _ = mace_torch2jax.convert_model(torch_model, config)
     params_tree = flax_core.unfreeze(params.get('params', {}))
 
-    if base_params is None or 'base' not in base_params.get('params', {}):
-        return flax_core.freeze({'params': params_tree})
+    if base_params is not None:
+        base_unfrozen = flax_core.unfreeze(base_params)
+    else:
+        base_unfrozen = {}
 
-    base_tree = flax_core.unfreeze(base_params['params']['base'])
+    if 'base_params' in base_unfrozen:
+        base_tree = flax_core.unfreeze(base_unfrozen['base_params'])
+    elif 'params' in base_unfrozen and 'base' in base_unfrozen['params']:
+        base_tree = flax_core.unfreeze(base_unfrozen['params']['base'])
+    elif base_params is not None:
+        raise ValueError('Expected base parameters to include a base tree.')
+    else:
+        base_tree = params_tree
 
     flat_params = traverse_util.flatten_dict(params_tree)
     flat_base = traverse_util.flatten_dict(base_tree)
 
+    missing_in_converted = sorted(set(flat_base) - set(flat_params))
+    if missing_in_converted:
+        missing_keys = ', '.join('.'.join(k) for k in missing_in_converted)
+        raise ValueError(f'Converted Torch parameters missing keys: {missing_keys}')
+
+    unexpected_in_converted = sorted(set(flat_params) - set(flat_base))
+    if unexpected_in_converted:
+        unexpected_keys = ', '.join('.'.join(k) for k in unexpected_in_converted)
+        raise ValueError(f'Converted Torch parameters contain unexpected keys: {unexpected_keys}')
+
     delta_flat = {}
     for key, base_val in flat_base.items():
-        new_val = flat_params.get(key, base_val)
+        new_val = flat_params[key]
         delta_flat[key] = jnp.asarray(new_val) - jnp.asarray(base_val)
 
     delta_tree = traverse_util.unflatten_dict(delta_flat)
 
-    return flax_core.freeze({
-        'params': {
-            'base': flax_core.freeze(base_tree),
-            'delta': flax_core.freeze(delta_tree),
-        }
-    })
+    result_vars = {
+        key: value
+        for key, value in base_unfrozen.items()
+        if key not in ('params', 'base_params')
+    }
+    result_vars['base_params'] = base_tree
+    result_vars['params'] = {'delta': delta_tree}
+    return flax_core.freeze(result_vars)
+
+
+@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
+def test_finetune_gradient_parity(tmp_path, mace_model_path):
+    pytest.importorskip('mace')
+    pytest.importorskip('mace_jax')
+
+    structures = _build_match_structures()
+    train_subset = tmp_path / 'train_subset.h5'
+    valid_subset = tmp_path / 'valid_subset.h5'
+    _write_match_dataset(train_subset, structures)
+    _write_match_dataset(valid_subset, structures)
+
+    args_torch = _build_torch_args(
+        train_subset,
+        valid_subset,
+        tmp_path / 'torch_grad',
+        mace_model_path,
+        max_steps=1,
+        lr=1e-4,
+    )
+    args_torch.model = args_torch.model.float().train()
+
+    torch_batch = _make_torch_batch(structures, args_torch.model)
+    torch_energy = args_torch.model(torch_batch)['energy']
+    num_atoms = torch_batch.ptr[1:] - torch_batch.ptr[:-1]
+    energy_weights = torch.ones_like(torch_energy) / num_atoms.to(torch_energy.dtype)
+    torch_loss = (F.huber_loss(
+        torch_energy,
+        torch.zeros_like(torch_energy),
+        delta=0.01,
+        reduction='none',
+    ) * energy_weights).mean()
+    args_torch.model.zero_grad(set_to_none=True)
+    torch_loss.backward()
+    torch_grad_vec = torch.cat([
+        param.grad.reshape(-1)
+        for param in args_torch.model.parameters()
+    ]).detach().cpu().numpy()
+
+    jax_model_dir = tmp_path / 'jax_grad'
+    _export_jax_model(
+        mace_model_path,
+        [int(z) for z in args_torch.model.atomic_numbers],
+        list(args_torch.model.atomic_energies),
+        args_torch.model.r_max,
+        jax_model_dir,
+    )
+    config_path = jax_model_dir / DEFAULT_CONFIG_NAME
+    config_data = json.loads(config_path.read_text())
+    config_data['train_deltas'] = True
+    config_path.write_text(json.dumps(config_data))
+
+    args_jax = _build_jax_args(
+        train_subset,
+        valid_subset,
+        tmp_path / 'jax_grad',
+        jax_model_dir,
+        max_steps=1,
+        lr=1e-4,
+    )
+
+    with _patch_jax_loader_for_deltas():
+        bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+        z_table = JaxAtomicNumberTable(tuple(bundle.config['atomic_numbers']))
+        graphs = atoms_to_graphs(str(train_subset), bundle.config['r_max'], z_table)
+        loader = build_loader(
+            graphs,
+            batch_size=1,
+            shuffle=False,
+            max_nodes=None,
+            max_edges=None,
+        )
+        graph = next(iter(loader))
+
+        wrapper = JaxMaceWrapper(
+            module=bundle.module,
+            config=bundle.config,
+            compute_force=False,
+            compute_stress=False,
+        )
+        apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
+        loss_settings = LossSettings.from_args(args_jax)
+        loss_fn = build_loss_fn(apply_fn, loss_settings)
+
+        def scalar_loss(variables):
+            total_loss_value, _ = loss_fn(variables, graph)
+            return total_loss_value
+
+        jax_loss_value, _ = loss_fn(bundle.params, graph)
+        jax_grads = jax.grad(scalar_loss)(bundle.params)
+        flat_jax = traverse_util.flatten_dict(
+            jtu.tree_map(lambda x: np.asarray(x), jax_grads['params']['delta']),
+        )
+        jax_grad_vec = np.concatenate([
+            flat_jax[key].ravel()
+            for key in sorted(flat_jax)
+        ])
+
+    np.testing.assert_allclose(
+        float(jax_loss_value),
+        float(torch_loss.detach().cpu().numpy()),
+        rtol=1e-4,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        np.linalg.norm(jax_grad_vec),
+        np.linalg.norm(torch_grad_vec),
+        rtol=1e-4,
+        atol=1e-7,
+    )
+    np.testing.assert_allclose(
+        np.max(np.abs(jax_grad_vec)),
+        np.max(np.abs(torch_grad_vec)),
+        rtol=1e-4,
+        atol=1e-7,
+    )
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
@@ -395,8 +545,12 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
     data_dir = Path(__file__).with_name('data')
     train_file = data_dir / 'train.h5'
     valid_file = data_dir / 'valid.h5'
-    train_subset = _copy_dataset_subset(train_file, tmp_path / 'train_subset.h5', _DATASET_LIMIT)
-    valid_subset = _copy_dataset_subset(valid_file, tmp_path / 'valid_subset.h5', _DATASET_LIMIT)
+    # Use synthetic parity dataset to ensure deterministic matching between frameworks.
+    parity_structures = _build_match_structures()
+    train_subset = tmp_path / 'train_subset.h5'
+    valid_subset = tmp_path / 'valid_subset.h5'
+    _write_match_dataset(train_subset, parity_structures)
+    _write_match_dataset(valid_subset, parity_structures)
     structures = _load_structures(train_subset)
 
     args_torch = _build_torch_args(
@@ -498,8 +652,11 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     data_dir = Path(__file__).with_name('data')
     train_file = data_dir / 'train.h5'
     valid_file = data_dir / 'valid.h5'
-    train_subset = _copy_dataset_subset(train_file, tmp_path / 'train_subset.h5', _DATASET_LIMIT)
-    valid_subset = _copy_dataset_subset(valid_file, tmp_path / 'valid_subset.h5', _DATASET_LIMIT)
+    parity_structures = _build_match_structures()
+    train_subset = tmp_path / 'train_subset.h5'
+    valid_subset = tmp_path / 'valid_subset.h5'
+    _write_match_dataset(train_subset, parity_structures)
+    _write_match_dataset(valid_subset, parity_structures)
     structures = _load_structures(train_subset)
 
     torch_base_model = torch.load(mace_model_path, weights_only=False).float().eval()
@@ -604,7 +761,7 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         jax_predictions_trained,
         torch_predictions,
         rtol=1e-5,
-        atol=2e-2,
+        atol=1e-5,
         err_msg='Checkpointed JAX model predictions differ from Torch.',
     )
 
@@ -623,12 +780,12 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     for key, trained_val in flat_trained.items():
         key_str = '.'.join(key)
         np.testing.assert_allclose(
-            np.asarray(trained_val),
-            np.asarray(flat_converted[key]),
-            rtol=0.0,
-            atol=2e-2,
-            err_msg=f'Fine-tuned delta mismatch at {key_str}',
-        )
+        np.asarray(trained_val),
+        np.asarray(flat_converted[key]),
+        rtol=0.0,
+        atol=1e-8,
+        err_msg=f'Fine-tuned delta mismatch at {key_str}',
+    )
 
     delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
     np.testing.assert_allclose(
