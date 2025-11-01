@@ -406,6 +406,10 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         r_max,
         jax_model_dir,
     )
+    config_path = jax_model_dir / DEFAULT_CONFIG_NAME
+    config_data = json.loads(config_path.read_text())
+    config_data['train_deltas'] = True
+    config_path.write_text(json.dumps(config_data))
 
     args_jax = get_args_parser_train().parse_args([])
     args_jax.backend = 'jax'

@@ -15,7 +15,12 @@ def _matches(name: str, patterns: Iterable[str]) -> bool:
     return any(re.fullmatch(pattern, name) for pattern in patterns)
 
 
-def _should_train(name: str, patterns_unfreeze, patterns_freeze) -> tuple[bool, str | None]:
+def _should_train(
+    name: str,
+    patterns_unfreeze,
+    patterns_freeze,
+    default_trainable: bool,
+) -> tuple[bool, str | None]:
     """
     Determine whether a parameter should remain trainable and return a log action.
     """
@@ -34,10 +39,16 @@ def _should_train(name: str, patterns_unfreeze, patterns_freeze) -> tuple[bool, 
         )
         return (not should_freeze), ('Freezing' if should_freeze else None)
 
-    return True, None
+    return default_trainable, None
 
 
-def build_trainable_mask(args, params: FrozenDict, logger=None) -> FrozenDict | None:
+def build_trainable_mask(
+    args,
+    params: FrozenDict,
+    logger=None,
+    *,
+    default_trainable: bool = True,
+) -> FrozenDict | None:
     """
     Build a boolean PyTree mask indicating which parameters should receive updates.
 
@@ -50,7 +61,8 @@ def build_trainable_mask(args, params: FrozenDict, logger=None) -> FrozenDict | 
     patterns_freeze = tuple(getattr(args, 'freeze_params', []) or [])
 
     if not patterns_unfreeze and not patterns_freeze:
-        return None
+        if default_trainable:
+            return None
 
     flat_params = traverse_util.flatten_dict(
         frozen_dict.unfreeze(params), sep='.'
@@ -59,7 +71,10 @@ def build_trainable_mask(args, params: FrozenDict, logger=None) -> FrozenDict | 
     mask_entries: dict[str, bool] = {}
     for dotted_name in flat_params:
         trainable, action = _should_train(
-            dotted_name, patterns_unfreeze, patterns_freeze
+            dotted_name,
+            patterns_unfreeze,
+            patterns_freeze,
+            default_trainable,
         )
         mask_entries[dotted_name] = trainable
 
