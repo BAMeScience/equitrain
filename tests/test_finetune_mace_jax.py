@@ -101,39 +101,55 @@ def _patch_jax_loader_for_deltas():
 
     def patched(model_arg, dtype):
         config_path, params_path = jax_utils_module.resolve_model_paths(model_arg)
-        config = json.loads(Path(config_path).read_text())
+        config_data = json.loads(Path(config_path).read_text())
 
-        if not config.get('train_deltas'):
-            return _wrap_bundle_for_deltas(original(model_arg, dtype))
+        config_for_build = dict(config_data)
+        config_for_build.pop('train_deltas', None)
 
         jax_utils_module.set_jax_dtype(dtype)
 
-        base_module = mace_torch2jax._build_jax_model(config)
-        template = mace_torch2jax._prepare_template_data(config)
+        base_module = mace_torch2jax._build_jax_model(config_for_build)
+        wrapped_module = _DeltaWrapperModule(base_module)
+        template = mace_torch2jax._prepare_template_data(config_for_build)
         params_bytes = Path(params_path).read_bytes()
 
-        wrapped_module = _DeltaWrapperModule(base_module)
-        variables = wrapped_module.init(jax.random.PRNGKey(0), template)
+        variables_template = wrapped_module.init(jax.random.PRNGKey(0), template)
         try:
-            variables = serialization.from_bytes(variables, params_bytes)
+            loaded = serialization.from_bytes(variables_template, params_bytes)
+            loaded_unfrozen = flax_core.unfreeze(loaded)
+            params_tree = loaded_unfrozen.get('params', {})
+            if 'base' in params_tree and 'delta' in params_tree:
+                variables = flax_core.freeze(loaded_unfrozen)
+            else:
+                base_params = params_tree
+                delta_params = jtu.tree_map(lambda x: jnp.zeros_like(x), base_params)
+                variables = flax_core.freeze({
+                    'params': {
+                        'base': base_params,
+                        'delta': delta_params,
+                    }
+                })
         except ValueError:
             base_variables = base_module.init(jax.random.PRNGKey(0), template)
             base_variables = serialization.from_bytes(base_variables, params_bytes)
             base_unfrozen = flax_core.unfreeze(base_variables)
             base_params = base_unfrozen.get('params', {})
             delta_params = jtu.tree_map(lambda x: jnp.zeros_like(x), base_params)
-            base_unfrozen['params'] = {'base': base_params, 'delta': delta_params}
-            variables = flax_core.freeze(base_unfrozen)
-        else:
-            variables = flax_core.freeze(variables)
+            variables = flax_core.freeze({
+                'params': {
+                    'base': base_params,
+                    'delta': delta_params,
+                }
+            })
 
         return ModelBundle(
-            config=config,
+            config=config_data,
             params=variables,
             module=wrapped_module,
         )
 
     with mock.patch('equitrain.backends.jax_utils.load_model_bundle', patched), \
+         mock.patch('equitrain.backends.jax_backend.load_model_bundle', patched), \
          mock.patch('tests.test_finetune_mace_jax.load_model_bundle', patched):
         yield
 
@@ -311,11 +327,11 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
     args_torch.test_file = None
     args_torch.output_dir = str(tmp_path / 'torch_out')
     args_torch.epochs = 1
-    args_torch.train_max_steps = 2
-    args_torch.valid_max_steps = 1
+    args_torch.train_max_steps = 32
+    args_torch.valid_max_steps = 32
     args_torch.batch_size = 1
     args_torch.opt = 'momentum'
-    args_torch.lr = 1e-4
+    args_torch.lr = 2.5e-3
     args_torch.weight_decay = 0.0
     args_torch.momentum = 0.0
     args_torch.scheduler = 'step'
@@ -463,10 +479,11 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     args_torch.model = TorchFinetuneWrapper(args_torch, filename_model=mace_model_path)
     args_torch.model = args_torch.model.float()
     args_torch.epochs = 1
-    args_torch.train_max_steps = 2
-    args_torch.valid_max_steps = 1
+    args_torch.train_max_steps = 32
+    args_torch.valid_max_steps = 32
     args_torch.batch_size = 1
-    args_torch.lr = 1e-4
+    args_torch.opt = 'momentum'
+    args_torch.lr = 2.5e-3
     args_torch.weight_decay = 0.0
     args_torch.momentum = 0.0
     args_torch.scheduler = 'step'
@@ -537,11 +554,11 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     args_jax.test_file = None
     args_jax.output_dir = str(tmp_path / 'jax_checkpoint')
     args_jax.epochs = 1
-    args_jax.train_max_steps = 2
-    args_jax.valid_max_steps = 1
+    args_jax.train_max_steps = 32
+    args_jax.valid_max_steps = 32
     args_jax.batch_size = 1
     args_jax.opt = 'momentum'
-    args_jax.lr = 1e-4
+    args_jax.lr = 2.5e-3
     args_jax.weight_decay = 0.0
     args_jax.energy_weight = 1.0
     args_jax.forces_weight = 0.0
@@ -572,6 +589,22 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         )
         jax_predictions = np.asarray(
             bundle.module.apply(
+                bundle.params,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
+        jax_predictions_trained = np.asarray(
+            bundle.module.apply(
+                bundle.params,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
+        jax_predictions_converted = np.asarray(
+            bundle.module.apply(
                 jax_params_from_torch,
                 data_dict,
                 compute_force=False,
@@ -580,12 +613,34 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         )
 
     np.testing.assert_allclose(
-        jax_predictions,
+        jax_predictions_trained,
         torch_predictions,
         rtol=1e-5,
         atol=1e-5,
         err_msg='Checkpointed JAX model predictions differ from Torch.',
     )
+
+    np.testing.assert_allclose(
+        jax_predictions_converted,
+        torch_predictions,
+        rtol=1e-5,
+        atol=1e-5,
+        err_msg='Converted Torch parameters differ from Torch predictions.',
+    )
+
+    trained_delta = serialization.to_state_dict(bundle.params)['params']['delta']
+    converted_delta = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
+    flat_trained = traverse_util.flatten_dict(trained_delta)
+    flat_converted = traverse_util.flatten_dict(converted_delta)
+    for key, trained_val in flat_trained.items():
+        key_str = '.'.join(key)
+        np.testing.assert_allclose(
+            np.asarray(trained_val),
+            np.asarray(flat_converted[key]),
+            rtol=0.0,
+            atol=1e-8,
+            err_msg=f'Fine-tuned delta mismatch at {key_str}',
+        )
 
     delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
     np.testing.assert_allclose(
