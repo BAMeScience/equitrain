@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import re
 from contextlib import contextmanager
 from pathlib import Path
@@ -55,6 +56,11 @@ _FINE_TUNE_LR = 2.5e-3
 _MAX_STEPS = 24
 _DATASET_LIMIT = 16
 _PARITY_STEPS = 64
+
+
+def _cleanup_path(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
 
 
 class _DeltaWrapperModule:
@@ -542,106 +548,112 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
-    data_dir = Path(__file__).with_name('data')
-    train_file = data_dir / 'train.h5'
-    valid_file = data_dir / 'valid.h5'
-    # Use synthetic parity dataset to ensure deterministic matching between frameworks.
-    parity_structures = _build_match_structures()
-    train_subset = tmp_path / 'train_subset.h5'
-    valid_subset = tmp_path / 'valid_subset.h5'
-    _write_match_dataset(train_subset, parity_structures)
-    _write_match_dataset(valid_subset, parity_structures)
-    structures = _load_structures(train_subset)
+    cleanup_paths: list[Path] = []
+    try:
+        data_dir = Path(__file__).with_name('data')
+        train_file = data_dir / 'train.h5'
+        valid_file = data_dir / 'valid.h5'
+        parity_structures = _build_match_structures()
+        train_subset = tmp_path / 'train_subset.h5'
+        valid_subset = tmp_path / 'valid_subset.h5'
+        _write_match_dataset(train_subset, parity_structures)
+        _write_match_dataset(valid_subset, parity_structures)
+        structures = _load_structures(train_subset)
 
-    args_torch = _build_torch_args(
-        train_subset,
-        valid_subset,
-        tmp_path / 'torch_out',
-        mace_model_path,
-    )
-
-    torch_model_pre = args_torch.model.float().eval()
-    torch_energy_pre = _predict_torch_energy(torch_model_pre, structures)
-
-    equitrain_train(args_torch)
-
-    torch_model_post = args_torch.model.float().eval()
-    torch_energy_post = _predict_torch_energy(torch_model_post, structures)
-
-    torch_atomic_pre = (
-        torch_model_pre.model.atomic_energies_fn.atomic_energies.detach().cpu().clone()
-    )
-    torch_atomic_post = (
-        torch_model_post.model.atomic_energies_fn.atomic_energies.detach().cpu()
-    )
-    np.testing.assert_allclose(
-        torch_atomic_post.numpy(),
-        torch_atomic_pre.numpy(),
-        atol=0.0,
-        err_msg='Torch fine-tuning modified atomic energies.',
-    )
-
-    torch_pre_path = tmp_path / 'torch_pre.model'
-    torch_post_path = tmp_path / 'torch_finetuned.model'
-    torch.save(torch_model_pre.model, torch_pre_path)
-    args_torch.model.export(str(torch_post_path))
-
-    atomic_numbers = [int(z) for z in list(torch_model_pre.atomic_numbers)]
-    atomic_energies = list(torch_model_pre.atomic_energies)
-    r_max = torch_model_pre.r_max
-
-    jax_model_dir = tmp_path / 'jax_model'
-    _export_jax_model(
-        torch_pre_path,
-        atomic_numbers,
-        atomic_energies,
-        r_max,
-        jax_model_dir,
-    )
-
-    with _patch_jax_loader_for_deltas():
-        bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-        data_dict = _structures_to_jax_input(structures, torch_model_pre)
-        jax_energy_pre = _predict_jax_energy(bundle, data_dict)
-
-        np.testing.assert_allclose(
-            jax_energy_pre,
-            torch_energy_pre,
-            rtol=1e-5,
-            atol=1e-4,
-            err_msg='Torch and JAX predictions differ before fine-tuning.',
+        args_torch = _build_torch_args(
+            train_subset,
+            valid_subset,
+            tmp_path / 'torch_out',
+            mace_model_path,
         )
+        cleanup_paths.append(Path(args_torch.output_dir))
 
-        torch_post = torch.load(torch_post_path, weights_only=False).float().eval()
-        jax_params_from_torch = _convert_torch_model_to_jax_params(
-            torch_post,
-            atomic_numbers,
-            base_params=bundle.params,
+        torch_model_pre = args_torch.model.float().eval()
+        torch_energy_pre = _predict_torch_energy(torch_model_pre, structures)
+
+        equitrain_train(args_torch)
+
+        torch_model_post = args_torch.model.float().eval()
+        torch_energy_post = _predict_torch_energy(torch_model_post, structures)
+
+        torch_atomic_pre = (
+            torch_model_pre.model.atomic_energies_fn.atomic_energies.detach().cpu().clone()
         )
-        jax_energy_post = _predict_jax_energy(
-            bundle,
-            data_dict,
-            params=jax_params_from_torch,
+        torch_atomic_post = (
+            torch_model_post.model.atomic_energies_fn.atomic_energies.detach().cpu()
         )
         np.testing.assert_allclose(
-            jax_energy_post,
-            torch_energy_post,
-            rtol=1e-5,
-            atol=1e-5,
-            err_msg='Torch and JAX predictions differ after fine-tuning.',
-        )
-
-        delta_atomic = np.asarray(
-            serialization.to_state_dict(jax_params_from_torch)['params']['delta'][
-                'atomic_energies_fn'
-            ]['atomic_energies']
-        )
-        np.testing.assert_allclose(
-            delta_atomic,
-            0.0,
+            torch_atomic_post.numpy(),
+            torch_atomic_pre.numpy(),
             atol=0.0,
-            err_msg='Delta parameters modified atomic energies.',
+            err_msg='Torch fine-tuning modified atomic energies.',
         )
+
+        torch_pre_path = tmp_path / 'torch_pre.model'
+        torch_post_path = tmp_path / 'torch_finetuned.model'
+        torch.save(torch_model_pre.model, torch_pre_path)
+        args_torch.model.export(str(torch_post_path))
+
+        atomic_numbers = [int(z) for z in list(torch_model_pre.atomic_numbers)]
+        atomic_energies = list(torch_model_pre.atomic_energies)
+        r_max = torch_model_pre.r_max
+
+        jax_model_dir = tmp_path / 'jax_model'
+        _export_jax_model(
+            torch_pre_path,
+            atomic_numbers,
+            atomic_energies,
+            r_max,
+            jax_model_dir,
+        )
+        cleanup_paths.append(jax_model_dir)
+
+        with _patch_jax_loader_for_deltas():
+            bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+            data_dict = _structures_to_jax_input(structures, torch_model_pre)
+            jax_energy_pre = _predict_jax_energy(bundle, data_dict)
+
+            np.testing.assert_allclose(
+                jax_energy_pre,
+                torch_energy_pre,
+                rtol=1e-5,
+                atol=1e-4,
+                err_msg='Torch and JAX predictions differ before fine-tuning.',
+            )
+
+            torch_post = torch.load(torch_post_path, weights_only=False).float().eval()
+            jax_params_from_torch = _convert_torch_model_to_jax_params(
+                torch_post,
+                atomic_numbers,
+                base_params=bundle.params,
+            )
+            jax_energy_post = _predict_jax_energy(
+                bundle,
+                data_dict,
+                params=jax_params_from_torch,
+            )
+            np.testing.assert_allclose(
+                jax_energy_post,
+                torch_energy_post,
+                rtol=1e-5,
+                atol=1e-5,
+                err_msg='Torch and JAX predictions differ after fine-tuning.',
+            )
+
+            delta_atomic = np.asarray(
+                serialization.to_state_dict(jax_params_from_torch)['params']['delta'][
+                    'atomic_energies_fn'
+                ]['atomic_energies']
+            )
+            np.testing.assert_allclose(
+                delta_atomic,
+                0.0,
+                atol=0.0,
+                err_msg='Delta parameters modified atomic energies.',
+            )
+    finally:
+        for path in cleanup_paths:
+            _cleanup_path(path)
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
@@ -649,161 +661,170 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
-    data_dir = Path(__file__).with_name('data')
-    train_file = data_dir / 'train.h5'
-    valid_file = data_dir / 'valid.h5'
-    parity_structures = _build_match_structures()
-    train_subset = tmp_path / 'train_subset.h5'
-    valid_subset = tmp_path / 'valid_subset.h5'
-    _write_match_dataset(train_subset, parity_structures)
-    _write_match_dataset(valid_subset, parity_structures)
-    structures = _load_structures(train_subset)
+    cleanup_paths: list[Path] = []
+    try:
+        data_dir = Path(__file__).with_name('data')
+        train_file = data_dir / 'train.h5'
+        valid_file = data_dir / 'valid.h5'
+        parity_structures = _build_match_structures()
+        train_subset = tmp_path / 'train_subset.h5'
+        valid_subset = tmp_path / 'valid_subset.h5'
+        _write_match_dataset(train_subset, parity_structures)
+        _write_match_dataset(valid_subset, parity_structures)
+        structures = _load_structures(train_subset)
 
-    torch_base_model = torch.load(mace_model_path, weights_only=False).float().eval()
-    torch_pre_path = tmp_path / 'torch_pre.model'
-    torch.save(torch_base_model, torch_pre_path)
-    atomic_numbers = [int(z) for z in torch_base_model.atomic_numbers]
-    atomic_energies = (
-        torch_base_model.atomic_energies_fn.atomic_energies.detach().cpu().tolist()
-    )
-    r_max = torch_base_model.r_max.item()
+        torch_base_model = torch.load(mace_model_path, weights_only=False).float().eval()
+        torch_pre_path = tmp_path / 'torch_pre.model'
+        torch.save(torch_base_model, torch_pre_path)
+        atomic_numbers = [int(z) for z in torch_base_model.atomic_numbers]
+        atomic_energies = (
+            torch_base_model.atomic_energies_fn.atomic_energies.detach().cpu().tolist()
+        )
+        r_max = torch_base_model.r_max.item()
 
-    args_torch = _build_torch_args(
-        train_subset,
-        valid_subset,
-        tmp_path / 'torch_checkpoint',
-        mace_model_path,
-        max_steps=_PARITY_STEPS,
-        lr=1e-4,
-    )
-    args_torch.model = args_torch.model.float()
+        args_torch = _build_torch_args(
+            train_subset,
+            valid_subset,
+            tmp_path / 'torch_checkpoint',
+            mace_model_path,
+            max_steps=_PARITY_STEPS,
+            lr=1e-4,
+        )
+        args_torch.model = args_torch.model.float()
+        cleanup_paths.append(Path(args_torch.output_dir))
 
-    equitrain_train(args_torch)
+        equitrain_train(args_torch)
 
-    torch_predictions = _predict_torch_energy(
-        args_torch.model.float().eval(),
-        structures,
-    )
+        torch_predictions = _predict_torch_energy(
+            args_torch.model.float().eval(),
+            structures,
+        )
 
-    torch_best_dir = _find_best_checkpoint_dir(Path(args_torch.output_dir))
-    torch_model_path = torch_best_dir / 'pytorch_model.bin'
-    if not torch_model_path.exists():
-        torch_model_path = torch_best_dir / 'model.safetensors'
-    assert torch_model_path.exists(), 'Torch checkpoint missing model weights.'
+        torch_best_dir = _find_best_checkpoint_dir(Path(args_torch.output_dir))
+        torch_model_path = torch_best_dir / 'pytorch_model.bin'
+        if not torch_model_path.exists():
+            torch_model_path = torch_best_dir / 'model.safetensors'
+        assert torch_model_path.exists(), 'Torch checkpoint missing model weights.'
 
-    args_torch_reload = _build_torch_args(
-        train_subset,
-        valid_subset,
-        tmp_path / 'torch_reload',
-        mace_model_path,
-        max_steps=_PARITY_STEPS,
-        lr=1e-4,
-    )
-    reloaded_torch = args_torch_reload.model.float().eval()
-    load_torch_model_state(reloaded_torch, str(torch_model_path))
-    torch_predictions_reload = _predict_torch_energy(
-        reloaded_torch.float().eval(),
-        structures,
-    )
-    np.testing.assert_allclose(
-        torch_predictions_reload,
-        torch_predictions,
-        rtol=1e-5,
-        atol=1e-5,
-        err_msg='Torch checkpoint reload altered predictions.',
-    )
-    torch_export_path = tmp_path / 'torch_finetuned.model'
-    args_torch.model.export(str(torch_export_path))
+        args_torch_reload = _build_torch_args(
+            train_subset,
+            valid_subset,
+            tmp_path / 'torch_reload',
+            mace_model_path,
+            max_steps=_PARITY_STEPS,
+            lr=1e-4,
+        )
+        reloaded_torch = args_torch_reload.model.float().eval()
+        cleanup_paths.append(Path(args_torch_reload.output_dir))
+        load_torch_model_state(reloaded_torch, str(torch_model_path))
+        torch_predictions_reload = _predict_torch_energy(
+            reloaded_torch.float().eval(),
+            structures,
+        )
+        np.testing.assert_allclose(
+            torch_predictions_reload,
+            torch_predictions,
+            rtol=1e-5,
+            atol=1e-5,
+            err_msg='Torch checkpoint reload altered predictions.',
+        )
+        torch_export_path = tmp_path / 'torch_finetuned.model'
+        args_torch.model.export(str(torch_export_path))
 
-    jax_model_dir = tmp_path / 'jax_model'
-    _export_jax_model(
-        torch_pre_path,
-        atomic_numbers,
-        atomic_energies,
-        r_max,
-        jax_model_dir,
-    )
-    config_path = jax_model_dir / DEFAULT_CONFIG_NAME
-    config_data = json.loads(config_path.read_text())
-    config_data['train_deltas'] = True
-    config_path.write_text(json.dumps(config_data))
-
-    args_jax = _build_jax_args(
-        train_subset,
-        valid_subset,
-        tmp_path / 'jax_checkpoint',
-        jax_model_dir,
-        max_steps=_PARITY_STEPS,
-        lr=1e-4,
-    )
-
-    with _patch_jax_loader_for_deltas():
-        base_bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-        equitrain_train(args_jax)
-
-        jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
-        bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
-        data_dict = _structures_to_jax_input(structures, args_torch.model)
-        torch_post = torch.load(torch_export_path, weights_only=False).float().eval()
-        jax_params_from_torch = _convert_torch_model_to_jax_params(
-            torch_post,
+        jax_model_dir = tmp_path / 'jax_model'
+        _export_jax_model(
+            torch_pre_path,
             atomic_numbers,
-            base_params=bundle.params,
+            atomic_energies,
+            r_max,
+            jax_model_dir,
         )
-        jax_predictions_trained = _predict_jax_energy(bundle, data_dict)
-        jax_predictions_converted = _predict_jax_energy(
-            bundle,
-            data_dict,
-            params=jax_params_from_torch,
+        cleanup_paths.append(jax_model_dir)
+        config_path = jax_model_dir / DEFAULT_CONFIG_NAME
+        config_data = json.loads(config_path.read_text())
+        config_data['train_deltas'] = True
+        config_path.write_text(json.dumps(config_data))
+
+        args_jax = _build_jax_args(
+            train_subset,
+            valid_subset,
+            tmp_path / 'jax_checkpoint',
+            jax_model_dir,
+            max_steps=_PARITY_STEPS,
+            lr=1e-4,
+        )
+        cleanup_paths.append(Path(args_jax.output_dir))
+
+        with _patch_jax_loader_for_deltas():
+            base_bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+            equitrain_train(args_jax)
+
+            jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
+            bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
+            data_dict = _structures_to_jax_input(structures, args_torch.model)
+            torch_post = torch.load(torch_export_path, weights_only=False).float().eval()
+            jax_params_from_torch = _convert_torch_model_to_jax_params(
+                torch_post,
+                atomic_numbers,
+                base_params=bundle.params,
+            )
+            jax_predictions_trained = _predict_jax_energy(bundle, data_dict)
+            jax_predictions_converted = _predict_jax_energy(
+                bundle,
+                data_dict,
+                params=jax_params_from_torch,
+            )
+
+        np.testing.assert_allclose(
+            jax_predictions_trained,
+            torch_predictions,
+            rtol=1e-5,
+            atol=1e-5,
+            err_msg='Checkpointed JAX model predictions differ from Torch.',
         )
 
-    np.testing.assert_allclose(
-        jax_predictions_trained,
-        torch_predictions,
-        rtol=1e-5,
-        atol=1e-5,
-        err_msg='Checkpointed JAX model predictions differ from Torch.',
-    )
-
-    np.testing.assert_allclose(
-        jax_predictions_converted,
-        torch_predictions,
-        rtol=1e-5,
-        atol=1e-5,
-        err_msg='Converted Torch parameters differ from Torch predictions.',
-    )
-
-    trained_delta = serialization.to_state_dict(bundle.params)['params']['delta']
-    converted_delta = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
-    flat_trained = traverse_util.flatten_dict(trained_delta)
-    flat_converted = traverse_util.flatten_dict(converted_delta)
-    for key, trained_val in flat_trained.items():
-        key_str = '.'.join(key)
         np.testing.assert_allclose(
-        np.asarray(trained_val),
-        np.asarray(flat_converted[key]),
-        rtol=0.0,
-        atol=5e-7,
-        err_msg=f'Fine-tuned delta mismatch at {key_str}',
-    )
+            jax_predictions_converted,
+            torch_predictions,
+            rtol=1e-5,
+            atol=1e-5,
+            err_msg='Converted Torch parameters differ from Torch predictions.',
+        )
 
-    delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
-    np.testing.assert_allclose(
-        np.asarray(delta_state['atomic_energies_fn']['atomic_energies']),
-        0.0,
-        atol=0.0,
-        err_msg='Delta parameters modified atomic energies after checkpoint conversion.',
-    )
+        trained_delta = serialization.to_state_dict(bundle.params)['params']['delta']
+        converted_delta = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
+        flat_trained = traverse_util.flatten_dict(trained_delta)
+        flat_converted = traverse_util.flatten_dict(converted_delta)
+        for key, trained_val in flat_trained.items():
+            key_str = '.'.join(key)
+            np.testing.assert_allclose(
+                np.asarray(trained_val),
+                np.asarray(flat_converted[key]),
+                rtol=0.0,
+                atol=5e-7,
+                err_msg=f'Fine-tuned delta mismatch at {key_str}',
+            )
 
-    base_state = serialization.to_state_dict(base_bundle.params)['base_params']
-    ckpt_state = serialization.to_state_dict(bundle.params)['base_params']
-    flat_base = traverse_util.flatten_dict(flax_core.unfreeze(base_state))
-    flat_ckpt = traverse_util.flatten_dict(flax_core.unfreeze(ckpt_state))
-    for key, base_val in flat_base.items():
-        key_str = '.'.join(key)
+        delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
         np.testing.assert_allclose(
-            np.asarray(flat_ckpt[key]),
-            np.asarray(base_val),
+            np.asarray(delta_state['atomic_energies_fn']['atomic_energies']),
+            0.0,
             atol=0.0,
-            err_msg=f'Base parameter changed during JAX fine-tuning at {key_str}',
+            err_msg='Delta parameters modified atomic energies after checkpoint conversion.',
         )
+
+        base_state = serialization.to_state_dict(base_bundle.params)['base_params']
+        ckpt_state = serialization.to_state_dict(bundle.params)['base_params']
+        flat_base = traverse_util.flatten_dict(flax_core.unfreeze(base_state))
+        flat_ckpt = traverse_util.flatten_dict(flax_core.unfreeze(ckpt_state))
+        for key, base_val in flat_base.items():
+            key_str = '.'.join(key)
+            np.testing.assert_allclose(
+                np.asarray(flat_ckpt[key]),
+                np.asarray(base_val),
+                atol=0.0,
+                err_msg=f'Base parameter changed during JAX fine-tuning at {key_str}',
+            )
+    finally:
+        for path in cleanup_paths:
+            _cleanup_path(path)

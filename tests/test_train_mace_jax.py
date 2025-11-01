@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -12,6 +13,7 @@ from ase import Atoms
 from ase.build import bulk
 from ase.calculators.singlepoint import SinglePointCalculator
 from flax import serialization
+from flax import traverse_util
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
 from mace.tools import torch_geometric
@@ -37,6 +39,11 @@ from equitrain.backends.jax_utils import (
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
+
+
+def _cleanup_path(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _build_structures() -> list[Atoms]:
@@ -172,138 +179,167 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
-    structures = _build_structures()
-    train_file = tmp_path / 'train.h5'
-    valid_file = tmp_path / 'valid.h5'
-    _write_dataset(train_file, structures)
-    _write_dataset(valid_file, structures)
+    cleanup_paths: list[Path] = []
+    try:
+        structures = _build_structures()
+        train_file = tmp_path / 'train.h5'
+        valid_file = tmp_path / 'valid.h5'
+        _write_dataset(train_file, structures)
+        _write_dataset(valid_file, structures)
 
-    args_torch = get_args_parser_train().parse_args([])
-    args_torch.backend = 'torch'
-    args_torch.train_file = str(train_file)
-    args_torch.valid_file = str(valid_file)
-    args_torch.test_file = None
-    args_torch.output_dir = str(tmp_path / 'torch_out')
-    args_torch.model = TorchMaceWrapper(args_torch, filename_model=mace_model_path)
-    args_torch.epochs = 1
-    args_torch.train_max_steps = 2
-    args_torch.valid_max_steps = 1
-    args_torch.batch_size = 1
-    args_torch.lr = 1e-4
-    args_torch.weight_decay = 0.0
-    args_torch.momentum = 0.0
-    args_torch.energy_weight = 1.0
-    args_torch.forces_weight = 0.0
-    args_torch.stress_weight = 0.0
-    args_torch.shuffle = False
-    args_torch.scheduler = 'step'
-    args_torch.gamma = 1.0
-    args_torch.step_size = 1
-    args_torch.workers = 0
-    args_torch.pin_memory = False
-    args_torch.tqdm = False
-    args_torch.verbose = 0
-    args_torch.dtype = 'float32'
+        args_torch = get_args_parser_train().parse_args([])
+        args_torch.backend = 'torch'
+        args_torch.train_file = str(train_file)
+        args_torch.valid_file = str(valid_file)
+        args_torch.test_file = None
+        args_torch.output_dir = str(tmp_path / 'torch_out')
+        args_torch.model = TorchMaceWrapper(args_torch, filename_model=mace_model_path)
+        args_torch.epochs = 1
+        args_torch.train_max_steps = 2
+        args_torch.valid_max_steps = 1
+        args_torch.batch_size = 1
+        args_torch.lr = 1e-4
+        args_torch.weight_decay = 0.0
+        args_torch.momentum = 0.0
+        args_torch.energy_weight = 1.0
+        args_torch.forces_weight = 0.0
+        args_torch.stress_weight = 0.0
+        args_torch.shuffle = False
+        args_torch.scheduler = 'step'
+        args_torch.gamma = 1.0
+        args_torch.step_size = 1
+        args_torch.workers = 0
+        args_torch.pin_memory = False
+        args_torch.tqdm = False
+        args_torch.verbose = 0
+        args_torch.dtype = 'float32'
 
-    torch_model_pre = args_torch.model.float().eval()
-    batch = _make_torch_batch(structures, torch_model_pre)
-    torch_energy_pre = torch_model_pre(batch)['energy'].detach().cpu().numpy()
-    torch_model_path = tmp_path / 'torch_pre.model'
-    torch.save(torch_model_pre.model, torch_model_path)
+        torch_model_pre = args_torch.model.float().eval()
+        batch = _make_torch_batch(structures, torch_model_pre)
+        torch_energy_pre = torch_model_pre(batch)['energy'].detach().cpu().numpy()
+        torch_model_path = tmp_path / 'torch_pre.model'
+        torch.save(torch_model_pre.model, torch_model_path)
 
-    equitrain_train(args_torch)
-    torch_model = args_torch.model.float().eval()
-    torch_energy_post = (
-        torch_model(_make_torch_batch(structures, torch_model))['energy']
-        .detach()
-        .cpu()
-        .numpy()
-    )
+        equitrain_train(args_torch)
+        cleanup_paths.append(Path(args_torch.output_dir))
+        torch_model = args_torch.model.float().eval()
+        torch_energy_post = (
+            torch_model(_make_torch_batch(structures, torch_model))['energy']
+            .detach()
+            .cpu()
+            .numpy()
+        )
 
-    atomic_numbers = [int(z) for z in list(torch_model_pre.atomic_numbers)]
-    atomic_energies = list(torch_model_pre.atomic_energies)
-    r_max = torch_model_pre.r_max
+        atomic_numbers = [int(z) for z in list(torch_model_pre.atomic_numbers)]
+        atomic_energies = list(torch_model_pre.atomic_energies)
+        r_max = torch_model_pre.r_max
 
-    jax_model_dir = tmp_path / 'jax_model'
-    _, jax_template_params = _export_jax_model(
-        torch_model_path,
-        atomic_numbers,
-        atomic_energies,
-        r_max,
-        jax_model_dir,
-    )
+        jax_model_dir = tmp_path / 'jax_model'
+        _, jax_template_params = _export_jax_model(
+            torch_model_path,
+            atomic_numbers,
+            atomic_energies,
+            r_max,
+            jax_model_dir,
+        )
+        cleanup_paths.append(jax_model_dir)
 
-    bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-    graphs = _make_jax_graph(structures, torch_model_pre)
-    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-    jax_energy_pre = np.asarray(
-        bundle.module.apply(
-            bundle.params,
-            data_dict,
-            compute_force=False,
-            compute_stress=False,
-        )['energy']
-    )
-    np.testing.assert_allclose(
-        jax_energy_pre,
-        torch_energy_pre,
-        rtol=1e-5,
-        atol=1e-4,
-        err_msg='Torch and JAX predictions differ before training.',
-    )
+        bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
+        graphs = _make_jax_graph(structures, torch_model_pre)
+        data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+        jax_energy_pre = np.asarray(
+            bundle.module.apply(
+                bundle.params,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
+        np.testing.assert_allclose(
+            jax_energy_pre,
+            torch_energy_pre,
+            rtol=1e-5,
+            atol=1e-4,
+            err_msg='Torch and JAX predictions differ before training.',
+        )
 
-    args_jax = get_args_parser_train().parse_args([])
-    args_jax.backend = 'jax'
-    args_jax.model = str(jax_model_dir)
-    args_jax.train_file = str(train_file)
-    args_jax.valid_file = str(valid_file)
-    args_jax.test_file = None
-    args_jax.output_dir = str(tmp_path / 'jax_out')
-    args_jax.epochs = 1
-    args_jax.train_max_steps = 2
-    args_jax.valid_max_steps = 1
-    args_jax.batch_size = 1
-    args_jax.lr = 1e-4
-    args_jax.weight_decay = 0.0
-    args_jax.energy_weight = 1.0
-    args_jax.forces_weight = 0.0
-    args_jax.stress_weight = 0.0
-    args_jax.scheduler = 'constant'
-    args_jax.shuffle = False
-    args_jax.workers = 0
-    args_jax.pin_memory = False
-    args_jax.tqdm = False
-    args_jax.verbose = 0
-    args_jax.dtype = 'float32'
+        args_jax = get_args_parser_train().parse_args([])
+        args_jax.backend = 'jax'
+        args_jax.model = str(jax_model_dir)
+        args_jax.train_file = str(train_file)
+        args_jax.valid_file = str(valid_file)
+        args_jax.test_file = None
+        args_jax.output_dir = str(tmp_path / 'jax_out')
+        args_jax.epochs = 1
+        args_jax.train_max_steps = 2
+        args_jax.valid_max_steps = 1
+        args_jax.batch_size = 1
+        args_jax.lr = 1e-4
+        args_jax.weight_decay = 0.0
+        args_jax.energy_weight = 1.0
+        args_jax.forces_weight = 0.0
+        args_jax.stress_weight = 0.0
+        args_jax.scheduler = 'constant'
+        args_jax.shuffle = False
+        args_jax.workers = 0
+        args_jax.pin_memory = False
+        args_jax.tqdm = False
+        args_jax.verbose = 0
+        args_jax.dtype = 'float32'
 
-    equitrain_train(args_jax)
+        equitrain_train(args_jax)
+        cleanup_paths.append(Path(args_jax.output_dir))
 
-    jax_params_path = Path(args_jax.output_dir) / 'jax_params.msgpack'
-    raw_state = serialization.msgpack_restore(jax_params_path.read_bytes())
-    template_state = serialization.to_state_dict(jax_template_params)
-    if (
-        'interactions' not in raw_state['params']
-        and 'interactions' in template_state['params']
-    ):
-        raw_state['params']['interactions'] = template_state['params']['interactions']
-    jax_trained_params = serialization.from_state_dict(jax_template_params, raw_state)
+        jax_params_path = Path(args_jax.output_dir) / 'jax_params.msgpack'
+        raw_state = serialization.msgpack_restore(jax_params_path.read_bytes())
+        template_state = serialization.to_state_dict(jax_template_params)
+        if 'params' not in raw_state:
+            raw_state = {'params': raw_state}
 
-    jax_energy_post = np.asarray(
-        bundle.module.apply(
-            jax_trained_params,
-            data_dict,
-            compute_force=False,
-            compute_stress=False,
-        )['energy']
-    )
+        params_state = raw_state['params']
+        template_params_state = template_state['params']
 
-    assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
-    assert not np.isnan(torch_energy_post).any(), (
-        'Torch training produced NaN predictions'
-    )
+        if 'delta' in params_state:
+            delta_state = params_state['delta']
+            flat_base = traverse_util.flatten_dict(template_params_state)
+            flat_delta = traverse_util.flatten_dict(delta_state)
+            combined = {}
+            for key, base_val in flat_base.items():
+                delta_val = flat_delta.get(key)
+                if delta_val is None:
+                    combined[key] = base_val
+                else:
+                    combined[key] = jnp.asarray(base_val) + jnp.asarray(delta_val)
+            params_state = traverse_util.unflatten_dict(combined)
 
-    gap_pre = np.max(np.abs(jax_energy_pre - torch_energy_pre))
-    gap_post = np.max(np.abs(jax_energy_post - torch_energy_post))
+        if (
+            'interactions' not in params_state
+            and 'interactions' in template_params_state
+        ):
+            params_state['interactions'] = template_params_state['interactions']
 
-    assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
-    assert gap_post <= 1e-4, f'Post-training gap too large: {gap_post:.6f}'
+        raw_state = {'params': params_state}
+        jax_trained_params = serialization.from_state_dict(jax_template_params, raw_state)
+
+        jax_energy_post = np.asarray(
+            bundle.module.apply(
+                jax_trained_params,
+                data_dict,
+                compute_force=False,
+                compute_stress=False,
+            )['energy']
+        )
+
+        assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
+        assert not np.isnan(torch_energy_post).any(), (
+            'Torch training produced NaN predictions'
+        )
+
+        gap_pre = np.max(np.abs(jax_energy_pre - torch_energy_pre))
+        gap_post = np.max(np.abs(jax_energy_post - torch_energy_post))
+
+        assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
+        assert gap_post <= 1e-4, f'Post-training gap too large: {gap_post:.6f}'
+    finally:
+        for path in cleanup_paths:
+            _cleanup_path(path)
