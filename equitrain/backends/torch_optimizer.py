@@ -89,9 +89,21 @@ def create_optimizer_impl(
     opt_args = dict(lr=lr, weight_decay=weight_decay)
 
     if opt_lower in {'sgd', 'nesterov'}:
-        optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=True)
+        optimizer = torch.optim.SGD(
+            parameters,
+            lr=lr,
+            momentum=momentum,
+            nesterov=True,
+            weight_decay=weight_decay,
+        )
     elif opt_lower == 'momentum':
-        optimizer = torch.optim.SGD(parameters, momentum=momentum, nesterov=False)
+        optimizer = torch.optim.SGD(
+            parameters,
+            lr=lr,
+            momentum=momentum,
+            nesterov=False,
+            weight_decay=weight_decay,
+        )
     elif opt_lower == 'adam':
         optimizer = torch.optim.Adam(parameters, **opt_args)
     elif opt_lower == 'adamw':

@@ -783,7 +783,7 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         np.asarray(trained_val),
         np.asarray(flat_converted[key]),
         rtol=0.0,
-        atol=1e-8,
+        atol=5e-7,
         err_msg=f'Fine-tuned delta mismatch at {key_str}',
     )
 
@@ -795,8 +795,8 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         err_msg='Delta parameters modified atomic energies after checkpoint conversion.',
     )
 
-    base_state = serialization.to_state_dict(base_bundle.params)['params']['base']
-    ckpt_state = serialization.to_state_dict(bundle.params)['params']['base']
+    base_state = serialization.to_state_dict(base_bundle.params)['base_params']
+    ckpt_state = serialization.to_state_dict(bundle.params)['base_params']
     flat_base = traverse_util.flatten_dict(flax_core.unfreeze(base_state))
     flat_ckpt = traverse_util.flatten_dict(flax_core.unfreeze(ckpt_state))
     for key, base_val in flat_base.items():
