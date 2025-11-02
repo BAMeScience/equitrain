@@ -6,14 +6,17 @@ import torch
 class SchedulerWrapper:
     def __init__(self, args, scheduler):
         self.scheduler = scheduler
-        self.mode = {'exponential': 'epoch', 'step': 'epoch', 'plateau': 'metric'}[
-            args.scheduler
-        ]
+        if scheduler is None:
+            self.mode = 'none'
+        else:
+            modes = {'exponential': 'epoch', 'step': 'epoch', 'plateau': 'metric'}
+            self.mode = modes.get(args.scheduler, 'epoch')
 
-    def step(self, metric=None, epoch=None):
+    def step(self, metric=None):
+        if self.scheduler is None:
+            return
         if self.mode == 'epoch':
-            if epoch is not None:
-                self.scheduler.step(epoch=epoch)
+            self.scheduler.step()
         elif self.mode == 'metric':
             if metric is not None:
                 self.scheduler.step(metric)

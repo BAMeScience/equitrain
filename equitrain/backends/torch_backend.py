@@ -316,13 +316,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         if accelerator.is_main_process:
             valid_loss.log(logger, 'val', epoch=args.epochs_start - 1)
 
-        # Scheduler step before the first epoch for schedulers depending on the epoch
-        if lr_scheduler is not None:
-            lr_scheduler.step(metric=None, epoch=args.epochs_start - 1)
-
-            last_lr = lr_scheduler.get_last_lr()[0]
-        else:
-            last_lr = None
+        last_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else None
 
     for epoch in range(args.epochs_start, args.epochs_start + args.epochs):
         epoch_start_time = time.perf_counter()
@@ -374,9 +368,11 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
         if lr_scheduler is not None:
             if args.scheduler_monitor == 'train':
-                lr_scheduler.step(metric=train_loss.main['total'].avg, epoch=epoch)
-            if args.scheduler_monitor == 'val':
-                lr_scheduler.step(metric=valid_loss.main['total'].avg, epoch=epoch)
+                lr_scheduler.step(metric=train_loss.main['total'].avg)
+            elif args.scheduler_monitor == 'val':
+                lr_scheduler.step(metric=valid_loss.main['total'].avg)
+            else:
+                lr_scheduler.step()
 
             if last_lr is not None and last_lr != lr_scheduler.get_last_lr()[0]:
                 logger.log(

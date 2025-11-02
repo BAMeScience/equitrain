@@ -17,7 +17,7 @@ class FinetuneMaceWrapper(MaceWrapper):
 
         # Create trainable deltas with same shapes
         self.deltas = torch.nn.ParameterList([
-            torch.nn.Parameter(torch.zeros_like(p, requires_grad=True))
+            torch.nn.Parameter(torch.zeros_like(p))
             for p in self.model.parameters()
         ])
 

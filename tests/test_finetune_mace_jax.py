@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 import shutil
 import re
 from contextlib import contextmanager
@@ -49,6 +50,15 @@ from tests.test_train_mace_jax import (
     _write_dataset as _write_match_dataset,
 )
 
+warnings.filterwarnings(
+    'ignore',
+    message=r'The \.grad attribute of a Tensor that is not a leaf Tensor is being accessed',
+    category=UserWarning,
+)
+
+pytestmark = pytest.mark.filterwarnings(
+    'ignore:The .grad attribute of a Tensor that is not a leaf Tensor is being accessed'
+)
 add_safe_globals([slice])
 
 
@@ -457,12 +467,25 @@ def test_finetune_gradient_parity(tmp_path, mace_model_path):
         delta=0.01,
         reduction='none',
     ) * energy_weights).mean()
-    args_torch.model.zero_grad(set_to_none=True)
-    torch_loss.backward()
-    torch_grad_vec = torch.cat([
-        param.grad.reshape(-1)
+    torch_params = [
+        param
         for param in args_torch.model.parameters()
-    ]).detach().cpu().numpy()
+        if param.requires_grad
+    ]
+    assert all(param.is_leaf for param in torch_params), 'Delta parameters must be leaf tensors'
+    torch_grads = torch.autograd.grad(
+        torch_loss,
+        torch_params,
+        retain_graph=False,
+        allow_unused=True,
+    )
+    torch_grad_components = []
+    for param, grad in zip(torch_params, torch_grads):
+        if grad is None:
+            torch_grad_components.append(torch.zeros_like(param).reshape(-1))
+        else:
+            torch_grad_components.append(grad.reshape(-1))
+    torch_grad_vec = torch.cat(torch_grad_components).detach().cpu().numpy()
 
     jax_model_dir = tmp_path / 'jax_grad'
     _export_jax_model(
