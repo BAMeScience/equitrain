@@ -24,7 +24,13 @@ def test_predict_mace_structures(mace_model_path):
 
     structures_list = [AseAtomsAdaptor.get_structure(atom) for atom in atoms_list]
 
-    energy, force, stress = predict_structures(args.model, structures_list, z_table, r)
+    energy, force, stress = predict_structures(
+        args.model,
+        structures_list,
+        z_table,
+        r,
+        num_workers=0,
+    )
 
     print(energy)
     print()

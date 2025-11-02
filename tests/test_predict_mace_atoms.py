@@ -21,7 +21,13 @@ def test_predict_mace_atoms(mace_model_path):
     atoms_list = ase.io.read(filename, index=':')
     z_table = AtomicNumberTable(list(args.model.model.atomic_numbers.numpy()))
 
-    energy, force, stress = predict_atoms(args.model, atoms_list, z_table, r)
+    energy, force, stress = predict_atoms(
+        args.model,
+        atoms_list,
+        z_table,
+        r,
+        num_workers=0,
+    )
 
     print(energy)
     print()

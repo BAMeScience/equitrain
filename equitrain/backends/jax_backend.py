@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import optax
 from flax import serialization
+from jax import tree_util as jtu
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import (
@@ -50,6 +52,16 @@ def _normalize_max_steps(value):
     return steps if steps > 0 else None
 
 
+def _sanitize_grads(grads, clip_value: float | None):
+    def _sanitize(x):
+        x = jnp.nan_to_num(x)
+        if clip_value is not None and clip_value > 0.0:
+            x = jnp.clip(x, -clip_value, clip_value)
+        return x
+
+    return jtu.tree_map(_sanitize, grads)
+
+
 def _train_loop(
     variables,
     optimizer,
@@ -58,12 +70,19 @@ def _train_loop(
     loss_fn,
     *,
     max_steps=None,
+    grad_clip_value: float | None = None,
+    ema_params=None,
+    ema_decay: float | None = None,
+    ema_count: int | None = None,
 ):
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+
+    clip_value = None if grad_clip_value is None else float(grad_clip_value)
 
     @jax.jit
     def train_step(current_vars, current_opt_state, graph):
         (loss, aux), grads = grad_fn(current_vars, graph)
+        grads = _sanitize_grads(grads, clip_value)
         updates, new_opt_state = optimizer.update(
             grads, current_opt_state, current_vars
         )
@@ -72,16 +91,38 @@ def _train_loop(
 
     loss_collection = JaxLossCollection()
     per_graph_errors: list[np.ndarray] = []
+    ema_active = ema_params is not None and ema_decay is not None
+    ema_step_count = ema_count if ema_count is not None else 0
 
     for step_index, graph in enumerate(train_loader):
         if max_steps is not None and step_index >= max_steps:
             break
         variables, opt_state, loss, aux = train_step(variables, opt_state, graph)
+        if ema_active:
+            ema_step_count += 1
+            warmup_decay = (1.0 + ema_step_count) / (10.0 + ema_step_count)
+            decay = min(float(ema_decay), warmup_decay)
+            coeff_new = 1.0 - decay
+            ema_params = jtu.tree_map(
+                lambda ema, new: decay * ema + coeff_new * new,
+                ema_params,
+                variables,
+            )
         per_graph_error = update_collection_from_aux(loss_collection, aux)
         if per_graph_error.size:
             per_graph_errors.append(per_graph_error)
 
-    return variables, opt_state, loss_collection, per_graph_errors
+    if not ema_active:
+        ema_step_count = ema_count
+
+    return (
+        variables,
+        opt_state,
+        loss_collection,
+        per_graph_errors,
+        ema_params,
+        ema_step_count,
+    )
 
 
 def _evaluate_loop(variables, loss_fn, loader, *, max_steps=None):
@@ -176,6 +217,19 @@ def train(args):
     )
     opt_state = optimizer.init(bundle.params)
 
+    ema_params = None
+    ema_decay = None
+    ema_count = None
+    use_ema = getattr(args, 'ema', False)
+    if use_ema:
+        ema_params = bundle.params
+        ema_decay = float(getattr(args, 'ema_decay', 0.999))
+        ema_count = 0
+
+    train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
+    valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
+    grad_clip_value = getattr(args, 'gradient_clipping', None)
+
     bundle, opt_state, args_checkpoint = jax_checkpoint.load_checkpoint(
         args, bundle, opt_state, logger
     )
@@ -186,11 +240,9 @@ def train(args):
     num_epochs = args.epochs
     start_epoch = args.epochs_start
 
-    train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
-    valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
-
     best_val = None
     best_params = bundle.params
+    best_ema_params = ema_params
     train_metrics = JaxLossCollection()
 
     for epoch_offset in range(num_epochs):
@@ -201,6 +253,8 @@ def train(args):
             opt_state,
             train_metrics,
             _,
+            ema_params,
+            ema_count,
         ) = _train_loop(
             bundle.params,
             optimizer,
@@ -208,13 +262,17 @@ def train(args):
             train_loader,
             loss_fn,
             max_steps=train_max_steps,
+            grad_clip_value=grad_clip_value,
+            ema_params=ema_params if use_ema else None,
+            ema_decay=ema_decay if use_ema else None,
+            ema_count=ema_count if use_ema else None,
         )
         bundle = ModelBundle(
             config=bundle.config, params=updated_params, module=bundle.module
         )
 
         val_loss_value, val_metrics, _ = _evaluate_loop(
-            bundle.params,
+            ema_params if use_ema else bundle.params,
             loss_fn,
             valid_loader,
             max_steps=valid_max_steps,
@@ -242,23 +300,64 @@ def train(args):
 
         if val_loss_value is None:
             best_params = bundle.params
+            if use_ema:
+                best_ema_params = ema_params
         elif best_val is None or val_loss_value < best_val:
             best_val = val_loss_value
             best_params = bundle.params
+            if use_ema:
+                best_ema_params = ema_params
             jax_checkpoint.save_checkpoint(
                 args,
                 epoch,
                 val_metric,
-                bundle,
+                ModelBundle(
+                    config=bundle.config,
+                    params=best_params,
+                    module=bundle.module,
+                ),
                 opt_state,
                 logger,
             )
 
-    _save_parameters(Path(args.output_dir), best_params)
+    final_params = best_params
+    if use_ema and best_ema_params is not None:
+        final_params = best_ema_params
+
+    _save_parameters(Path(args.output_dir), final_params)
+
+    test_metrics = None
+    if getattr(args, 'test_file', None):
+        test_graphs = atoms_to_graphs(args.test_file, r_max, z_table)
+        test_loader = build_loader(
+            test_graphs,
+            batch_size=args.batch_size,
+            shuffle=False,
+            max_nodes=args.batch_max_nodes,
+            max_edges=args.batch_max_edges,
+            seed=train_seed,
+        )
+        if test_loader is not None:
+            _, test_metric_collection, _ = _evaluate_loop(
+                final_params,
+                loss_fn,
+                test_loader,
+            )
+            test_metrics = LossMetrics(
+                include_energy=loss_settings.energy_weight > 0.0,
+                include_forces=loss_settings.forces_weight > 0.0,
+                include_stress=loss_settings.stress_weight > 0.0,
+                loss_label=loss_settings.loss_type,
+            )
+            test_metrics.update(test_metric_collection)
+            test_metrics.log(logger, 'test', epoch=num_epochs)
 
     return {
         'train_loss': train_metrics.components['total'].value,
         'val_loss': best_val,
+        'test_loss': (
+            test_metrics.main.meters['total'].avg if test_metrics is not None else None
+        ),
     }
 
 

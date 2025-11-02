@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 from pathlib import Path
@@ -12,6 +13,7 @@ import torch
 from ase import Atoms
 from ase.build import bulk
 from ase.calculators.singlepoint import SinglePointCalculator
+from flax import core as flax_core
 from flax import serialization
 from flax import traverse_util
 from mace.data.atomic_data import AtomicData
@@ -34,6 +36,7 @@ from equitrain import train as equitrain_train
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
+    ModelBundle,
     load_model_bundle,
 )
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
@@ -174,6 +177,26 @@ def _export_jax_model(
     return jax_module, jax_params
 
 
+def _predict_jax_energy_from_bundle(
+    bundle: ModelBundle,
+    structures: list[Atoms],
+    reference_wrapper: TorchMaceWrapper,
+    atomic_numbers: list[int],
+    *,
+    params=None,
+):
+    graphs = _make_jax_graph(structures, reference_wrapper)
+    data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
+    active_params = bundle.params if params is None else params
+    outputs = bundle.module.apply(
+        active_params,
+        data_dict,
+        compute_force=False,
+        compute_stress=False,
+    )
+    return np.asarray(outputs['energy'])
+
+
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
 def test_train_torch_and_jax_match(tmp_path, mace_model_path):
     pytest.importorskip('mace')
@@ -191,14 +214,14 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         args_torch.backend = 'torch'
         args_torch.train_file = str(train_file)
         args_torch.valid_file = str(valid_file)
-        args_torch.test_file = None
+        args_torch.test_file = str(valid_file)
         args_torch.output_dir = str(tmp_path / 'torch_out')
         args_torch.model = TorchMaceWrapper(args_torch, filename_model=mace_model_path)
         args_torch.epochs = 1
         args_torch.train_max_steps = 2
         args_torch.valid_max_steps = 1
         args_torch.batch_size = 1
-        args_torch.lr = 1e-4
+        args_torch.lr = 5e-3
         args_torch.weight_decay = 0.0
         args_torch.momentum = 0.0
         args_torch.energy_weight = 1.0
@@ -213,6 +236,10 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         args_torch.tqdm = False
         args_torch.verbose = 0
         args_torch.dtype = 'float32'
+        args_torch.seed = 123
+        args_torch.gradient_clipping = 5e-4
+        args_torch.ema = True
+        args_torch.ema_decay = 0.5
 
         torch_model_pre = args_torch.model.float().eval()
         batch = _make_torch_batch(structures, torch_model_pre)
@@ -235,7 +262,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         r_max = torch_model_pre.r_max
 
         jax_model_dir = tmp_path / 'jax_model'
-        _, jax_template_params = _export_jax_model(
+        _export_jax_model(
             torch_model_path,
             atomic_numbers,
             atomic_energies,
@@ -245,15 +272,11 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         cleanup_paths.append(jax_model_dir)
 
         bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-        graphs = _make_jax_graph(structures, torch_model_pre)
-        data_dict = graph_to_data(graphs, num_species=len(atomic_numbers))
-        jax_energy_pre = np.asarray(
-            bundle.module.apply(
-                bundle.params,
-                data_dict,
-                compute_force=False,
-                compute_stress=False,
-            )['energy']
+        jax_energy_pre = _predict_jax_energy_from_bundle(
+            bundle,
+            structures,
+            torch_model_pre,
+            atomic_numbers,
         )
         np.testing.assert_allclose(
             jax_energy_pre,
@@ -268,13 +291,13 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         args_jax.model = str(jax_model_dir)
         args_jax.train_file = str(train_file)
         args_jax.valid_file = str(valid_file)
-        args_jax.test_file = None
+        args_jax.test_file = str(valid_file)
         args_jax.output_dir = str(tmp_path / 'jax_out')
         args_jax.epochs = 1
         args_jax.train_max_steps = 2
         args_jax.valid_max_steps = 1
         args_jax.batch_size = 1
-        args_jax.lr = 1e-4
+        args_jax.lr = 5e-3
         args_jax.weight_decay = 0.0
         args_jax.energy_weight = 1.0
         args_jax.forces_weight = 0.0
@@ -286,21 +309,30 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         args_jax.tqdm = False
         args_jax.verbose = 0
         args_jax.dtype = 'float32'
+        args_jax.seed = 123
+        args_jax.gradient_clipping = 5e-4
+        args_jax.ema = True
+        args_jax.ema_decay = 0.5
 
-        equitrain_train(args_jax)
+        jax_training_summary = equitrain_train(args_jax)
         cleanup_paths.append(Path(args_jax.output_dir))
+        assert jax_training_summary is not None, 'JAX backend must return training summary'
+        for key in ('train_loss', 'val_loss', 'test_loss'):
+            value = jax_training_summary.get(key)
+            assert value is not None, f'JAX summary missing {key}'
+            assert np.isfinite(value), f'JAX summary {key} not finite: {value}'
 
         jax_params_path = Path(args_jax.output_dir) / 'jax_params.msgpack'
         raw_state = serialization.msgpack_restore(jax_params_path.read_bytes())
-        template_state = serialization.to_state_dict(jax_template_params)
         if 'params' not in raw_state:
             raw_state = {'params': raw_state}
+        loaded_params_state = flax_core.unfreeze(raw_state['params'])
 
-        params_state = raw_state['params']
-        template_params_state = template_state['params']
+        template_state = flax_core.unfreeze(bundle.params)
+        template_params_state = copy.deepcopy(template_state['params'])
 
-        if 'delta' in params_state:
-            delta_state = params_state['delta']
+        if 'delta' in loaded_params_state:
+            delta_state = loaded_params_state.pop('delta')
             flat_base = traverse_util.flatten_dict(template_params_state)
             flat_delta = traverse_util.flatten_dict(delta_state)
             combined = {}
@@ -310,24 +342,26 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
                     combined[key] = base_val
                 else:
                     combined[key] = jnp.asarray(base_val) + jnp.asarray(delta_val)
-            params_state = traverse_util.unflatten_dict(combined)
+            merged_params_state = traverse_util.unflatten_dict(combined)
+        else:
+            def _merge(base_dict, updates):
+                for key, value in updates.items():
+                    if isinstance(value, dict):
+                        base_dict[key] = _merge(dict(base_dict.get(key, {})), value)
+                    else:
+                        base_dict[key] = value
+                return base_dict
 
-        if (
-            'interactions' not in params_state
-            and 'interactions' in template_params_state
-        ):
-            params_state['interactions'] = template_params_state['interactions']
+            merged_params_state = _merge(template_params_state, loaded_params_state)
 
-        raw_state = {'params': params_state}
-        jax_trained_params = serialization.from_state_dict(jax_template_params, raw_state)
+        final_variables = flax_core.freeze({'params': merged_params_state})
 
-        jax_energy_post = np.asarray(
-            bundle.module.apply(
-                jax_trained_params,
-                data_dict,
-                compute_force=False,
-                compute_stress=False,
-            )['energy']
+        jax_energy_post = _predict_jax_energy_from_bundle(
+            bundle,
+            structures,
+            torch_model_pre,
+            atomic_numbers,
+            params=final_variables,
         )
 
         assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
