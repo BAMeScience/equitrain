@@ -12,8 +12,12 @@ pytest.importorskip('mace_jax')
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable  # noqa: E402
 
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader
-from equitrain.data.backend_jax.statistics import compute_statistics as compute_statistics_jax
-from equitrain.data.backend_torch.statistics import compute_statistics as compute_statistics_torch
+from equitrain.data.backend_jax.statistics import (
+    compute_statistics as compute_statistics_jax,
+)
+from equitrain.data.backend_torch.statistics import (
+    compute_statistics as compute_statistics_torch,
+)
 from equitrain.data.format_hdf5 import HDF5GraphDataset
 from equitrain.data.statistics_data import Statistics
 

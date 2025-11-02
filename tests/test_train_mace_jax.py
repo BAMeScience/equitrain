@@ -338,7 +338,9 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
 
         jax_training_summary = equitrain_train(args_jax)
         cleanup_paths.append(Path(args_jax.output_dir))
-        assert jax_training_summary is not None, 'JAX backend must return training summary'
+        assert jax_training_summary is not None, (
+            'JAX backend must return training summary'
+        )
         for key in ('train_loss', 'val_loss', 'test_loss'):
             value = jax_training_summary.get(key)
             assert value is not None, f'JAX summary missing {key}'
@@ -366,6 +368,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
                     combined[key] = jnp.asarray(base_val) + jnp.asarray(delta_val)
             merged_params_state = traverse_util.unflatten_dict(combined)
         else:
+
             def _merge(base_dict, updates):
                 for key, value in updates.items():
                     if isinstance(value, dict):
@@ -386,7 +389,9 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
             params=final_variables,
         )
 
-        assert not np.isnan(jax_energy_post).any(), 'JAX training produced NaN predictions'
+        assert not np.isnan(jax_energy_post).any(), (
+            'JAX training produced NaN predictions'
+        )
         assert not np.isnan(torch_energy_post).any(), (
             'Torch training produced NaN predictions'
         )

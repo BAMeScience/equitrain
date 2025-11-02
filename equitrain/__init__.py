@@ -21,6 +21,7 @@ from .argparser import (  # noqa: E402
     get_args_parser_train,
 )
 
+
 def train(args):
     from .train import train as _train
 

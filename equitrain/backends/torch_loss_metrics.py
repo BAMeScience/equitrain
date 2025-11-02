@@ -29,7 +29,9 @@ class LossMetric(dict):
                 loss['stress'].value.detach().item(), n=loss['stress'].n.detach().item()
             )
 
-    def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False):
+    def log(
+        self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False
+    ):
         if epoch is None:
             prefix = f'{mode}'
         else:
@@ -52,7 +54,9 @@ class LossMetric(dict):
 
         logger.log(1, message, force=force)
 
-    def log_step(self, logger, epoch, step, length, mode, time=None, lr=None, force=False):
+    def log_step(
+        self, logger, epoch, step, length, mode, time=None, lr=None, force=False
+    ):
         prefix = f'Epoch [{epoch:>4}][{step:>6}/{length}] -- {mode}'
         suffix = ''
         if time is not None:
@@ -107,7 +111,9 @@ class LossMetrics(dict):
         for loss_type, metric in self.items():
             metric.update(loss[loss_type])
 
-    def log(self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False):
+    def log(
+        self, logger, mode: str, epoch=None, step=None, time=None, lr=None, force=False
+    ):
         self.main.log(
             logger,
             f'{mode:>5} {"[" + self.main_type + "]":7}',

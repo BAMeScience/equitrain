@@ -86,7 +86,11 @@ def load_model_state(model, state_dict_path):
     if any(k.startswith('module.') for k in state_dict.keys()):
         state_dict = {k.replace('module.', '', 1): v for k, v in state_dict.items()}
 
-    load_target = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+    load_target = (
+        model.module
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel)
+        else model
+    )
     load_target.load_state_dict(state_dict, strict=False)
 
 

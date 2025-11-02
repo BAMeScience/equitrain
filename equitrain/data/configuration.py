@@ -68,9 +68,9 @@ class Configuration:
 
         # Charges default to 0 instead of None if not found
         charges = atoms.arrays.get(charges_key, np.zeros(len(atoms)))
-        atomic_numbers = np.array([
-            ase.data.atomic_numbers[symbol] for symbol in atoms.symbols
-        ])
+        atomic_numbers = np.array(
+            [ase.data.atomic_numbers[symbol] for symbol in atoms.symbols]
+        )
         pbc = tuple(atoms.get_pbc())
         cell = np.array(atoms.get_cell())
 

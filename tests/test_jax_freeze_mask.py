@@ -20,18 +20,20 @@ def _flatten_bool_mask(mask):
 
 
 def _make_dummy_params():
-    return freeze({
-        'params': {
-            'layer1': {
-                'weight': jnp.ones((2, 2)),
-                'bias': jnp.zeros((2,)),
-            },
-            'layer2': {
-                'weight': jnp.full((3, 3), 2.0),
-                'bias': jnp.full((3,), -1.0),
-            },
+    return freeze(
+        {
+            'params': {
+                'layer1': {
+                    'weight': jnp.ones((2, 2)),
+                    'bias': jnp.zeros((2,)),
+                },
+                'layer2': {
+                    'weight': jnp.full((3, 3), 2.0),
+                    'bias': jnp.full((3,), -1.0),
+                },
+            }
         }
-    })
+    )
 
 
 def test_build_trainable_mask_default_false_freezes_all():

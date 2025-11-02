@@ -16,10 +16,9 @@ class FinetuneMaceWrapper(MaceWrapper):
             param.requires_grad = False  # Freeze base params
 
         # Create trainable deltas with same shapes
-        self.deltas = torch.nn.ParameterList([
-            torch.nn.Parameter(torch.zeros_like(p))
-            for p in self.model.parameters()
-        ])
+        self.deltas = torch.nn.ParameterList(
+            [torch.nn.Parameter(torch.zeros_like(p)) for p in self.model.parameters()]
+        )
 
     def parameters(self, recurse: bool = True):
         """
@@ -32,10 +31,12 @@ class FinetuneMaceWrapper(MaceWrapper):
         Override named_parameters() to return only the deltas (trainable parameters).
         """
         # Use the parameter names of the deltas to mimic the original parameter names.
-        return iter([
-            (prefix + name, delta)
-            for name, delta in zip(self.model._modules.keys(), self.deltas)
-        ])
+        return iter(
+            [
+                (prefix + name, delta)
+                for name, delta in zip(self.model._modules.keys(), self.deltas)
+            ]
+        )
 
     @contextmanager
     def apply_deltas(self):

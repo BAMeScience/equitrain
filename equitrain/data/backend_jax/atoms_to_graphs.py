@@ -101,10 +101,12 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
     batch = jnp.repeat(
         graph_indices, graph.n_node, total_repeat_length=positions.shape[0]
     )
-    ptr = jnp.concatenate([
-        jnp.array([0], dtype=jnp.int32),
-        jnp.cumsum(graph.n_node.astype(jnp.int32)),
-    ])
+    ptr = jnp.concatenate(
+        [
+            jnp.array([0], dtype=jnp.int32),
+            jnp.cumsum(graph.n_node.astype(jnp.int32)),
+        ]
+    )
 
     data_dict: dict[str, jnp.ndarray] = {
         'positions': positions,

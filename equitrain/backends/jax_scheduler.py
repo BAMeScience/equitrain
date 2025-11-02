@@ -87,7 +87,9 @@ class _PlateauScheduler(_SchedulerBase):
     num_bad_epochs: int = 0
 
     def register_initial_metric(self, metric, epoch: int) -> None:
-        if metric is not None and (self.best is None or self._is_better(metric, self.best)):
+        if metric is not None and (
+            self.best is None or self._is_better(metric, self.best)
+        ):
             self.best = float(metric)
             self.num_bad_epochs = 0
 

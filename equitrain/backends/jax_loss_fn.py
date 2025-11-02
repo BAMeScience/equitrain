@@ -118,13 +118,13 @@ def _make_error_fn(
 
     def _smooth_l1(diff):
         abs_diff = jnp.abs(diff)
-        quadratic = 0.5 * (diff ** 2) / beta
+        quadratic = 0.5 * (diff**2) / beta
         linear = abs_diff - 0.5 * beta
         return jnp.where(abs_diff < beta, quadratic, linear)
 
     def _huber(diff):
         abs_diff = jnp.abs(diff)
-        quadratic = 0.5 * diff ** 2
+        quadratic = 0.5 * diff**2
         linear = delta * (abs_diff - 0.5 * delta)
         return jnp.where(abs_diff <= delta, quadratic, linear)
 
@@ -138,7 +138,7 @@ def _make_error_fn(
             else:
                 error = _smooth_l1(diff)
         elif loss_type == 'mse':
-            error = diff ** 2
+            error = diff**2
         elif loss_type == 'huber':
             error = _huber(diff)
         else:  # pragma: no cover - safeguarded by validation
@@ -166,12 +166,16 @@ def _node_padding_mask(graph: jraph.GraphsTuple, mask: jnp.ndarray) -> jnp.ndarr
 
 def _node_batch_indices(graph: jraph.GraphsTuple) -> jnp.ndarray:
     batch = jnp.arange(graph.n_node.shape[0], dtype=jnp.int32)
-    return jnp.repeat(batch, graph.n_node, total_repeat_length=graph.nodes.positions.shape[0])
+    return jnp.repeat(
+        batch, graph.n_node, total_repeat_length=graph.nodes.positions.shape[0]
+    )
 
 
 def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
     if 'energy' not in outputs:
-        raise ValueError('Model outputs must include energy predictions for loss computation.')
+        raise ValueError(
+            'Model outputs must include energy predictions for loss computation.'
+        )
 
     mask = jnp.asarray(mask, dtype=dtype)
     mask_sum = jnp.sum(mask)
@@ -184,7 +188,9 @@ def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
 
     raw_target = getattr(graph.globals, 'energy', None)
     if raw_target is None:
-        raise ValueError('Graph globals must contain energy targets for loss computation.')
+        raise ValueError(
+            'Graph globals must contain energy targets for loss computation.'
+        )
     target = jnp.asarray(raw_target, dtype=dtype)
     if target.ndim == 0:
         target = target[None]
@@ -225,7 +231,9 @@ def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
 
 def _forces_component(outputs, graph, mask, error_fn, dtype):
     if 'forces' not in outputs:
-        raise ValueError('Model outputs must include forces when --forces-weight is positive.')
+        raise ValueError(
+            'Model outputs must include forces when --forces-weight is positive.'
+        )
 
     pred = jnp.asarray(outputs['forces'], dtype=dtype)
     target = jnp.asarray(getattr(graph.nodes, 'forces'), dtype=dtype)
@@ -247,7 +255,9 @@ def _forces_component(outputs, graph, mask, error_fn, dtype):
         jnp.zeros_like(node_mask),
     )
 
-    sum_per_graph = jraph.segment_sum(per_node_error * node_mask, node_batch, mask.shape[0])
+    sum_per_graph = jraph.segment_sum(
+        per_node_error * node_mask, node_batch, mask.shape[0]
+    )
     count_per_graph = jraph.segment_sum(node_mask, node_batch, mask.shape[0])
     per_graph_error = jnp.where(
         count_per_graph > 0,
@@ -263,12 +273,16 @@ def _forces_component(outputs, graph, mask, error_fn, dtype):
 
 def _stress_component(outputs, graph, mask, error_fn, dtype):
     if 'stress' not in outputs:
-        raise ValueError('Model outputs must include stress when --stress-weight is positive.')
+        raise ValueError(
+            'Model outputs must include stress when --stress-weight is positive.'
+        )
 
     pred = jnp.asarray(outputs['stress'], dtype=dtype)
     raw_target = getattr(graph.globals, 'stress', None)
     if raw_target is None:
-        raise ValueError('Graph globals must contain stress targets for loss computation.')
+        raise ValueError(
+            'Graph globals must contain stress targets for loss computation.'
+        )
     target = jnp.asarray(raw_target, dtype=dtype)
 
     if pred.shape != target.shape:
@@ -278,7 +292,9 @@ def _stress_component(outputs, graph, mask, error_fn, dtype):
 
     mask_expanded = mask[:, None, None]
     mask_sum = jnp.sum(mask_expanded)
-    mask_expanded = jnp.where(mask_sum > 0.0, mask_expanded, jnp.ones_like(mask_expanded))
+    mask_expanded = jnp.where(
+        mask_sum > 0.0, mask_expanded, jnp.ones_like(mask_expanded)
+    )
     mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
 
     error = error_fn(pred, target)
@@ -300,7 +316,9 @@ def build_loss_fn(apply_fn, settings: LossSettings):
         and settings.forces_weight <= 0.0
         and settings.stress_weight <= 0.0
     ):
-        raise ArgumentError('At least one of the energy, forces, or stress weights must be positive.')
+        raise ArgumentError(
+            'At least one of the energy, forces, or stress weights must be positive.'
+        )
 
     energy_error_fn = _make_error_fn(
         settings.loss_type_energy,
@@ -361,7 +379,11 @@ def build_loss_fn(apply_fn, settings: LossSettings):
                     stress = stress * stress_mask[:, None, None]
                     outputs['stress'] = stress
             for key, value in list(outputs.items()):
-                if isinstance(value, jnp.ndarray) and key not in {'energy', 'forces', 'stress'}:
+                if isinstance(value, jnp.ndarray) and key not in {
+                    'energy',
+                    'forces',
+                    'stress',
+                }:
                     outputs[key] = jnp.nan_to_num(value)
 
         metrics = {

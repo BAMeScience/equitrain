@@ -55,8 +55,12 @@ class GraphDataLoader:
                 continue
 
             padding_graphs = max(self._n_graph, batched.n_node.shape[0] + 1)
-            target_nodes = max(self._n_node, int(np.max(batched.n_node))) * padding_graphs
-            target_edges = max(self._n_edge, int(np.max(batched.n_edge))) * padding_graphs
+            target_nodes = (
+                max(self._n_node, int(np.max(batched.n_node))) * padding_graphs
+            )
+            target_edges = (
+                max(self._n_edge, int(np.max(batched.n_edge))) * padding_graphs
+            )
 
             batched = jraph.pad_with_graphs(
                 batched,

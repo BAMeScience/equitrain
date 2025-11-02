@@ -7,7 +7,9 @@ from equitrain.backends.jax_loss import JaxLossCollection
 
 
 class LossMetric:
-    def __init__(self, *, include_energy: bool, include_forces: bool, include_stress: bool):
+    def __init__(
+        self, *, include_energy: bool, include_forces: bool, include_stress: bool
+    ):
         self.meters = {
             'total': AverageMeter(),
             'energy': AverageMeter() if include_energy else None,
@@ -38,7 +40,18 @@ class LossMetric:
             result['stress'] = self.meters['stress'].avg
         return result
 
-    def log(self, logger, mode: str, *, epoch=None, step=None, length=None, time=None, lr=None, force=False) -> None:
+    def log(
+        self,
+        logger,
+        mode: str,
+        *,
+        epoch=None,
+        step=None,
+        length=None,
+        time=None,
+        lr=None,
+        force=False,
+    ) -> None:
         if epoch is None and step is None:
             prefix = mode
         elif step is None:
@@ -65,7 +78,14 @@ class LossMetric:
 
 
 class LossMetrics:
-    def __init__(self, *, include_energy: bool, include_forces: bool, include_stress: bool, loss_label: str):
+    def __init__(
+        self,
+        *,
+        include_energy: bool,
+        include_forces: bool,
+        include_stress: bool,
+        loss_label: str,
+    ):
         self.loss_label = loss_label
         self.main = LossMetric(
             include_energy=include_energy,
@@ -79,11 +99,15 @@ class LossMetrics:
     def as_dict(self) -> dict[str, float | None]:
         return self.main.as_dict()
 
-    def log(self, logger, mode: str, *, epoch=None, time=None, lr=None, force=False) -> None:
+    def log(
+        self, logger, mode: str, *, epoch=None, time=None, lr=None, force=False
+    ) -> None:
         label = f'{mode:>5} [{self.loss_label}]'
         self.main.log(logger, label, epoch=epoch, time=time, lr=lr, force=force)
 
-    def log_step(self, logger, *, epoch, step, length, time=None, lr=None, force=False) -> None:
+    def log_step(
+        self, logger, *, epoch, step, length, time=None, lr=None, force=False
+    ) -> None:
         label = f'[{self.loss_label}]'
         self.main.log(
             logger,

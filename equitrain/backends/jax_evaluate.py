@@ -6,7 +6,11 @@ from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import ArgsFormatter, validate_evaluate_args
 from equitrain.logger import init_logger
-from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
+from equitrain.backends.jax_backend import (
+    _build_eval_step,
+    _is_multi_device,
+    _run_eval_loop,
+)
 from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
 from equitrain.backends.jax_loss_metrics import LossMetrics
 from equitrain.backends.jax_utils import load_model_bundle
@@ -45,6 +49,19 @@ def evaluate(args):
     if not test_graphs:
         raise RuntimeError('Test dataset is empty.')
 
+    multi_device = _is_multi_device()
+    if multi_device:
+        device_count = jax.local_device_count()
+        if device_count <= 0:
+            raise RuntimeError(
+                'JAX reports multi-device mode but no local devices are available.'
+            )
+        if args.batch_size % device_count != 0:
+            raise ValueError(
+                'For JAX multi-device evaluation, --batch-size must be divisible by '
+                'the number of local devices.'
+            )
+
     test_loader = build_loader(
         test_graphs,
         batch_size=args.batch_size,
@@ -63,11 +80,19 @@ def evaluate(args):
     apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_eval_loss(apply_fn, loss_settings)
-
-    loss_collection = JaxLossCollection()
-    for graph in test_loader:
-        _, aux = loss_fn(bundle.params, graph)
-        update_collection_from_aux(loss_collection, aux)
+    eval_step_fn = _build_eval_step(loss_fn, multi_device=multi_device)
+    eval_params = (
+        jax.device_put_replicated(bundle.params, jax.local_devices())
+        if multi_device
+        else bundle.params
+    )
+    _, loss_collection = _run_eval_loop(
+        eval_params,
+        test_loader,
+        eval_step_fn,
+        max_steps=None,
+        multi_device=multi_device,
+    )
 
     metric = LossMetrics(
         include_energy=loss_settings.energy_weight > 0.0,

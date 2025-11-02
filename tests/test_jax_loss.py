@@ -28,11 +28,17 @@ def _make_graph(
     if forces is None:
         forces = jnp.zeros((num_nodes, 3), dtype=jnp.float32)
     forces = jnp.concatenate(
-        [jnp.asarray(forces, dtype=jnp.float32), jnp.zeros((pad_nodes, 3), dtype=jnp.float32)],
+        [
+            jnp.asarray(forces, dtype=jnp.float32),
+            jnp.zeros((pad_nodes, 3), dtype=jnp.float32),
+        ],
         axis=0,
     )
     species = jnp.concatenate(
-        [jnp.zeros((num_nodes,), dtype=jnp.int32), jnp.zeros((pad_nodes,), dtype=jnp.int32)],
+        [
+            jnp.zeros((num_nodes,), dtype=jnp.int32),
+            jnp.zeros((pad_nodes,), dtype=jnp.int32),
+        ],
         axis=0,
     )
 
@@ -154,10 +160,13 @@ def test_build_loss_fn_stress_component():
         return {
             'energy': jnp.asarray([0.0, 0.0], dtype=jnp.float32),
             'forces': jnp.zeros((total_nodes, 3), dtype=jnp.float32),
-            'stress': jnp.stack([
-                jnp.ones((3, 3), dtype=jnp.float32),
-                jnp.zeros((3, 3), dtype=jnp.float32),
-            ], axis=0),
+            'stress': jnp.stack(
+                [
+                    jnp.ones((3, 3), dtype=jnp.float32),
+                    jnp.zeros((3, 3), dtype=jnp.float32),
+                ],
+                axis=0,
+            ),
         }
 
     settings = _loss_settings(

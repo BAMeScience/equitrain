@@ -8,6 +8,8 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from flax import serialization
+from flax import struct
+import jraph
 from jax import tree_util as jtu
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
@@ -40,6 +42,13 @@ from .jax_scheduler import create_scheduler_controller
 ensure_multiprocessing_spawn()
 
 
+@struct.dataclass
+class TrainState:
+    params: object
+    opt_state: object
+    ema_params: object
+
+
 def _normalize_max_steps(value):
     if value is None:
         return None
@@ -60,90 +69,216 @@ def _sanitize_grads(grads, clip_value: float | None):
     return jtu.tree_map(_sanitize, grads)
 
 
-def _train_loop(
-    variables,
-    optimizer,
-    opt_state,
-    train_loader,
-    loss_fn,
-    *,
-    max_steps=None,
-    grad_clip_value: float | None = None,
-    ema_params=None,
-    ema_decay: float | None = None,
-    ema_count: int | None = None,
-):
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+def _is_multi_device() -> bool:
+    return jax.local_device_count() > 1
 
+
+def _replicate_state(state: TrainState) -> TrainState:
+    return jax.device_put_replicated(state, jax.local_devices())
+
+
+def _unreplicate(tree):
+    host = jax.device_get(tree)
+    if isinstance(host, (list, tuple)) and len(host) == jax.local_device_count():
+        return jtu.tree_map(lambda x: x[0], host)
+    return host
+
+
+def _prepare_single_batch(graph):
+    def _to_device_array(x):
+        if x is None:
+            return None
+        return jnp.asarray(x)
+
+    return jtu.tree_map(_to_device_array, graph, is_leaf=lambda leaf: leaf is None)
+
+
+def _split_graphs_for_devices(graph, num_devices: int) -> list[list[jraph.GraphsTuple]]:
+    graphs = (
+        list(jraph.unbatch(graph)) if isinstance(graph, jraph.GraphsTuple) else [graph]
+    )
+    total = len(graphs)
+    if total % num_devices != 0:
+        raise ValueError(
+            'For JAX multi-device training, batch size must be divisible by the number of devices.'
+        )
+    per_device = total // num_devices
+    return [graphs[i * per_device : (i + 1) * per_device] for i in range(num_devices)]
+
+
+def _prepare_sharded_batch(graph, num_devices: int):
+    chunks = _split_graphs_for_devices(graph, num_devices)
+    device_batches = []
+    for chunk in chunks:
+        graphs_tuple = chunk[0] if len(chunk) == 1 else jraph.batch_np(chunk)
+        device_batches.append(_prepare_single_batch(graphs_tuple))
+
+    def _stack_or_none(*values):
+        first = values[0]
+        if first is None:
+            return None
+        return jnp.stack(values)
+
+    return jtu.tree_map(
+        _stack_or_none, *device_batches, is_leaf=lambda leaf: leaf is None
+    )
+
+
+def _build_train_step(
+    loss_fn,
+    optimizer,
+    *,
+    grad_clip_value,
+    use_ema: bool,
+    multi_device: bool,
+):
     clip_value = None if grad_clip_value is None else float(grad_clip_value)
 
-    @jax.jit
-    def train_step(current_vars, current_opt_state, graph):
-        (loss, aux), grads = grad_fn(current_vars, graph)
-        grads = _sanitize_grads(grads, clip_value)
-        updates, new_opt_state = optimizer.update(
-            grads, current_opt_state, current_vars
-        )
-        new_vars = optax.apply_updates(current_vars, updates)
-        return new_vars, new_opt_state, loss, aux
+    if multi_device:
 
+        def step(state: TrainState, batch, ema_factor):
+            (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params, batch
+            )
+            grads = _sanitize_grads(grads, clip_value)
+            grads = jax.lax.pmean(grads, axis_name='device')
+            updates, new_opt_state = optimizer.update(
+                grads, state.opt_state, state.params
+            )
+            new_params = optax.apply_updates(state.params, updates)
+            if use_ema and state.ema_params is not None:
+                coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
+                new_ema = jtu.tree_map(
+                    lambda ema, new: coeff * ema + (1.0 - coeff) * new,
+                    state.ema_params,
+                    new_params,
+                )
+            else:
+                new_ema = state.ema_params
+            loss = jax.lax.pmean(loss, axis_name='device')
+            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
+            return (
+                TrainState(
+                    params=new_params, opt_state=new_opt_state, ema_params=new_ema
+                ),
+                loss,
+                aux,
+            )
+
+        return jax.pmap(step, axis_name='device', in_axes=(0, 0, None))
+
+    def step(state: TrainState, batch, ema_factor):
+        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            state.params, batch
+        )
+        grads = _sanitize_grads(grads, clip_value)
+        updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
+        new_params = optax.apply_updates(state.params, updates)
+        if use_ema and state.ema_params is not None:
+            coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
+            new_ema = jtu.tree_map(
+                lambda ema, new: coeff * ema + (1.0 - coeff) * new,
+                state.ema_params,
+                new_params,
+            )
+        else:
+            new_ema = state.ema_params
+        return (
+            TrainState(params=new_params, opt_state=new_opt_state, ema_params=new_ema),
+            loss,
+            aux,
+        )
+
+    return jax.jit(step)
+
+
+def _build_eval_step(loss_fn, *, multi_device: bool):
+    if multi_device:
+
+        def step(params, batch):
+            loss, aux = loss_fn(params, batch)
+            loss = jax.lax.pmean(loss, axis_name='device')
+            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
+            return loss, aux
+
+        return jax.pmap(step, axis_name='device', in_axes=(0, 0))
+
+    return jax.jit(loss_fn)
+
+
+def _run_train_epoch(
+    state: TrainState,
+    train_loader,
+    train_step_fn,
+    *,
+    max_steps,
+    multi_device: bool,
+    use_ema: bool,
+    ema_decay: float | None,
+    ema_count_start: int,
+):
     loss_collection = JaxLossCollection()
-    per_graph_errors: list[np.ndarray] = []
-    ema_active = ema_params is not None and ema_decay is not None
-    ema_step_count = ema_count if ema_count is not None else 0
+    ema_count = ema_count_start
+    device_count = jax.local_device_count() if multi_device else 1
 
     for step_index, graph in enumerate(train_loader):
         if max_steps is not None and step_index >= max_steps:
             break
-        variables, opt_state, loss, aux = train_step(variables, opt_state, graph)
-        if ema_active:
-            ema_step_count += 1
-            warmup_decay = (1.0 + ema_step_count) / (10.0 + ema_step_count)
-            decay = min(float(ema_decay), warmup_decay)
-            coeff_new = 1.0 - decay
-            ema_params = jtu.tree_map(
-                lambda ema, new: decay * ema + coeff_new * new,
-                ema_params,
-                variables,
-            )
-        per_graph_error = update_collection_from_aux(loss_collection, aux)
-        if per_graph_error.size:
-            per_graph_errors.append(per_graph_error)
 
-    if not ema_active:
-        ema_step_count = ema_count
+        if multi_device:
+            batch = _prepare_sharded_batch(graph, device_count)
+        else:
+            batch = _prepare_single_batch(graph)
 
-    return (
-        variables,
-        opt_state,
-        loss_collection,
-        per_graph_errors,
-        ema_params,
-        ema_step_count,
-    )
+        ema_factor = 0.0
+        if use_ema and ema_decay is not None:
+            ema_count += 1
+            warmup_decay = (1.0 + ema_count) / (10.0 + ema_count)
+            ema_factor = float(min(float(ema_decay), warmup_decay))
+
+        state, _, aux = train_step_fn(state, batch, ema_factor)
+        aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
+        update_collection_from_aux(loss_collection, aux)
+
+    return state, loss_collection, ema_count
 
 
-def _evaluate_loop(variables, loss_fn, loader, *, max_steps=None):
+def _run_eval_loop(
+    params,
+    loader,
+    eval_step_fn,
+    *,
+    max_steps,
+    multi_device: bool,
+):
     if loader is None:
-        return None, JaxLossCollection(), []
+        return None, JaxLossCollection()
 
-    eval_step = jax.jit(loss_fn)
     loss_collection = JaxLossCollection()
-    per_graph_errors: list[np.ndarray] = []
+    device_count = jax.local_device_count() if multi_device else 1
+    mean_loss = None
 
     for step_index, graph in enumerate(loader):
         if max_steps is not None and step_index >= max_steps:
             break
-        _, aux = eval_step(variables, graph)
-        per_graph_error = update_collection_from_aux(loss_collection, aux)
-        if per_graph_error.size:
-            per_graph_errors.append(per_graph_error)
 
-    mean_loss = loss_collection.components['total'].value
-    if not np.isfinite(mean_loss):
+        if multi_device:
+            batch = _prepare_sharded_batch(graph, device_count)
+        else:
+            batch = _prepare_single_batch(graph)
+
+        loss, aux = eval_step_fn(params, batch)
+        loss = _unreplicate(loss) if multi_device else jax.device_get(loss)
+        aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
+        update_collection_from_aux(loss_collection, aux)
+        mean_loss = float(loss)
+
+    if loss_collection.components['total'].count:
+        mean_loss = loss_collection.components['total'].value
+    else:
         mean_loss = None
 
-    return (mean_loss if loss_collection.components['total'].count else None), loss_collection, per_graph_errors
+    return mean_loss, loss_collection
 
 
 def train(args):
@@ -222,7 +357,15 @@ def train(args):
         compute_stress=args.stress_weight > 0.0,
     )
 
-    apply_fn = make_apply_fn(wrapper, num_species=len(z_table))
+    num_species = len(z_table)
+    multi_device = _is_multi_device()
+    device_count = jax.local_device_count() if multi_device else 1
+    if multi_device and device_count > 0 and (args.batch_size % device_count != 0):
+        raise ValueError(
+            'For JAX multi-device training, --batch-size must be divisible by the number of local devices.'
+        )
+
+    apply_fn = make_apply_fn(wrapper, num_species=num_species)
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_loss_fn(apply_fn, loss_settings)
     mask = build_trainable_mask(args, bundle.params, logger)
@@ -237,37 +380,42 @@ def train(args):
     )
     opt_state = optimizer.init(bundle.params)
 
-    ema_params = None
-    ema_decay = None
-    ema_count = None
-    use_ema = getattr(args, 'ema', False)
-    if use_ema:
-        ema_params = bundle.params
-        ema_decay = float(getattr(args, 'ema_decay', 0.999))
-        ema_count = 0
-
-    train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
-    valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
-    grad_clip_value = getattr(args, 'gradient_clipping', None)
-
-    lr_history: list[float] = [current_lr]
-    initial_val_loss = None
-    best_epoch = None
-
     bundle, opt_state, args_checkpoint = jax_checkpoint.load_checkpoint(
         args, bundle, opt_state, logger
     )
     if args_checkpoint is not None:
         check_args_consistency(args, args_checkpoint, logger)
-    start_epoch = getattr(args, 'epochs_start', 1)
 
-    num_epochs = args.epochs
-    start_epoch = args.epochs_start
+    use_ema = bool(getattr(args, 'ema', False))
+    ema_decay = float(getattr(args, 'ema_decay', 0.999)) if use_ema else None
+    ema_params = bundle.params if use_ema else None
+    ema_count = 0 if use_ema else 0
 
+    train_state = TrainState(
+        params=bundle.params, opt_state=opt_state, ema_params=ema_params
+    )
+    if multi_device:
+        train_state = _replicate_state(train_state)
+
+    grad_clip_value = getattr(args, 'gradient_clipping', None)
+    train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
+    valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
+
+    train_step_fn = _build_train_step(
+        loss_fn,
+        optimizer,
+        grad_clip_value=grad_clip_value,
+        use_ema=use_ema,
+        multi_device=multi_device,
+    )
+    eval_step_fn = _build_eval_step(loss_fn, multi_device=multi_device)
+
+    def _host(tree):
+        return _unreplicate(tree) if multi_device else tree
+
+    lr_history: list[float] = [current_lr]
     best_val = None
-    best_params = bundle.params
-    best_ema_params = ema_params
-    train_metrics = JaxLossCollection()
+    best_epoch = None
 
     metric_settings = dict(
         include_energy=loss_settings.energy_weight > 0.0,
@@ -276,89 +424,104 @@ def train(args):
         loss_label=loss_settings.loss_type,
     )
 
-    if valid_loader is not None:
-        initial_val_loss, initial_val_collection, _ = _evaluate_loop(
-            ema_params if use_ema else bundle.params,
-            loss_fn,
-            valid_loader,
-            max_steps=valid_max_steps,
-        )
+    params_for_eval = (
+        train_state.ema_params
+        if use_ema and train_state.ema_params is not None
+        else train_state.params
+    )
+    initial_val_loss, initial_val_collection = _run_eval_loop(
+        params_for_eval,
+        valid_loader,
+        eval_step_fn,
+        max_steps=valid_max_steps,
+        multi_device=multi_device,
+    )
+
+    current_params_host = _host(train_state.params)
+    current_ema_host = (
+        _host(train_state.ema_params)
+        if use_ema and train_state.ema_params is not None
+        else None
+    )
+    best_params_host = current_params_host
+    best_ema_params_host = current_ema_host
+
+    if valid_loader is not None and initial_val_collection.components['total'].count:
         val_metric = LossMetrics(**metric_settings)
         val_metric.update(initial_val_collection)
-        val_metric.log(logger, 'val', epoch=start_epoch - 1)
-        if wandb_run is not None and val_metric.main.meters['total'].count:
+        val_metric.log(logger, 'val', epoch=args.epochs_start - 1)
+        if wandb_run is not None:
             wandb_run.log(
                 {
                     'val_loss': float(val_metric.main.meters['total'].avg),
                     'lr': current_lr,
-                    'epoch': start_epoch - 1,
+                    'epoch': args.epochs_start - 1,
                 },
-                step=start_epoch - 1,
+                step=args.epochs_start - 1,
             )
         if initial_val_loss is not None:
-            best_val = initial_val_loss
-            best_params = bundle.params
-            best_ema_params = ema_params
-            best_epoch = start_epoch - 1
-        scheduler_monitor_metric = initial_val_loss
-        scheduler_controller.register_initial_metric(
-            scheduler_monitor_metric,
-            epoch=start_epoch - 1,
-        )
-    else:
-        scheduler_controller.register_initial_metric(None, epoch=start_epoch - 1)
+            best_val = float(initial_val_loss)
+            best_epoch = args.epochs_start - 1
+    scheduler_controller.register_initial_metric(
+        initial_val_loss, epoch=args.epochs_start - 1
+    )
+
+    start_epoch = getattr(args, 'epochs_start', 1)
+    num_epochs = args.epochs
+    last_train_metrics = JaxLossCollection()
 
     for epoch_offset in range(num_epochs):
         epoch = start_epoch + epoch_offset
         epoch_start_time = time.perf_counter()
 
-        (
-            updated_params,
-            opt_state,
-            train_metrics,
-            _,
-            ema_params,
-            ema_count,
-        ) = _train_loop(
-            bundle.params,
-            optimizer,
-            opt_state,
+        train_state, train_metrics_collection, ema_count = _run_train_epoch(
+            train_state,
             train_loader,
-            loss_fn,
+            train_step_fn,
             max_steps=train_max_steps,
-            grad_clip_value=grad_clip_value,
-            ema_params=ema_params if use_ema else None,
-            ema_decay=ema_decay if use_ema else None,
-            ema_count=ema_count if use_ema else None,
+            multi_device=multi_device,
+            use_ema=use_ema,
+            ema_decay=ema_decay,
+            ema_count_start=ema_count,
         )
         epoch_time = time.perf_counter() - epoch_start_time
-        bundle = ModelBundle(
-            config=bundle.config, params=updated_params, module=bundle.module
+        last_train_metrics = train_metrics_collection
+
+        current_params_host = _host(train_state.params)
+        current_ema_host = (
+            _host(train_state.ema_params)
+            if use_ema and train_state.ema_params is not None
+            else None
         )
 
-        raw_val_loss, val_metrics, _ = _evaluate_loop(
-            ema_params if use_ema else bundle.params,
-            loss_fn,
+        eval_params = (
+            train_state.ema_params
+            if use_ema and train_state.ema_params is not None
+            else train_state.params
+        )
+        val_loss_value, val_metrics_collection = _run_eval_loop(
+            eval_params,
             valid_loader,
+            eval_step_fn,
             max_steps=valid_max_steps,
+            multi_device=multi_device,
         )
 
         epoch_lr = scheduler_controller.current_lr
 
         train_metric = LossMetrics(**metric_settings)
-        train_metric.update(train_metrics)
+        train_metric.update(train_metrics_collection)
         train_metric.log(logger, 'train', epoch=epoch, time=epoch_time, lr=epoch_lr)
-        train_loss_value = None
-        if train_metric.main.meters['total'].count:
-            train_loss_value = float(train_metric.main.meters['total'].avg)
+        train_loss_value = (
+            float(train_metric.main.meters['total'].avg)
+            if train_metric.main.meters['total'].count
+            else None
+        )
 
         val_metric = LossMetrics(**metric_settings)
-        val_metric.update(val_metrics)
+        val_metric.update(val_metrics_collection)
         if val_metric.main.meters['total'].count:
             val_metric.log(logger, 'val', epoch=epoch)
-            val_loss_value = float(val_metric.main.meters['total'].avg)
-        else:
-            val_loss_value = raw_val_loss
 
         if wandb_run is not None:
             payload = {'epoch': epoch, 'lr': epoch_lr}
@@ -368,32 +531,38 @@ def train(args):
                 payload['val_loss'] = float(val_loss_value)
             wandb_run.log(payload, step=epoch)
 
+        improved = False
         if val_loss_value is None:
-            best_params = bundle.params
+            best_val = None
+            best_params_host = current_params_host
+            best_ema_params_host = current_ema_host
             best_epoch = epoch
-            if use_ema:
-                best_ema_params = ema_params
         elif best_val is None or val_loss_value < best_val:
             best_val = float(val_loss_value)
-            best_params = bundle.params
+            best_params_host = current_params_host
+            best_ema_params_host = current_ema_host
             best_epoch = epoch
-            if use_ema:
-                best_ema_params = ema_params
+            improved = True
+
+        if improved:
+            opt_state_host = _host(train_state.opt_state)
             jax_checkpoint.save_checkpoint(
                 args,
                 epoch,
                 val_metric,
                 ModelBundle(
                     config=bundle.config,
-                    params=best_params,
+                    params=best_params_host,
                     module=bundle.module,
                 ),
-                opt_state,
+                opt_state_host,
                 logger,
             )
 
         monitored_metric = (
-            train_loss_value if scheduler_controller.monitor == 'train' else val_loss_value
+            train_loss_value
+            if scheduler_controller.monitor == 'train'
+            else val_loss_value
         )
         lr_changed = scheduler_controller.update_after_epoch(
             metric=monitored_metric,
@@ -406,6 +575,13 @@ def train(args):
                 learning_rate=current_lr,
                 **optimizer_args,
             )
+            train_step_fn = _build_train_step(
+                loss_fn,
+                optimizer,
+                grad_clip_value=grad_clip_value,
+                use_ema=use_ema,
+                multi_device=multi_device,
+            )
             logger.log(
                 1,
                 f'Epoch [{epoch:>4}] -- New learning rate: {current_lr:.4g}',
@@ -415,11 +591,13 @@ def train(args):
 
         lr_history.append(current_lr)
 
-    final_params = best_params
-    if use_ema and best_ema_params is not None:
-        final_params = best_ema_params
+    final_params_host = (
+        best_ema_params_host
+        if use_ema and best_ema_params_host is not None
+        else best_params_host
+    )
 
-    _save_parameters(Path(args.output_dir), final_params)
+    _save_parameters(Path(args.output_dir), final_params_host)
 
     test_metrics = None
     if getattr(args, 'test_file', None):
@@ -433,10 +611,17 @@ def train(args):
             seed=train_seed,
         )
         if test_loader is not None:
-            _, test_metric_collection, _ = _evaluate_loop(
-                final_params,
-                loss_fn,
+            eval_params = (
+                jax.device_put_replicated(final_params_host, jax.local_devices())
+                if multi_device
+                else final_params_host
+            )
+            _, test_metric_collection = _run_eval_loop(
+                eval_params,
                 test_loader,
+                eval_step_fn,
+                max_steps=None,
+                multi_device=multi_device,
             )
             test_metrics = LossMetrics(
                 include_energy=loss_settings.energy_weight > 0.0,
@@ -445,20 +630,16 @@ def train(args):
                 loss_label=loss_settings.loss_type,
             )
             test_metrics.update(test_metric_collection)
-            test_metrics.log(logger, 'test', epoch=num_epochs)
-            if wandb_run is not None and test_metrics.main.meters['total'].count:
-                wandb_run.log(
-                    {
-                        'test_loss': float(test_metrics.main.meters['total'].avg),
-                        'epoch': num_epochs,
-                    },
-                    step=num_epochs,
-                )
+            test_metrics.log(logger, 'test', epoch=start_epoch + num_epochs - 1)
 
     if best_epoch is None:
         best_epoch = start_epoch + num_epochs - 1
 
-    summary_train_loss = float(train_metrics.components['total'].value)
+    summary_train_loss = (
+        float(last_train_metrics.components['total'].value)
+        if last_train_metrics.components['total'].count
+        else float('nan')
+    )
     summary_val_loss = float(best_val) if best_val is not None else None
     summary_test_loss = (
         float(test_metrics.main.meters['total'].avg)

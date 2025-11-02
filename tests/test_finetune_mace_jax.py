@@ -41,7 +41,9 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
-from equitrain.backends.torch_checkpoint import load_model_state as load_torch_model_state
+from equitrain.backends.torch_checkpoint import (
+    load_model_state as load_torch_model_state,
+)
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from tests.test_finetune_mace import FinetuneMaceWrapper as TorchFinetuneWrapper
@@ -124,7 +126,9 @@ def _ensure_delta_params(variables: flax_core.FrozenDict) -> flax_core.FrozenDic
     return flax_core.freeze(unfrozen)
 
 
-def _init_common_args(args, train_file, valid_file, output_dir, *, lr=_FINE_TUNE_LR, max_steps=_MAX_STEPS):
+def _init_common_args(
+    args, train_file, valid_file, output_dir, *, lr=_FINE_TUNE_LR, max_steps=_MAX_STEPS
+):
     args.train_file = str(train_file)
     args.valid_file = str(valid_file)
     args.test_file = None
@@ -148,7 +152,15 @@ def _init_common_args(args, train_file, valid_file, output_dir, *, lr=_FINE_TUNE
     return args
 
 
-def _build_torch_args(train_file, valid_file, output_dir, mace_model_path, *, max_steps=_MAX_STEPS, lr=_FINE_TUNE_LR):
+def _build_torch_args(
+    train_file,
+    valid_file,
+    output_dir,
+    mace_model_path,
+    *,
+    max_steps=_MAX_STEPS,
+    lr=_FINE_TUNE_LR,
+):
     args = _init_common_args(
         get_args_parser_train().parse_args([]),
         train_file,
@@ -166,7 +178,15 @@ def _build_torch_args(train_file, valid_file, output_dir, mace_model_path, *, ma
     return args
 
 
-def _build_jax_args(train_file, valid_file, output_dir, model_path, *, max_steps=_MAX_STEPS, lr=_FINE_TUNE_LR):
+def _build_jax_args(
+    train_file,
+    valid_file,
+    output_dir,
+    model_path,
+    *,
+    max_steps=_MAX_STEPS,
+    lr=_FINE_TUNE_LR,
+):
     args = _init_common_args(
         get_args_parser_train().parse_args([]),
         train_file,
@@ -253,9 +273,11 @@ def _patch_jax_loader_for_deltas():
             module=wrapped_module,
         )
 
-    with mock.patch('equitrain.backends.jax_utils.load_model_bundle', patched), \
-         mock.patch('equitrain.backends.jax_backend.load_model_bundle', patched), \
-         mock.patch('tests.test_finetune_mace_jax.load_model_bundle', patched):
+    with (
+        mock.patch('equitrain.backends.jax_utils.load_model_bundle', patched),
+        mock.patch('equitrain.backends.jax_backend.load_model_bundle', patched),
+        mock.patch('tests.test_finetune_mace_jax.load_model_bundle', patched),
+    ):
         yield
 
 
@@ -381,7 +403,9 @@ def _export_jax_model(
     return jax_module, jax_params
 
 
-def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int], base_params=None):
+def _convert_torch_model_to_jax_params(
+    torch_model, atomic_numbers: list[int], base_params=None
+):
     torch_model = torch_model.float().eval()
     config = extract_config_mace_model(torch_model)
     config['atomic_numbers'] = [int(z) for z in atomic_numbers]
@@ -417,7 +441,9 @@ def _convert_torch_model_to_jax_params(torch_model, atomic_numbers: list[int], b
     unexpected_in_converted = sorted(set(flat_params) - set(flat_base))
     if unexpected_in_converted:
         unexpected_keys = ', '.join('.'.join(k) for k in unexpected_in_converted)
-        raise ValueError(f'Converted Torch parameters contain unexpected keys: {unexpected_keys}')
+        raise ValueError(
+            f'Converted Torch parameters contain unexpected keys: {unexpected_keys}'
+        )
 
     delta_flat = {}
     for key, base_val in flat_base.items():
@@ -461,18 +487,21 @@ def test_finetune_gradient_parity(tmp_path, mace_model_path):
     torch_energy = args_torch.model(torch_batch)['energy']
     num_atoms = torch_batch.ptr[1:] - torch_batch.ptr[:-1]
     energy_weights = torch.ones_like(torch_energy) / num_atoms.to(torch_energy.dtype)
-    torch_loss = (F.huber_loss(
-        torch_energy,
-        torch.zeros_like(torch_energy),
-        delta=0.01,
-        reduction='none',
-    ) * energy_weights).mean()
+    torch_loss = (
+        F.huber_loss(
+            torch_energy,
+            torch.zeros_like(torch_energy),
+            delta=0.01,
+            reduction='none',
+        )
+        * energy_weights
+    ).mean()
     torch_params = [
-        param
-        for param in args_torch.model.parameters()
-        if param.requires_grad
+        param for param in args_torch.model.parameters() if param.requires_grad
     ]
-    assert all(param.is_leaf for param in torch_params), 'Delta parameters must be leaf tensors'
+    assert all(param.is_leaf for param in torch_params), (
+        'Delta parameters must be leaf tensors'
+    )
     torch_grads = torch.autograd.grad(
         torch_loss,
         torch_params,
@@ -541,10 +570,9 @@ def test_finetune_gradient_parity(tmp_path, mace_model_path):
         flat_jax = traverse_util.flatten_dict(
             jtu.tree_map(lambda x: np.asarray(x), jax_grads['params']['delta']),
         )
-        jax_grad_vec = np.concatenate([
-            flat_jax[key].ravel()
-            for key in sorted(flat_jax)
-        ])
+        jax_grad_vec = np.concatenate(
+            [flat_jax[key].ravel() for key in sorted(flat_jax)]
+        )
 
     np.testing.assert_allclose(
         float(jax_loss_value),
@@ -600,7 +628,9 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
         torch_energy_post = _predict_torch_energy(torch_model_post, structures)
 
         torch_atomic_pre = (
-            torch_model_pre.model.atomic_energies_fn.atomic_energies.detach().cpu().clone()
+            torch_model_pre.model.atomic_energies_fn.atomic_energies.detach()
+            .cpu()
+            .clone()
         )
         torch_atomic_post = (
             torch_model_post.model.atomic_energies_fn.atomic_energies.detach().cpu()
@@ -696,7 +726,9 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         _write_match_dataset(valid_subset, parity_structures)
         structures = _load_structures(train_subset)
 
-        torch_base_model = torch.load(mace_model_path, weights_only=False).float().eval()
+        torch_base_model = (
+            torch.load(mace_model_path, weights_only=False).float().eval()
+        )
         torch_pre_path = tmp_path / 'torch_pre.model'
         torch.save(torch_base_model, torch_pre_path)
         atomic_numbers = [int(z) for z in torch_base_model.atomic_numbers]
@@ -785,7 +817,9 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
             jax_best_dir = _find_best_checkpoint_dir(Path(args_jax.output_dir))
             bundle = load_model_bundle(str(jax_best_dir), dtype='float32')
             data_dict = _structures_to_jax_input(structures, args_torch.model)
-            torch_post = torch.load(torch_export_path, weights_only=False).float().eval()
+            torch_post = (
+                torch.load(torch_export_path, weights_only=False).float().eval()
+            )
             jax_params_from_torch = _convert_torch_model_to_jax_params(
                 torch_post,
                 atomic_numbers,
@@ -815,7 +849,9 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
         )
 
         trained_delta = serialization.to_state_dict(bundle.params)['params']['delta']
-        converted_delta = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
+        converted_delta = serialization.to_state_dict(jax_params_from_torch)['params'][
+            'delta'
+        ]
         flat_trained = traverse_util.flatten_dict(trained_delta)
         flat_converted = traverse_util.flatten_dict(converted_delta)
         for key, trained_val in flat_trained.items():
@@ -828,7 +864,9 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
                 err_msg=f'Fine-tuned delta mismatch at {key_str}',
             )
 
-        delta_state = serialization.to_state_dict(jax_params_from_torch)['params']['delta']
+        delta_state = serialization.to_state_dict(jax_params_from_torch)['params'][
+            'delta'
+        ]
         np.testing.assert_allclose(
             np.asarray(delta_state['atomic_energies_fn']['atomic_energies']),
             0.0,

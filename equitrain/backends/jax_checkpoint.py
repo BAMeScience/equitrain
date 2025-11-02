@@ -190,7 +190,9 @@ def save_checkpoint(
     logger: FileLogger | None = None,
 ):
     monitor_total = val_metric.main.meters['total'].avg
-    output_dir = Path(args.output_dir) / f'best_val_epochs@{epoch}_e@{monitor_total:0.4g}'
+    output_dir = (
+        Path(args.output_dir) / f'best_val_epochs@{epoch}_e@{monitor_total:0.4g}'
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if logger is not None:

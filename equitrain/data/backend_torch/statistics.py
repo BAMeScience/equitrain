@@ -42,9 +42,9 @@ def compute_statistics(
     atomic_energies: dict,
     atomic_numbers: AtomicNumberTable,
 ) -> tuple[float, float, float]:
-    atomic_energies_list: np.ndarray = np.array([
-        atomic_energies[z] for z in atomic_numbers
-    ])
+    atomic_energies_list: np.ndarray = np.array(
+        [atomic_energies[z] for z in atomic_numbers]
+    )
 
     atomic_energies_fn = AtomicEnergiesBlock(atomic_energies=atomic_energies_list)
 

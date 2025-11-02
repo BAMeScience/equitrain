@@ -64,9 +64,7 @@ def build_trainable_mask(
         if default_trainable:
             return None
 
-    flat_params = traverse_util.flatten_dict(
-        frozen_dict.unfreeze(params), sep='.'
-    )  # type: ignore[arg-type]
+    flat_params = traverse_util.flatten_dict(frozen_dict.unfreeze(params), sep='.')  # type: ignore[arg-type]
 
     mask_entries: dict[str, bool] = {}
     for dotted_name in flat_params:

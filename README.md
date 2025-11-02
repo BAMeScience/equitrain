@@ -207,6 +207,13 @@ if __name__ == "__main__":
 
 ---
 
+### JAX Backend Multi-Device Notes
+
+- When the JAX backend detects more than one local accelerator, it automatically switches to a multi-device (`pmap`) execution. In that mode the training and evaluation batch size must be divisible by `jax.local_device_count()` so that each device processes an identical number of graphs.
+- On single-device machines no extra configuration is required; the backend falls back to the same single-device behaviour that existing scripts expect.
+
+---
+
 ## Advanced Features
 
 ### Multi-GPU and Multi-Node Training

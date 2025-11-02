@@ -38,9 +38,7 @@ def get_displacement(
     )
     displacement.requires_grad_(True)
 
-    symmetric_displacement = 0.5 * (
-        displacement + displacement.transpose(-1, -2)
-    )
+    symmetric_displacement = 0.5 * (displacement + displacement.transpose(-1, -2))
     positions = positions + torch.einsum(
         'be,bec->bc', positions, symmetric_displacement[batch]
     )
