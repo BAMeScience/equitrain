@@ -85,6 +85,28 @@ def _write_dataset(path: Path, structures: list[Atoms]) -> None:
         dataset.close()
 
 
+def _create_jax_bundle(tmp_path: Path, mace_model_path: Path) -> Path:
+    args = get_args_parser_train().parse_args([])
+    torch_wrapper = TorchMaceWrapper(args, filename_model=mace_model_path)
+    torch_model = torch_wrapper.float().eval()
+    torch_model_path = tmp_path / 'torch_reference.model'
+    torch.save(torch_model.model, torch_model_path)
+
+    atomic_numbers = [int(z) for z in list(torch_wrapper.atomic_numbers)]
+    atomic_energies = list(torch_wrapper.atomic_energies)
+    r_max = torch_wrapper.r_max
+
+    jax_model_dir = tmp_path / 'jax_bundle'
+    _export_jax_model(
+        torch_model_path,
+        atomic_numbers,
+        atomic_energies,
+        r_max,
+        jax_model_dir,
+    )
+    return jax_model_dir
+
+
 def _make_torch_batch(structures: list[Atoms], wrapper: TorchMaceWrapper):
     data_list = []
     for atoms in structures:
@@ -374,6 +396,100 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
 
         assert gap_pre <= 1e-4, f'Pre-training gap too large: {gap_pre:.6f}'
         assert gap_post <= 1e-4, f'Post-training gap too large: {gap_post:.6f}'
+
+        assert jax_training_summary['initial_val_loss'] is not None
+        assert len(jax_training_summary['lr_history']) == args_jax.epochs + 1
+        assert jax_training_summary['best_epoch'] is not None
     finally:
         for path in cleanup_paths:
             _cleanup_path(path)
+
+
+def test_jax_weighted_sampler_not_supported(tmp_path, mace_model_path):
+    pytest.importorskip('mace_jax')
+
+    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    data_dir = Path(__file__).with_name('data')
+
+    args = get_args_parser_train().parse_args([])
+    args.backend = 'jax'
+    args.model = str(jax_bundle)
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = None
+    args.output_dir = str(tmp_path / 'out_weighted_sampler')
+    args.epochs = 1
+    args.batch_size = 1
+    args.lr = 1e-3
+    args.weighted_sampler = True
+
+    with pytest.raises(ValueError, match='does not support weighted'):
+        equitrain_train(args)
+
+
+def test_jax_step_scheduler_updates_learning_rate(tmp_path, mace_model_path):
+    pytest.importorskip('mace_jax')
+
+    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    data_dir = Path(__file__).with_name('data')
+
+    args = get_args_parser_train().parse_args([])
+    args.backend = 'jax'
+    args.model = str(jax_bundle)
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = None
+    args.output_dir = str(tmp_path / 'out_step_scheduler')
+    args.epochs = 2
+    args.batch_size = 1
+    args.lr = 1e-3
+    args.scheduler = 'step'
+    args.gamma = 0.5
+    args.step_size = 1
+    args.train_max_steps = 1
+    args.valid_max_steps = 1
+    args.verbose = 0
+    args.tqdm = False
+
+    summary = equitrain_train(args)
+    assert len(summary['lr_history']) == args.epochs + 1
+    assert summary['lr_history'][0] == pytest.approx(args.lr)
+    assert summary['lr_history'][1] == pytest.approx(args.lr * args.gamma)
+    assert summary['lr_history'][2] == pytest.approx(args.lr * args.gamma * args.gamma)
+
+
+def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path, mace_model_path):
+    pytest.importorskip('mace_jax')
+
+    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    data_dir = Path(__file__).with_name('data')
+
+    args = get_args_parser_train().parse_args([])
+    args.backend = 'jax'
+    args.model = str(jax_bundle)
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = None
+    args.output_dir = str(tmp_path / 'out_plateau_scheduler')
+    args.epochs = 2
+    args.batch_size = 1
+    args.lr = 1e-3
+    args.scheduler = 'plateau'
+    args.plateau_factor = 0.5
+    args.plateau_patience = 0
+    args.plateau_mode = 'min'
+    args.plateau_threshold = 0.0
+    args.plateau_threshold_mode = 'rel'
+    args.plateau_eps = 0.0
+    args.train_max_steps = 1
+    args.valid_max_steps = 1
+    args.verbose = 0
+    args.tqdm = False
+
+    summary = equitrain_train(args)
+    assert len(summary['lr_history']) == args.epochs + 1
+    assert summary['lr_history'][0] == pytest.approx(args.lr)
+    assert summary['lr_history'][1] == pytest.approx(args.lr * args.plateau_factor)
+    assert summary['lr_history'][2] == pytest.approx(
+        args.lr * args.plateau_factor * args.plateau_factor
+    )

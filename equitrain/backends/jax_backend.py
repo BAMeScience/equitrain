@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import jax
 import jax.numpy as jnp
@@ -33,10 +34,7 @@ from .jax_optimizer import (
     create_optimizer,
     optimizer_kwargs,
 )
-from .jax_scheduler import (
-    create_scheduler,
-    scheduler_kwargs,
-)
+from .jax_scheduler import create_scheduler_controller
 
 
 ensure_multiprocessing_spawn()
@@ -151,6 +149,9 @@ def _evaluate_loop(variables, loss_fn, loader, *, max_steps=None):
 def train(args):
     validate_training_args(args, 'jax')
 
+    if getattr(args, 'weighted_sampler', False):
+        raise ValueError('The JAX backend does not support weighted data sampling.')
+
     ensure_output_dir(getattr(args, 'output_dir', None))
 
     logger = init_logger(
@@ -161,6 +162,22 @@ def train(args):
         output_dir=args.output_dir,
     )
     logger.log(1, ArgsFormatter(args))
+
+    wandb_run = None
+    if getattr(args, 'wandb_project', None):
+        try:
+            import wandb
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                'wandb is required for the JAX backend when wandb_project is set.'
+            ) from exc
+
+        init_kwargs = {'project': args.wandb_project}
+        if getattr(args, 'wandb_name', None):
+            init_kwargs['name'] = args.wandb_name
+        if getattr(args, 'wandb_group', None):
+            init_kwargs['group'] = args.wandb_group
+        wandb_run = wandb.init(**init_kwargs, config={'backend': 'jax'})
 
     bundle = load_model_bundle(args.model, dtype=args.dtype)
 
@@ -209,11 +226,14 @@ def train(args):
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_loss_fn(apply_fn, loss_settings)
     mask = build_trainable_mask(args, bundle.params, logger)
-    schedule = create_scheduler(**scheduler_kwargs(args))
+    optimizer_args = optimizer_kwargs(args)
+    base_lr = float(optimizer_args.pop('learning_rate'))
+    scheduler_controller = create_scheduler_controller(args, base_lr)
+    current_lr = scheduler_controller.current_lr
     optimizer = create_optimizer(
         mask=mask,
-        learning_rate_schedule=schedule,
-        **optimizer_kwargs(args),
+        learning_rate=current_lr,
+        **optimizer_args,
     )
     opt_state = optimizer.init(bundle.params)
 
@@ -230,6 +250,10 @@ def train(args):
     valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
     grad_clip_value = getattr(args, 'gradient_clipping', None)
 
+    lr_history: list[float] = [current_lr]
+    initial_val_loss = None
+    best_epoch = None
+
     bundle, opt_state, args_checkpoint = jax_checkpoint.load_checkpoint(
         args, bundle, opt_state, logger
     )
@@ -245,8 +269,48 @@ def train(args):
     best_ema_params = ema_params
     train_metrics = JaxLossCollection()
 
+    metric_settings = dict(
+        include_energy=loss_settings.energy_weight > 0.0,
+        include_forces=loss_settings.forces_weight > 0.0,
+        include_stress=loss_settings.stress_weight > 0.0,
+        loss_label=loss_settings.loss_type,
+    )
+
+    if valid_loader is not None:
+        initial_val_loss, initial_val_collection, _ = _evaluate_loop(
+            ema_params if use_ema else bundle.params,
+            loss_fn,
+            valid_loader,
+            max_steps=valid_max_steps,
+        )
+        val_metric = LossMetrics(**metric_settings)
+        val_metric.update(initial_val_collection)
+        val_metric.log(logger, 'val', epoch=start_epoch - 1)
+        if wandb_run is not None and val_metric.main.meters['total'].count:
+            wandb_run.log(
+                {
+                    'val_loss': float(val_metric.main.meters['total'].avg),
+                    'lr': current_lr,
+                    'epoch': start_epoch - 1,
+                },
+                step=start_epoch - 1,
+            )
+        if initial_val_loss is not None:
+            best_val = initial_val_loss
+            best_params = bundle.params
+            best_ema_params = ema_params
+            best_epoch = start_epoch - 1
+        scheduler_monitor_metric = initial_val_loss
+        scheduler_controller.register_initial_metric(
+            scheduler_monitor_metric,
+            epoch=start_epoch - 1,
+        )
+    else:
+        scheduler_controller.register_initial_metric(None, epoch=start_epoch - 1)
+
     for epoch_offset in range(num_epochs):
         epoch = start_epoch + epoch_offset
+        epoch_start_time = time.perf_counter()
 
         (
             updated_params,
@@ -267,44 +331,52 @@ def train(args):
             ema_decay=ema_decay if use_ema else None,
             ema_count=ema_count if use_ema else None,
         )
+        epoch_time = time.perf_counter() - epoch_start_time
         bundle = ModelBundle(
             config=bundle.config, params=updated_params, module=bundle.module
         )
 
-        val_loss_value, val_metrics, _ = _evaluate_loop(
+        raw_val_loss, val_metrics, _ = _evaluate_loop(
             ema_params if use_ema else bundle.params,
             loss_fn,
             valid_loader,
             max_steps=valid_max_steps,
         )
 
-        train_metric = LossMetrics(
-            include_energy=loss_settings.energy_weight > 0.0,
-            include_forces=loss_settings.forces_weight > 0.0,
-            include_stress=loss_settings.stress_weight > 0.0,
-            loss_label=loss_settings.loss_type,
-        )
+        epoch_lr = scheduler_controller.current_lr
+
+        train_metric = LossMetrics(**metric_settings)
         train_metric.update(train_metrics)
+        train_metric.log(logger, 'train', epoch=epoch, time=epoch_time, lr=epoch_lr)
+        train_loss_value = None
+        if train_metric.main.meters['total'].count:
+            train_loss_value = float(train_metric.main.meters['total'].avg)
 
-        val_metric = LossMetrics(
-            include_energy=loss_settings.energy_weight > 0.0,
-            include_forces=loss_settings.forces_weight > 0.0,
-            include_stress=loss_settings.stress_weight > 0.0,
-            loss_label=loss_settings.loss_type,
-        )
+        val_metric = LossMetrics(**metric_settings)
         val_metric.update(val_metrics)
-
-        train_metric.log(logger, 'train', epoch=epoch)
-        if val_loss_value is not None:
+        if val_metric.main.meters['total'].count:
             val_metric.log(logger, 'val', epoch=epoch)
+            val_loss_value = float(val_metric.main.meters['total'].avg)
+        else:
+            val_loss_value = raw_val_loss
+
+        if wandb_run is not None:
+            payload = {'epoch': epoch, 'lr': epoch_lr}
+            if train_loss_value is not None:
+                payload['train_loss'] = train_loss_value
+            if val_loss_value is not None:
+                payload['val_loss'] = float(val_loss_value)
+            wandb_run.log(payload, step=epoch)
 
         if val_loss_value is None:
             best_params = bundle.params
+            best_epoch = epoch
             if use_ema:
                 best_ema_params = ema_params
         elif best_val is None or val_loss_value < best_val:
-            best_val = val_loss_value
+            best_val = float(val_loss_value)
             best_params = bundle.params
+            best_epoch = epoch
             if use_ema:
                 best_ema_params = ema_params
             jax_checkpoint.save_checkpoint(
@@ -319,6 +391,29 @@ def train(args):
                 opt_state,
                 logger,
             )
+
+        monitored_metric = (
+            train_loss_value if scheduler_controller.monitor == 'train' else val_loss_value
+        )
+        lr_changed = scheduler_controller.update_after_epoch(
+            metric=monitored_metric,
+            epoch=epoch,
+        )
+        if lr_changed:
+            current_lr = scheduler_controller.current_lr
+            optimizer = create_optimizer(
+                mask=mask,
+                learning_rate=current_lr,
+                **optimizer_args,
+            )
+            logger.log(
+                1,
+                f'Epoch [{epoch:>4}] -- New learning rate: {current_lr:.4g}',
+            )
+        else:
+            current_lr = scheduler_controller.current_lr
+
+        lr_history.append(current_lr)
 
     final_params = best_params
     if use_ema and best_ema_params is not None:
@@ -351,13 +446,39 @@ def train(args):
             )
             test_metrics.update(test_metric_collection)
             test_metrics.log(logger, 'test', epoch=num_epochs)
+            if wandb_run is not None and test_metrics.main.meters['total'].count:
+                wandb_run.log(
+                    {
+                        'test_loss': float(test_metrics.main.meters['total'].avg),
+                        'epoch': num_epochs,
+                    },
+                    step=num_epochs,
+                )
+
+    if best_epoch is None:
+        best_epoch = start_epoch + num_epochs - 1
+
+    summary_train_loss = float(train_metrics.components['total'].value)
+    summary_val_loss = float(best_val) if best_val is not None else None
+    summary_test_loss = (
+        float(test_metrics.main.meters['total'].avg)
+        if test_metrics is not None and test_metrics.main.meters['total'].count
+        else None
+    )
+    summary_initial_val = (
+        float(initial_val_loss) if initial_val_loss is not None else None
+    )
+
+    if wandb_run is not None:
+        wandb_run.finish()
 
     return {
-        'train_loss': train_metrics.components['total'].value,
-        'val_loss': best_val,
-        'test_loss': (
-            test_metrics.main.meters['total'].avg if test_metrics is not None else None
-        ),
+        'train_loss': summary_train_loss,
+        'val_loss': summary_val_loss,
+        'test_loss': summary_test_loss,
+        'initial_val_loss': summary_initial_val,
+        'lr_history': lr_history,
+        'best_epoch': best_epoch,
     }
 
 
