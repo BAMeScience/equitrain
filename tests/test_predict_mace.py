@@ -1,13 +1,16 @@
+from pathlib import Path
+
 from equitrain import get_args_parser_predict, predict
 from equitrain.utility_test import MaceWrapper
 
 
-def test_mace_predict():
-    args = get_args_parser_predict().parse_args()
+def test_mace_predict(mace_model_path):
+    args = get_args_parser_predict().parse_args([])
 
-    args.predict_file = 'data/valid.h5'
+    data_dir = Path(__file__).with_name('data')
+    args.predict_file = str(data_dir / 'valid.h5')
     args.batch_size = 5
-    args.model = MaceWrapper(args)
+    args.model = MaceWrapper(args, filename_model=mace_model_path)
 
     energy_pred, forces_pred, stress_pred = predict(args)
 

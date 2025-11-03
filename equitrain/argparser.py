@@ -61,6 +61,13 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
 
 
 def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--backend',
+        help='Backend to use for model loading and training [torch, jax]',
+        choices=['torch', 'jax'],
+        type=str,
+        default='torch',
+    )
     parser.add_argument('--model', help='Path to a model file', type=str, default=None)
     parser.add_argument(
         '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
@@ -597,6 +604,63 @@ class ArgumentError(ValueError):
     """Custom exception raised when invalid or missing argument is present."""
 
     pass
+
+
+def validate_training_args(
+    args,
+    backend_name: str,
+    *,
+    require_validation_file: bool = True,
+) -> None:
+    """Backend-agnostic validation of mandatory training arguments."""
+
+    check_args_complete(args, 'train')
+
+    missing: list[str] = []
+    if getattr(args, 'train_file', None) is None:
+        missing.append('--train-file')
+    if require_validation_file and getattr(args, 'valid_file', None) is None:
+        missing.append('--valid-file')
+    if getattr(args, 'output_dir', None) is None:
+        missing.append('--output-dir')
+    if getattr(args, 'model', None) is None:
+        missing.append('--model')
+
+    if missing:
+        raise ArgumentError(
+            f'{backend_name} backend requires the following arguments: {", ".join(missing)}'
+        )
+
+    _ensure_losses_defined(args, backend_name)
+
+
+def validate_evaluate_args(args, backend_name: str) -> None:
+    """Backend-agnostic validation for evaluation scripts."""
+
+    check_args_complete(args, 'evaluate')
+
+    missing: list[str] = []
+    if getattr(args, 'test_file', None) is None:
+        missing.append('--test-file')
+    if getattr(args, 'model', None) is None:
+        missing.append('--model')
+
+    if missing:
+        raise ArgumentError(
+            f'{backend_name} backend requires the following arguments: {", ".join(missing)}'
+        )
+
+    _ensure_losses_defined(args, backend_name)
+
+
+def _ensure_losses_defined(args, backend_name: str) -> None:
+    energy = getattr(args, 'energy_weight', 0.0) or 0.0
+    forces = getattr(args, 'forces_weight', 0.0) or 0.0
+    stress = getattr(args, 'stress_weight', 0.0) or 0.0
+    if energy == 0.0 and forces == 0.0 and stress == 0.0:
+        raise ArgumentError(
+            f'{backend_name} backend requires at least one non-zero loss weight.'
+        )
 
 
 class ArgsFormatter:

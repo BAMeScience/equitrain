@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import contextmanager
+from pathlib import Path
 
 
 class FileLogger:
@@ -87,3 +88,25 @@ class FileLogger:
         for handler in self.logger.handlers:
             handler.close()
         self.logger.handlers.clear()
+
+
+def ensure_output_dir(path: str | None) -> None:
+    if path:
+        Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def init_logger(
+    args,
+    *,
+    backend_name: str,
+    enable_logging: bool,
+    log_to_file: bool,
+    output_dir: str | None,
+) -> FileLogger:
+    return FileLogger(
+        enable_logging=enable_logging,
+        log_to_file=log_to_file,
+        output_dir=output_dir,
+        logger_name=f'Equitrain[{backend_name}]',
+        verbosity=getattr(args, 'verbose', 0),
+    )

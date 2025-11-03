@@ -7,6 +7,7 @@ Equitrain is an open-source software package designed to simplify the training a
 ## Key Features
 
 - **Unified Framework**: Train and fine-tune MLIPs using a consistent interface.
+- **Flexible Backends**: Parity-tested Torch and JAX backends that share schedulers, EMA, and fine-tuning workflows.
 - **Flexible Model Wrappers**: Support for different MLIP architectures through model-specific wrappers.
 - **Efficient Preprocessing**: Automated preprocessing with options for computing statistics and managing data.
 - **GPU/Node Scalability**: Seamless integration with multi-GPU and multi-node environments using `accelerate`.
@@ -109,6 +110,8 @@ equitrain-preprocess \
     --r-max 4.5
 ```
 
+The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed.
+
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
 
@@ -176,6 +179,20 @@ if __name__ == "__main__":
     test_train_mace()
 ```
 
+#### Running the JAX backend
+
+The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle exported via `mace_torch2jax` or the new fine-tuning utilities:
+
+```bash
+equitrain -v \
+    --backend jax \
+    --model path/to/jax_bundle \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir result-jax \
+    --epochs 5
+```
+
 ---
 
 ### 3. Making Predictions
@@ -204,6 +221,20 @@ def test_mace_predict():
 if __name__ == "__main__":
     test_mace_predict()
 ```
+
+---
+
+### JAX Backend Multi-Device Notes
+
+- When the JAX backend detects more than one local accelerator, it automatically switches to a multi-device (`pmap`) execution. In that mode the training and evaluation batch size must be divisible by `jax.local_device_count()` so that each device processes an identical number of graphs.
+- On single-device machines no extra configuration is required; the backend falls back to the same single-device behaviour that existing scripts expect.
+
+---
+
+### Fine-Tuning with Delta Wrappers
+
+- Additive delta wrappers are available for both backends via `equitrain.finetune`. The Torch helper (`DeltaFineTuneWrapper`) freezes the base model and exposes only the residual parameters for optimisation. The JAX helper (`wrap_with_deltas` / `ensure_delta_params`) provides the same behaviour for Flax modules.
+- These utilities power the fine-tuning tests and are ready to be imported in user scripts, enabling LoRA-style workflows without modifying the core training loops.
 
 ---
 
