@@ -110,6 +110,8 @@ equitrain-preprocess \
     --r-max 4.5
 ```
 
+The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed.
+
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
 

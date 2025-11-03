@@ -1,5 +1,6 @@
 import os
 import random
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -9,14 +10,25 @@ from equitrain.argparser import ArgumentError, check_args_complete
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_torch import statistics as torch_statistics
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
+from equitrain.data.format_lmdb import convert_lmdb_to_hdf5
 from equitrain.data.format_xyz import XYZReader
 from equitrain.data.statistics_data import Statistics, get_atomic_energies
 from equitrain.logger import FileLogger
 
 
-def _convert_xyz_to_hdf5(
+def _collect_atomic_numbers(filename_hdf5: Path) -> AtomicNumberTable | None:
+    with HDF5Dataset(filename_hdf5, 'r') as dataset:
+        if len(dataset) == 0:
+            return None
+        numbers: set[int] = set()
+        for idx in range(len(dataset)):
+            numbers.update(int(z) for z in dataset[idx].get_atomic_numbers())
+    return AtomicNumberTable(sorted(numbers))
+
+
+def _convert_to_hdf5(
     args,
-    filename_xyz,
+    source_filename,
     filename_hdf5,
     extract_atomic_numbers=False,
     extract_atomic_energies=False,
@@ -24,25 +36,43 @@ def _convert_xyz_to_hdf5(
     atomic_numbers = None
     atomic_energies = None
 
-    reader = XYZReader(
-        filename=filename_xyz,
-        energy_key=args.energy_key,
-        forces_key=args.forces_key,
-        stress_key=args.stress_key,
-        extract_atomic_numbers=extract_atomic_numbers,
-        extract_atomic_energies=extract_atomic_energies,
-    )
+    source_path = Path(source_filename)
+    target_path = Path(filename_hdf5)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Open HDF5 file in write mode
-    with HDF5Dataset(filename_hdf5, 'w') as file:
-        for i, config in enumerate(reader):
-            file[i] = config
+    lower_name = source_path.name.lower()
+    if lower_name.endswith('.xyz') or lower_name.endswith('.xyz.gz'):
+        reader = XYZReader(
+            filename=source_path,
+            energy_key=args.energy_key,
+            forces_key=args.forces_key,
+            stress_key=args.stress_key,
+            extract_atomic_numbers=extract_atomic_numbers,
+            extract_atomic_energies=extract_atomic_energies,
+        )
+        with HDF5Dataset(target_path, 'w') as file:
+            for i, config in enumerate(reader):
+                file[i] = config
+        if extract_atomic_numbers:
+            atomic_numbers = reader.atomic_numbers
+        if extract_atomic_energies:
+            atomic_energies = reader.atomic_energies
 
-    if extract_atomic_numbers:
-        atomic_numbers = reader.atomic_numbers
+    elif lower_name.endswith('.lmdb') or lower_name.endswith('.aselmdb'):
+        convert_lmdb_to_hdf5(
+            source_path, target_path, overwrite=True, show_progress=False
+        )
+        if extract_atomic_numbers:
+            atomic_numbers = _collect_atomic_numbers(target_path)
 
-    if extract_atomic_energies:
-        atomic_energies = reader.atomic_energies
+    elif lower_name.endswith('.h5') or lower_name.endswith('.hdf5'):
+        if source_path.resolve() != target_path.resolve():
+            shutil.copyfile(source_path, target_path)
+        if extract_atomic_numbers:
+            atomic_numbers = _collect_atomic_numbers(target_path)
+
+    else:
+        raise ArgumentError(f'Unsupported dataset format: {source_filename}')
 
     return atomic_numbers, atomic_energies
 
@@ -95,7 +125,7 @@ def _preprocess(args):
 
         else:
             logger.log(1, 'Converting train file')
-            atomic_numbers, atomic_energies = _convert_xyz_to_hdf5(
+            atomic_numbers, atomic_energies = _convert_to_hdf5(
                 args,
                 args.train_file,
                 filename_train,
@@ -120,7 +150,7 @@ def _preprocess(args):
 
         else:
             logger.log(1, 'Converting valid file')
-            _convert_xyz_to_hdf5(args, args.valid_file, filename_valid)
+            _convert_to_hdf5(args, args.valid_file, filename_valid)
 
     # Convert test file
     if args.test_file:
@@ -129,7 +159,7 @@ def _preprocess(args):
 
         else:
             logger.log(1, 'Converting test file')
-            _convert_xyz_to_hdf5(args, args.test_file, filename_test)
+            _convert_to_hdf5(args, args.test_file, filename_test)
 
     if Path(filename_train).exists() and args.compute_statistics:
         logger.log(1, 'Computing statistics')
