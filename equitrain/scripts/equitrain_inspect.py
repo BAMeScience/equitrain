@@ -3,7 +3,7 @@ import sys
 from tabulate import tabulate
 
 from equitrain import check_args_complete, get_args_parser_inspect
-from equitrain.model import get_model
+from equitrain.backends.torch_model import get_model
 
 
 # %%

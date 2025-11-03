@@ -2,10 +2,10 @@ import sys
 
 from equitrain import check_args_complete, get_args_parser_export
 from equitrain.argparser import ArgsFormatter
+from equitrain.backends.torch_model import get_model
 from equitrain.backends.torch_wrappers import AbstractWrapper
 from equitrain.checkpoint import load_checkpoint, save_checkpoint
 from equitrain.logger import FileLogger
-from equitrain.model import get_model
 
 
 # %%

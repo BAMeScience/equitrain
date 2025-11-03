@@ -8,11 +8,11 @@ from tqdm import tqdm
 from equitrain.argparser import ArgsFormatter, get_loss_monitor, validate_evaluate_args
 from equitrain.data.backend_torch.loaders import get_dataloader
 from equitrain.logger import init_logger
-from equitrain.model import get_model
 
 from .torch_loss import LossCollection
 from .torch_loss_fn import LossFnCollection
 from .torch_loss_metrics import LossMetrics
+from .torch_model import get_model
 from .torch_utils import set_dtype
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
