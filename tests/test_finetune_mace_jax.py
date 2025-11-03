@@ -40,13 +40,21 @@ from equitrain.backends.jax_utils import (
     ModelBundle,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
 from equitrain.backends.torch_checkpoint import (
     load_model_state as load_torch_model_state,
 )
+from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
-from tests.test_finetune_mace import FinetuneMaceWrapper as TorchFinetuneWrapper
+from equitrain.finetune.delta_jax import (
+    DeltaFineTuneModule,
+    ensure_delta_params,
+    wrap_with_deltas,
+)
+from equitrain.finetune.delta_torch import (
+    DeltaFineTuneWrapper as TorchDeltaFineTuneWrapper,
+)
 from tests.test_train_mace_jax import (
     _build_structures as _build_match_structures,
     _write_dataset as _write_match_dataset,
@@ -73,57 +81,6 @@ _PARITY_STEPS = 64
 def _cleanup_path(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
-
-
-class _DeltaWrapperModule:
-    def __init__(self, inner_module):
-        self._inner = inner_module
-
-    def init(self, rng, template):
-        base_vars = self._inner.init(rng, template)
-        base_vars = flax_core.unfreeze(base_vars)
-        params_tree = base_vars.pop('params', {})
-        delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), params_tree)
-        base_vars['params'] = {'delta': delta_tree}
-        base_vars['base_params'] = params_tree
-        return flax_core.freeze(base_vars)
-
-    def apply(self, variables, *args, **kwargs):
-        params = variables.get('params', {})
-        base_tree = variables.get('base_params', {})
-        if base_tree and 'delta' in params:
-            base_tree = jtu.tree_map(jax.lax.stop_gradient, base_tree)
-            combined = jtu.tree_map(lambda b, d: b + d, base_tree, params['delta'])
-            actual_vars = flax_core.freeze({'params': combined})
-            return self._inner.apply(actual_vars, *args, **kwargs)
-        return self._inner.apply(variables, *args, **kwargs)
-
-
-def _ensure_delta_params(variables: flax_core.FrozenDict) -> flax_core.FrozenDict:
-    unfrozen = flax_core.unfreeze(variables)
-    params_tree = unfrozen.get('params')
-
-    if params_tree is None:
-        return flax_core.freeze(unfrozen)
-
-    if 'base' in params_tree and 'delta' in params_tree:
-        base_tree = params_tree['base']
-        delta_tree = params_tree['delta']
-        unfrozen['params'] = {'delta': delta_tree}
-        unfrozen['base_params'] = base_tree
-        return flax_core.freeze(unfrozen)
-
-    if 'delta' in params_tree:
-        if 'base_params' not in unfrozen:
-            base_shape = jtu.tree_map(lambda x: jnp.zeros_like(x), params_tree['delta'])
-            unfrozen['base_params'] = base_shape
-        return flax_core.freeze(unfrozen)
-
-    base_tree = params_tree
-    delta_tree = jtu.tree_map(lambda x: jnp.zeros_like(x), base_tree)
-    unfrozen['params'] = {'delta': delta_tree}
-    unfrozen['base_params'] = base_tree
-    return flax_core.freeze(unfrozen)
 
 
 def _init_common_args(
@@ -174,7 +131,8 @@ def _build_torch_args(
     )
     args.backend = 'torch'
     args.opt = 'momentum'
-    args.model = TorchFinetuneWrapper(args, filename_model=mace_model_path)
+    base_model = TorchMaceWrapper(args, filename_model=mace_model_path)
+    args.model = TorchDeltaFineTuneWrapper(base_model)
     return args
 
 
@@ -209,7 +167,9 @@ def _predict_torch_energy(model, structures: list[Atoms]) -> np.ndarray:
         return model(batch)['energy'].detach().cpu().numpy()
 
 
-def _structures_to_jax_input(structures: list[Atoms], wrapper: TorchFinetuneWrapper):
+def _structures_to_jax_input(
+    structures: list[Atoms], wrapper: TorchDeltaFineTuneWrapper
+):
     graphs = _make_jax_graph(structures, wrapper)
     return graph_to_data(graphs, num_species=len(wrapper.atomic_numbers))
 
@@ -255,7 +215,7 @@ def _patch_jax_loader_for_deltas():
         jax_utils_module.set_jax_dtype(dtype)
 
         base_module = mace_torch2jax._build_jax_model(config_for_build)
-        wrapped_module = _DeltaWrapperModule(base_module)
+        wrapped_module = wrap_with_deltas(base_module)
         template = mace_torch2jax._prepare_template_data(config_for_build)
         params_bytes = Path(params_path).read_bytes()
 
@@ -268,7 +228,7 @@ def _patch_jax_loader_for_deltas():
 
         return ModelBundle(
             config=config_data,
-            params=_ensure_delta_params(loaded),
+            params=ensure_delta_params(loaded),
             module=wrapped_module,
         )
 
@@ -309,7 +269,7 @@ def _find_best_checkpoint_dir(base_dir: Path) -> Path:
     return best_dir
 
 
-def _make_torch_batch(structures: list[Atoms], wrapper: TorchFinetuneWrapper):
+def _make_torch_batch(structures: list[Atoms], wrapper: TorchDeltaFineTuneWrapper):
     data_list = []
     for atoms in structures:
         config = config_from_atoms(atoms)
@@ -332,7 +292,7 @@ def _make_torch_batch(structures: list[Atoms], wrapper: TorchFinetuneWrapper):
     return batch
 
 
-def _make_jax_graph(structures: list[Atoms], wrapper: TorchFinetuneWrapper):
+def _make_jax_graph(structures: list[Atoms], wrapper: TorchDeltaFineTuneWrapper):
     z_table = JaxAtomicNumberTable(tuple(int(z) for z in list(wrapper.atomic_numbers)))
     graphs = []
     for atoms in structures:

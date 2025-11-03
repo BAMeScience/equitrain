@@ -154,7 +154,9 @@ def _build_train_functions(
         grad_step_fn = jax.pmap(grad_step, axis_name='device', in_axes=(0, 0))
 
         def apply_updates(state: TrainState, grads, ema_factor):
-            updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
+            updates, new_opt_state = optimizer.update(
+                grads, state.opt_state, state.params
+            )
             new_params = optax.apply_updates(state.params, updates)
             if use_ema and state.ema_params is not None:
                 coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
@@ -195,7 +197,9 @@ def _build_train_functions(
             )
         else:
             new_ema = state.ema_params
-        return TrainState(params=new_params, opt_state=new_opt_state, ema_params=new_ema)
+        return TrainState(
+            params=new_params, opt_state=new_opt_state, ema_params=new_ema
+        )
 
     return jax.jit(grad_step), jax.jit(apply_updates)
 
@@ -310,14 +314,18 @@ def _run_train_epoch(
 
         if mask_tree is not None:
             restored_params = jtu.tree_map(
-                lambda new_val, old_val, mask_val: jnp.where(mask_val, new_val, old_val),
+                lambda new_val, old_val, mask_val: jnp.where(
+                    mask_val, new_val, old_val
+                ),
                 state.params,
                 params_before,
                 mask_tree,
             )
             if use_ema and state.ema_params is not None and ema_before is not None:
                 restored_ema = jtu.tree_map(
-                    lambda new_val, old_val, mask_val: jnp.where(mask_val, new_val, old_val),
+                    lambda new_val, old_val, mask_val: jnp.where(
+                        mask_val, new_val, old_val
+                    ),
                     state.ema_params,
                     ema_before,
                     mask_tree,
@@ -357,7 +365,9 @@ def _run_train_epoch(
 
         if need_step_metrics and step_metrics.main.meters['total'].count:
             step_duration = time.perf_counter() - step_start
-            length = total_steps or (max_steps if max_steps is not None else step_index + 1)
+            length = total_steps or (
+                max_steps if max_steps is not None else step_index + 1
+            )
             step_metrics.log_step(
                 logger,
                 epoch=epoch,

@@ -49,7 +49,11 @@ class GraphDataLoader:
             batch_indices = indices[start : start + self._n_graph]
             batch_graphs = [self._graphs[i] for i in batch_indices]
 
-            if self._n_graph == 1 and self._max_nodes_per_batch is None and self._max_edges_per_batch is None:
+            if (
+                self._n_graph == 1
+                and self._max_nodes_per_batch is None
+                and self._max_edges_per_batch is None
+            ):
                 yield batch_graphs[0]
                 continue
 
@@ -80,8 +84,14 @@ class GraphDataLoader:
             edges = int(graph.n_edge.sum())
 
             if self._drop_oversized and (
-                (self._max_nodes_per_batch is not None and nodes > self._max_nodes_per_batch)
-                or (self._max_edges_per_batch is not None and edges > self._max_edges_per_batch)
+                (
+                    self._max_nodes_per_batch is not None
+                    and nodes > self._max_nodes_per_batch
+                )
+                or (
+                    self._max_edges_per_batch is not None
+                    and edges > self._max_edges_per_batch
+                )
             ):
                 continue
 
@@ -103,9 +113,11 @@ class GraphDataLoader:
                 current_edges = 0
 
             if (
-                self._max_nodes_per_batch is not None and nodes > self._max_nodes_per_batch
+                self._max_nodes_per_batch is not None
+                and nodes > self._max_nodes_per_batch
             ) or (
-                self._max_edges_per_batch is not None and edges > self._max_edges_per_batch
+                self._max_edges_per_batch is not None
+                and edges > self._max_edges_per_batch
             ):
                 micro_batches.append(self._finalize_batch([graph]))
                 continue
@@ -120,7 +132,6 @@ class GraphDataLoader:
         return micro_batches
 
     def _finalize_batch(self, graphs: list[jraph.GraphsTuple]) -> jraph.GraphsTuple:
-
         if not graphs:
             raise ValueError('Cannot finalize an empty batch of graphs.')
 

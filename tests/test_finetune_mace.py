@@ -1,60 +1,11 @@
-from contextlib import contextmanager
 from pathlib import Path
 
 import torch
 
 from equitrain import get_args_parser_train, train
 from equitrain.checkpoint import load_checkpoint
+from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 from equitrain.utility_test import MaceWrapper
-
-
-class FinetuneMaceWrapper(MaceWrapper):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        for param in self.model.parameters():
-            param.requires_grad = False  # Freeze base params
-
-        # Create trainable deltas with same shapes
-        self.deltas = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros_like(p)) for p in self.model.parameters()]
-        )
-
-    def parameters(self, recurse: bool = True):
-        """
-        Override parameters() to return only the deltas (trainable parameters).
-        """
-        return iter(self.deltas)
-
-    def named_parameters(self, prefix: str = '', recurse: bool = True):
-        """
-        Override named_parameters() to return only the deltas (trainable parameters).
-        """
-        # Use the parameter names of the deltas to mimic the original parameter names.
-        return iter(
-            [
-                (prefix + name, delta)
-                for name, delta in zip(self.model._modules.keys(), self.deltas)
-            ]
-        )
-
-    @contextmanager
-    def apply_deltas(self):
-        original = [p.detach().clone() for p in self.model.parameters()]
-        for p, d in zip(self.model.parameters(), self.deltas):
-            p.add_(d)
-        yield
-        with torch.no_grad():
-            for p, o in zip(self.model.parameters(), original):
-                p.data.copy_(o)
-
-    def forward(self, *args):
-        with self.apply_deltas():
-            return super().forward(*args)
-
-    def export(self, filename):
-        with self.apply_deltas():
-            torch.save(self.model, filename)
 
 
 def get_params_and_deltas(model):
@@ -62,7 +13,7 @@ def get_params_and_deltas(model):
     Get the parameters and deltas of the model.
     """
     params = [param.detach().cpu().clone() for param in model.model.parameters()]
-    deltas = [delta.detach().cpu().clone() for delta in model.parameters()]
+    deltas = [delta.detach().cpu().clone() for delta in model.delta_parameters()]
     return params, deltas
 
 
@@ -88,7 +39,8 @@ def test_finetune_mace(tmp_path, mace_model_path):
     args.test_file = None
     output_dir = tmp_path / 'finetune_mace'
     args.output_dir = str(output_dir)
-    args.model = FinetuneMaceWrapper(args, filename_model=mace_model_path)
+    base_model = MaceWrapper(args, filename_model=mace_model_path)
+    args.model = DeltaFineTuneWrapper(base_model)
 
     args.epochs = 1
     args.batch_size = 1
