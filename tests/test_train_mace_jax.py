@@ -14,8 +14,7 @@ from ase import Atoms
 from ase.build import bulk
 from ase.calculators.singlepoint import SinglePointCalculator
 from flax import core as flax_core
-from flax import serialization
-from flax import traverse_util
+from flax import serialization, traverse_util
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
 from mace.tools import torch_geometric
@@ -161,9 +160,9 @@ def _sanitize_config(config: dict) -> dict:
         module = getattr(value, '__module__', '')
         if module.startswith(('e3nn', 'e3nn_jax')):
             return str(value)
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return [_convert(v) for v in value]
-        if isinstance(value, (bool, int, float, str)) or value is None:
+        if isinstance(value, bool | int | float | str) or value is None:
             return value
         if callable(value):
             return getattr(value, '__name__', str(value))
