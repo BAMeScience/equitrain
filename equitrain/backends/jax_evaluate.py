@@ -68,6 +68,7 @@ def evaluate(args):
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        drop=getattr(args, 'batch_drop', False),
     )
 
     wrapper = JaxMaceWrapper(

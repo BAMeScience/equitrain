@@ -129,20 +129,7 @@ def _prepare_sharded_batch(graph, num_devices: int):
     )
 
 
-def _collection_from_aux(aux) -> JaxLossCollection:
-    collection = JaxLossCollection()
-    update_collection_from_aux(collection, aux)
-    return collection
-
-
-def _metrics_from_aux(aux, metric_settings) -> LossMetrics:
-    collection = _collection_from_aux(aux)
-    metrics = LossMetrics(**metric_settings)
-    metrics.update(collection)
-    return metrics
-
-
-def _build_train_step(
+def _build_train_functions(
     loss_fn,
     optimizer,
     *,
@@ -154,15 +141,20 @@ def _build_train_step(
 
     if multi_device:
 
-        def step(state: TrainState, batch, ema_factor):
+        def grad_step(params, batch):
             (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, batch
+                params, batch
             )
             grads = _sanitize_grads(grads, clip_value)
             grads = jax.lax.pmean(grads, axis_name='device')
-            updates, new_opt_state = optimizer.update(
-                grads, state.opt_state, state.params
-            )
+            loss = jax.lax.pmean(loss, axis_name='device')
+            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
+            return loss, aux, grads
+
+        grad_step_fn = jax.pmap(grad_step, axis_name='device', in_axes=(0, 0))
+
+        def apply_updates(state: TrainState, grads, ema_factor):
+            updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
             new_params = optax.apply_updates(state.params, updates)
             if use_ema and state.ema_params is not None:
                 coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
@@ -173,23 +165,25 @@ def _build_train_step(
                 )
             else:
                 new_ema = state.ema_params
-            loss = jax.lax.pmean(loss, axis_name='device')
-            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
             return (
                 TrainState(
                     params=new_params, opt_state=new_opt_state, ema_params=new_ema
                 ),
-                loss,
-                aux,
             )
 
-        return jax.pmap(step, axis_name='device', in_axes=(0, 0, None))
-
-    def step(state: TrainState, batch, ema_factor):
-        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-            state.params, batch
+        apply_updates_fn = jax.pmap(
+            apply_updates,
+            axis_name='device',
+            in_axes=(0, 0, None),
         )
+        return grad_step_fn, apply_updates_fn
+
+    def grad_step(params, batch):
+        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, batch)
         grads = _sanitize_grads(grads, clip_value)
+        return loss, aux, grads
+
+    def apply_updates(state: TrainState, grads, ema_factor):
         updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
         new_params = optax.apply_updates(state.params, updates)
         if use_ema and state.ema_params is not None:
@@ -201,13 +195,9 @@ def _build_train_step(
             )
         else:
             new_ema = state.ema_params
-        return (
-            TrainState(params=new_params, opt_state=new_opt_state, ema_params=new_ema),
-            loss,
-            aux,
-        )
+        return TrainState(params=new_params, opt_state=new_opt_state, ema_params=new_ema)
 
-    return jax.jit(step)
+    return jax.jit(grad_step), jax.jit(apply_updates)
 
 
 def _build_eval_step(loss_fn, *, multi_device: bool):
@@ -227,7 +217,8 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
 def _run_train_epoch(
     state: TrainState,
     train_loader,
-    train_step_fn,
+    grad_step_fn,
+    apply_updates_fn,
     *,
     max_steps,
     multi_device: bool,
@@ -239,6 +230,7 @@ def _run_train_epoch(
     epoch: int,
     metric_settings,
     learning_rate: float,
+    mask,
 ):
     loss_collection = JaxLossCollection()
     ema_count = ema_count_start
@@ -251,6 +243,10 @@ def _run_train_epoch(
             total_steps = min(total_steps, max_steps)
         else:
             total_steps = max_steps
+
+    mask_tree = None
+    if mask is not None:
+        mask_tree = jtu.tree_map(lambda v: jnp.asarray(v, dtype=jnp.bool_), mask)
 
     use_tqdm = bool(getattr(args, 'tqdm', False) and tqdm is not None)
     iterator = enumerate(train_loader)
@@ -268,12 +264,21 @@ def _run_train_epoch(
         if max_steps is not None and step_index >= max_steps:
             break
 
+        if isinstance(graph, list):
+            micro_batches = [g for g in graph if g is not None]
+        else:
+            micro_batches = [graph]
+
+        if not micro_batches:
+            continue
+
+        micro_count = len(micro_batches)
+        inv_micro = 1.0 / float(micro_count)
+
         step_start = time.perf_counter()
 
-        if multi_device:
-            batch = _prepare_sharded_batch(graph, device_count)
-        else:
-            batch = _prepare_single_batch(graph)
+        params_before = state.params
+        ema_before = state.ema_params
 
         ema_factor = 0.0
         if use_ema and ema_decay is not None:
@@ -281,9 +286,49 @@ def _run_train_epoch(
             warmup_decay = (1.0 + ema_count) / (10.0 + ema_count)
             ema_factor = float(min(float(ema_decay), warmup_decay))
 
-        state, _, aux = train_step_fn(state, batch, ema_factor)
-        aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
-        update_collection_from_aux(loss_collection, aux)
+        accum_grads = jtu.tree_map(lambda x: jnp.zeros_like(x), state.params)
+        macro_collection = JaxLossCollection()
+
+        for micro_batch in micro_batches:
+            if multi_device:
+                prepared_batch = _prepare_sharded_batch(micro_batch, device_count)
+                _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
+                grads = jtu.tree_map(lambda g: g * inv_micro, grads)
+                accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
+                aux_host = _unreplicate(aux_dev)
+            else:
+                prepared_batch = _prepare_single_batch(micro_batch)
+                _, aux_val, grads = grad_step_fn(state.params, prepared_batch)
+                grads = jtu.tree_map(lambda g: g * inv_micro, grads)
+                accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
+                aux_host = jax.device_get(aux_val)
+
+            update_collection_from_aux(loss_collection, aux_host)
+            update_collection_from_aux(macro_collection, aux_host)
+
+        state = apply_updates_fn(state, accum_grads, ema_factor)
+
+        if mask_tree is not None:
+            restored_params = jtu.tree_map(
+                lambda new_val, old_val, mask_val: jnp.where(mask_val, new_val, old_val),
+                state.params,
+                params_before,
+                mask_tree,
+            )
+            if use_ema and state.ema_params is not None and ema_before is not None:
+                restored_ema = jtu.tree_map(
+                    lambda new_val, old_val, mask_val: jnp.where(mask_val, new_val, old_val),
+                    state.ema_params,
+                    ema_before,
+                    mask_tree,
+                )
+            else:
+                restored_ema = state.ema_params
+            state = TrainState(
+                params=restored_params,
+                opt_state=state.opt_state,
+                ema_params=restored_ema,
+            )
 
         print_freq = getattr(args, 'print_freq', None)
         verbose = getattr(args, 'verbose', 1)
@@ -297,16 +342,12 @@ def _run_train_epoch(
             )
         )
 
-        step_metrics = None
-        if use_tqdm or need_step_metrics:
-            step_metrics = _metrics_from_aux(aux, metric_settings)
+        step_metrics = LossMetrics(**metric_settings)
+        step_metrics.update(macro_collection)
 
         if progress is not None:
-            if (
-                step_metrics is not None
-                and step_metrics.main.meters['total'].count
-                and step_metrics.main.meters['total'].count > 0
-            ):
+            progress.update(1)
+            if step_metrics.main.meters['total'].count:
                 desc_loss = step_metrics.main.meters['total'].avg
                 progress.set_description(
                     f'Training (lr={learning_rate:.0e}, loss={desc_loss:.4g})'
@@ -314,7 +355,7 @@ def _run_train_epoch(
             else:
                 progress.set_description(f'Training (lr={learning_rate:.0e})')
 
-        if need_step_metrics and step_metrics is not None:
+        if need_step_metrics and step_metrics.main.meters['total'].count:
             step_duration = time.perf_counter() - step_start
             length = total_steps or (max_steps if max_steps is not None else step_index + 1)
             step_metrics.log_step(
@@ -350,17 +391,24 @@ def _run_eval_loop(
     for step_index, graph in enumerate(loader):
         if max_steps is not None and step_index >= max_steps:
             break
-
-        if multi_device:
-            batch = _prepare_sharded_batch(graph, device_count)
+        if isinstance(graph, list):
+            micro_batches = [g for g in graph if g is not None]
         else:
-            batch = _prepare_single_batch(graph)
+            micro_batches = [graph]
+        if not micro_batches:
+            continue
 
-        loss, aux = eval_step_fn(params, batch)
-        loss = _unreplicate(loss) if multi_device else jax.device_get(loss)
-        aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
-        update_collection_from_aux(loss_collection, aux)
-        mean_loss = float(loss)
+        for micro_batch in micro_batches:
+            if multi_device:
+                batch = _prepare_sharded_batch(micro_batch, device_count)
+            else:
+                batch = _prepare_single_batch(micro_batch)
+
+            loss, aux = eval_step_fn(params, batch)
+            loss = _unreplicate(loss) if multi_device else jax.device_get(loss)
+            aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
+            update_collection_from_aux(loss_collection, aux)
+            mean_loss = float(loss)
 
     if loss_collection.components['total'].count:
         mean_loss = loss_collection.components['total'].value
@@ -428,6 +476,7 @@ def train(args):
         shuffle=args.shuffle,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        drop=getattr(args, 'batch_drop', False),
         seed=train_seed,
     )
     valid_loader = build_loader(
@@ -436,6 +485,7 @@ def train(args):
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        drop=getattr(args, 'batch_drop', False),
         seed=train_seed,
     )
 
@@ -490,7 +540,7 @@ def train(args):
     train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
     valid_max_steps = _normalize_max_steps(getattr(args, 'valid_max_steps', None))
 
-    train_step_fn = _build_train_step(
+    grad_step_fn, apply_updates_fn = _build_train_functions(
         loss_fn,
         optimizer,
         grad_clip_value=grad_clip_value,
@@ -567,7 +617,8 @@ def train(args):
         train_state, train_metrics_collection, ema_count = _run_train_epoch(
             train_state,
             train_loader,
-            train_step_fn,
+            grad_step_fn,
+            apply_updates_fn,
             max_steps=train_max_steps,
             multi_device=multi_device,
             use_ema=use_ema,
@@ -578,6 +629,7 @@ def train(args):
             epoch=epoch,
             metric_settings=metric_settings,
             learning_rate=epoch_lr,
+            mask=mask,
         )
         epoch_time = time.perf_counter() - epoch_start_time
         last_train_metrics = train_metrics_collection
@@ -668,7 +720,7 @@ def train(args):
                 learning_rate=current_lr,
                 **optimizer_args,
             )
-            train_step_fn = _build_train_step(
+            grad_step_fn, apply_updates_fn = _build_train_functions(
                 loss_fn,
                 optimizer,
                 grad_clip_value=grad_clip_value,

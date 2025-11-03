@@ -20,9 +20,11 @@ def _make_graph(graph_id: int) -> jraph.GraphsTuple:
 
 def _collect_sequence(loader: GraphDataLoader) -> list[float]:
     sequence: list[float] = []
-    for graph in loader:
-        globals_array = np.asarray(graph.globals)
-        sequence.append(float(globals_array.reshape(-1)[0]))
+    for batch in loader:
+        graphs = batch if isinstance(batch, list) else (batch,)
+        for graph in graphs:
+            globals_array = np.asarray(graph.globals)
+            sequence.append(float(globals_array.reshape(-1)[0]))
     return sequence
 
 
