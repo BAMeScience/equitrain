@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -37,6 +37,11 @@ from .jax_optimizer import (
     optimizer_kwargs,
 )
 from .jax_scheduler import create_scheduler_controller
+
+try:  # pragma: no cover - tqdm is optional
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover
+    tqdm = None
 
 
 ensure_multiprocessing_spawn()
@@ -122,6 +127,19 @@ def _prepare_sharded_batch(graph, num_devices: int):
     return jtu.tree_map(
         _stack_or_none, *device_batches, is_leaf=lambda leaf: leaf is None
     )
+
+
+def _collection_from_aux(aux) -> JaxLossCollection:
+    collection = JaxLossCollection()
+    update_collection_from_aux(collection, aux)
+    return collection
+
+
+def _metrics_from_aux(aux, metric_settings) -> LossMetrics:
+    collection = _collection_from_aux(aux)
+    metrics = LossMetrics(**metric_settings)
+    metrics.update(collection)
+    return metrics
 
 
 def _build_train_step(
@@ -216,14 +234,41 @@ def _run_train_epoch(
     use_ema: bool,
     ema_decay: float | None,
     ema_count_start: int,
+    logger,
+    args,
+    epoch: int,
+    metric_settings,
+    learning_rate: float,
 ):
     loss_collection = JaxLossCollection()
     ema_count = ema_count_start
     device_count = jax.local_device_count() if multi_device else 1
+    total_steps = None
+    if hasattr(train_loader, '__len__'):
+        total_steps = len(train_loader)
+    if max_steps is not None:
+        if total_steps is not None:
+            total_steps = min(total_steps, max_steps)
+        else:
+            total_steps = max_steps
 
-    for step_index, graph in enumerate(train_loader):
+    use_tqdm = bool(getattr(args, 'tqdm', False) and tqdm is not None)
+    iterator = enumerate(train_loader)
+    progress = None
+    if use_tqdm:
+        progress = tqdm(
+            iterator,
+            total=total_steps,
+            disable=False,
+            desc='Training',
+        )
+        iterator = progress
+
+    for step_index, graph in iterator:
         if max_steps is not None and step_index >= max_steps:
             break
+
+        step_start = time.perf_counter()
 
         if multi_device:
             batch = _prepare_sharded_batch(graph, device_count)
@@ -239,6 +284,50 @@ def _run_train_epoch(
         state, _, aux = train_step_fn(state, batch, ema_factor)
         aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
         update_collection_from_aux(loss_collection, aux)
+
+        print_freq = getattr(args, 'print_freq', None)
+        verbose = getattr(args, 'verbose', 1)
+        need_step_metrics = (
+            verbose > 1
+            and print_freq
+            and print_freq > 0
+            and (
+                (step_index + 1) % print_freq == 0
+                or (total_steps is not None and step_index + 1 == total_steps)
+            )
+        )
+
+        step_metrics = None
+        if use_tqdm or need_step_metrics:
+            step_metrics = _metrics_from_aux(aux, metric_settings)
+
+        if progress is not None:
+            if (
+                step_metrics is not None
+                and step_metrics.main.meters['total'].count
+                and step_metrics.main.meters['total'].count > 0
+            ):
+                desc_loss = step_metrics.main.meters['total'].avg
+                progress.set_description(
+                    f'Training (lr={learning_rate:.0e}, loss={desc_loss:.4g})'
+                )
+            else:
+                progress.set_description(f'Training (lr={learning_rate:.0e})')
+
+        if need_step_metrics and step_metrics is not None:
+            step_duration = time.perf_counter() - step_start
+            length = total_steps or (max_steps if max_steps is not None else step_index + 1)
+            step_metrics.log_step(
+                logger,
+                epoch=epoch,
+                step=step_index + 1,
+                length=length,
+                time=step_duration,
+                lr=learning_rate,
+            )
+
+    if progress is not None:
+        progress.close()
 
     return state, loss_collection, ema_count
 
@@ -474,6 +563,7 @@ def train(args):
         epoch = start_epoch + epoch_offset
         epoch_start_time = time.perf_counter()
 
+        epoch_lr = scheduler_controller.current_lr
         train_state, train_metrics_collection, ema_count = _run_train_epoch(
             train_state,
             train_loader,
@@ -483,6 +573,11 @@ def train(args):
             use_ema=use_ema,
             ema_decay=ema_decay,
             ema_count_start=ema_count,
+            logger=logger,
+            args=args,
+            epoch=epoch,
+            metric_settings=metric_settings,
+            learning_rate=epoch_lr,
         )
         epoch_time = time.perf_counter() - epoch_start_time
         last_train_metrics = train_metrics_collection
@@ -506,8 +601,6 @@ def train(args):
             max_steps=valid_max_steps,
             multi_device=multi_device,
         )
-
-        epoch_lr = scheduler_controller.current_lr
 
         train_metric = LossMetrics(**metric_settings)
         train_metric.update(train_metrics_collection)
