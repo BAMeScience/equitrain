@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from .torch_wrappers import AbstractWrapper, MaceWrapper, SevennetWrapper
+from .torch_wrappers import AbstractWrapper, MaceWrapper, OrbWrapper, SevennetWrapper
 
 
 def get_model(args, logger=None):
@@ -21,6 +21,8 @@ def get_model(args, logger=None):
 
         if args.model_wrapper == 'mace':
             model = MaceWrapper(args, model)
+        if args.model_wrapper == 'orb':
+            model = OrbWrapper(args, model)
         if args.model_wrapper == 'sevennet':
             model = SevennetWrapper(args, model)
 

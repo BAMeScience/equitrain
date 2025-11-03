@@ -53,6 +53,10 @@ docu = [
   "pymdown-extensions",
   "mkdocs-click",
 ]
+orb = [
+  "orb-models>=3.0",  # ORB universal interatomic potentials
+  "cuml-cu11; sys_platform == 'linux'",  # Optional GPU acceleration for neighbor graphs
+]
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
@@ -136,7 +140,6 @@ line-ending = "auto"
 strict = false
 ignore_missing_imports = true
 follow_imports = "silent"
-no_strict_optional = true
 disable_error_code = "import, annotation-unchecked"
 
 [tool.setuptools.packages.find]

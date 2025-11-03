@@ -8,7 +8,7 @@ Equitrain is an open-source software package designed to simplify the training a
 
 - **Unified Framework**: Train and fine-tune MLIPs using a consistent interface.
 - **Flexible Backends**: Parity-tested Torch and JAX backends that share schedulers, EMA, and fine-tuning workflows.
-- **Flexible Model Wrappers**: Support for different MLIP architectures through model-specific wrappers.
+- **Flexible Model Wrappers**: Support for different MLIP architectures  (MACE, SevenNet, and ORB) through model-specific wrappers.
 - **Efficient Preprocessing**: Automated preprocessing with options for computing statistics and managing data.
 - **GPU/Node Scalability**: Seamless integration with multi-GPU and multi-node environments using `accelerate`.
 - **Extensive Resources**: Includes scripts for dataset preparation, initial model setup, and training workflows.
@@ -62,6 +62,8 @@ uv pip install -e '.[dev,docu]'
 * The `-e` flag makes sure to install the package in editable mode.
 * The `[dev]` optional dependencies install a set of packages used for formatting, typing, and testing.
 * The `[docu]` optional dependencies install the packages for launching the documentation page.
+* For specific model support, you can install additional dependencies:
+  * `[orb]` - Install ORB models and dependencies for universal interatomic potentials
 
 **Using `conda`**
 
@@ -144,12 +146,22 @@ Train a model using the prepared dataset and specify the MLIP wrapper:
 #### Command Line:
 
 ```bash
+# Training with MACE
 equitrain -v \
     --train-file data/train.h5 \
     --valid-file data/valid.h5 \
-    --output-dir result \
+    --output-dir result_mace \
     --model mace.model \
     --model-wrapper 'mace' \
+    --epochs 10 \
+    --tqdm
+
+# Training with ORB
+equitrain -v \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir result_orb \
+    --model-wrapper 'orb' \
     --epochs 10 \
     --tqdm
 ```
@@ -159,8 +171,9 @@ equitrain -v \
 
 ```python
 from equitrain import get_args_parser_train, train
-from equitrain.model_wrappers import MaceWrapper
+from equitrain.backends.torch_wrappers import MaceWrapper, OrbWrapper
 
+# Training with MACE
 def test_train_mace():
     args = get_args_parser_train().parse_args()
     args.train_file  = 'data/train.h5'
@@ -177,6 +190,7 @@ def test_train_mace():
 
 if __name__ == "__main__":
     test_train_mace()
+    # test_train_orb()
 ```
 
 #### Running the JAX backend
@@ -204,7 +218,7 @@ Use a trained model to make predictions on new data:
 
 ```python
 from equitrain import get_args_parser_predict, predict
-from equitrain.model_wrappers import MaceWrapper
+from equitrain.backends.torch_wrappers import MaceWrapper
 
 def test_mace_predict():
     args = get_args_parser_predict().parse_args()
