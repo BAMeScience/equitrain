@@ -96,15 +96,15 @@ def _sanitize_config(obj, _seen: set[int] | None = None):
     try:
         if obj is None:
             return None
-        if isinstance(obj, (str, int, float, bool)):
+        if isinstance(obj, str | int | float | bool):
             return obj
         if isinstance(obj, type):
             return obj.__name__
-        if isinstance(obj, (np.integer,)):
+        if isinstance(obj, np.integer):
             return int(obj)
-        if isinstance(obj, (np.floating,)):
+        if isinstance(obj, np.floating):
             return float(obj)
-        if isinstance(obj, (np.bool_,)):
+        if isinstance(obj, np.bool_):
             return bool(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -123,7 +123,7 @@ def _sanitize_config(obj, _seen: set[int] | None = None):
             return {
                 str(key): _sanitize_config(value, _seen) for key, value in obj.items()
             }
-        if isinstance(obj, Sequence) and not isinstance(obj, (bytes, bytearray)):
+        if isinstance(obj, Sequence) and not isinstance(obj, bytes | bytearray):
             return [_sanitize_config(item, _seen) for item in obj]
         return str(obj)
     finally:

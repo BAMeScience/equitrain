@@ -1,6 +1,6 @@
-import numpy as np
 import jax.numpy as jnp
 import jraph
+import numpy as np
 
 from equitrain.data.backend_jax.loaders import GraphDataLoader, build_loader
 

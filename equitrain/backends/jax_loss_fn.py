@@ -8,7 +8,6 @@ import jraph
 from equitrain.argparser import ArgumentError
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 
-
 ensure_multiprocessing_spawn()
 
 

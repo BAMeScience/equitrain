@@ -5,6 +5,7 @@ import h5py
 import numpy as np
 import torch
 from ase import Atoms
+from fairchem.core.datasets import AseDBDataset
 
 # ! these imports are broken!
 from equitrain.mace.data.utils import compute_average_E0s, compute_one_hot
@@ -16,7 +17,6 @@ from equitrain.mace.tools import (
     to_one_hot,
 )
 from equitrain.mace.tools.scatter import scatter_sum
-from fairchem.core.datasets import AseDBDataset
 
 
 # Convert LMDB data to ASE Atoms object

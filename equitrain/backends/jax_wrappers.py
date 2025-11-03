@@ -15,7 +15,6 @@ import numpy as np
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.data.atomic import AtomicNumberTable
 
-
 ensure_multiprocessing_spawn()
 
 
@@ -91,7 +90,7 @@ class MaceWrapper:
                 else atomic_energies.get(int(z))
                 for z in numbers
             ]
-        if isinstance(atomic_energies, (list, tuple, np.ndarray, jnp.ndarray)):
+        if isinstance(atomic_energies, list | tuple | np.ndarray | jnp.ndarray):
             return list(np.asarray(atomic_energies, dtype=float))
         return atomic_energies
 

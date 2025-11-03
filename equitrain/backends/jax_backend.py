@@ -5,11 +5,10 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import jraph
 import numpy as np
 import optax
-from flax import serialization
-from flax import struct
-import jraph
+from flax import serialization, struct
 from jax import tree_util as jtu
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
@@ -19,7 +18,6 @@ from equitrain.argparser import (
     validate_evaluate_args,
     validate_training_args,
 )
-from equitrain.logger import ensure_output_dir, init_logger
 from equitrain.backends import jax_checkpoint
 from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
@@ -32,6 +30,8 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from equitrain.logger import ensure_output_dir, init_logger
+
 from .jax_optimizer import (
     create_optimizer,
     optimizer_kwargs,
@@ -84,7 +84,7 @@ def _replicate_state(state: TrainState) -> TrainState:
 
 def _unreplicate(tree):
     host = jax.device_get(tree)
-    if isinstance(host, (list, tuple)) and len(host) == jax.local_device_count():
+    if isinstance(host, list | tuple) and len(host) == jax.local_device_count():
         return jtu.tree_map(lambda x: x[0], host)
     return host
 

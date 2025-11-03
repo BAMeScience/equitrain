@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Iterator, Tuple
+from collections.abc import Iterator
 
 import torch
 
@@ -41,7 +41,7 @@ class DeltaFineTuneWrapper(AbstractWrapper):
         # Create trainable delta parameters mirroring the base parameters.
         self._delta_params = torch.nn.ParameterDict()
         self._delta_entries: list[
-            Tuple[str, torch.nn.Parameter, torch.nn.Parameter]
+            tuple[str, torch.nn.Parameter, torch.nn.Parameter]
         ] = []
         for name, param in self.base_wrapper.named_parameters():
             delta = torch.nn.Parameter(torch.zeros_like(param))
@@ -54,7 +54,7 @@ class DeltaFineTuneWrapper(AbstractWrapper):
         """Iterate over the trainable delta parameters."""
         return iter(self._delta_params.values())
 
-    def named_delta_parameters(self) -> Iterator[Tuple[str, torch.nn.Parameter]]:
+    def named_delta_parameters(self) -> Iterator[tuple[str, torch.nn.Parameter]]:
         """Iterate over the named delta parameters using the original parameter names."""
         for name, _, delta in self._delta_entries:
             yield name, delta

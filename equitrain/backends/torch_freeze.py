@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def model_freeze_params(args, model, logger=None) -> None:

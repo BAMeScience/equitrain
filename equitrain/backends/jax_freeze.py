@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from flax import traverse_util
 from flax.core import frozen_dict

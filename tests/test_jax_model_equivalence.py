@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import warnings
+
+import jax
 import numpy as np
 import pytest
 import torch
-import jax
 from flax import serialization
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
@@ -12,7 +13,7 @@ from mace.tools import torch_geometric
 from mace.tools.scripts_utils import extract_config_mace_model
 from mace_jax.cli import mace_torch2jax
 
-from .conftest import _build_structures, _build_statistics, _create_args
+from .conftest import _build_statistics, _build_structures, _create_args
 
 
 def _make_batch(statistics: dict) -> torch_geometric.batch.Batch:

@@ -61,6 +61,8 @@ def _preprocess(args):
     if backend_name == 'torch':
         from equitrain.backends.torch_utils import (
             set_dtype as torch_set_dtype,
+        )
+        from equitrain.backends.torch_utils import (
             set_seeds as torch_set_seeds,
         )
 

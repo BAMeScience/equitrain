@@ -5,7 +5,6 @@ import jax.numpy as jnp
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import ArgsFormatter, validate_evaluate_args
-from equitrain.logger import init_logger
 from equitrain.backends.jax_backend import (
     _build_eval_step,
     _is_multi_device,
@@ -13,11 +12,11 @@ from equitrain.backends.jax_backend import (
 )
 from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
 from equitrain.backends.jax_loss_metrics import LossMetrics
+from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import load_model_bundle
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
-
+from equitrain.logger import init_logger
 
 ensure_multiprocessing_spawn()
 

@@ -14,7 +14,6 @@ from mace_jax.cli import mace_torch2jax
 from equitrain.argparser import ArgumentError
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 
-
 ensure_multiprocessing_spawn()
 
 DEFAULT_CONFIG_NAME = 'config.json'

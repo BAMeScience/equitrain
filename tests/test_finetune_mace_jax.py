@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import warnings
-import shutil
 import re
+import shutil
+import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
@@ -18,8 +18,7 @@ import torch
 import torch.nn.functional as F
 from ase import Atoms
 from flax import core as flax_core
-from flax import serialization
-from flax import traverse_util
+from flax import serialization, traverse_util
 from mace.data.atomic_data import AtomicData
 from mace.data.utils import config_from_atoms
 from mace.tools import torch_geometric
@@ -36,11 +35,10 @@ from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
-    load_model_bundle,
     ModelBundle,
+    load_model_bundle,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
 from equitrain.backends.torch_checkpoint import (
     load_model_state as load_torch_model_state,
 )
@@ -55,8 +53,11 @@ from equitrain.finetune.delta_jax import (
 from equitrain.finetune.delta_torch import (
     DeltaFineTuneWrapper as TorchDeltaFineTuneWrapper,
 )
+from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
 from tests.test_train_mace_jax import (
     _build_structures as _build_match_structures,
+)
+from tests.test_train_mace_jax import (
     _write_dataset as _write_match_dataset,
 )
 
@@ -323,9 +324,9 @@ def _sanitize_config(config: dict) -> dict:
         module = getattr(value, '__module__', '')
         if module.startswith(('e3nn', 'e3nn_jax')):
             return str(value)
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return [_convert(v) for v in value]
-        if isinstance(value, (bool, int, float, str)) or value is None:
+        if isinstance(value, bool | int | float | str) or value is None:
             return value
         if callable(value):
             return getattr(value, '__name__', str(value))
@@ -561,8 +562,8 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
     cleanup_paths: list[Path] = []
     try:
         data_dir = Path(__file__).with_name('data')
-        train_file = data_dir / 'train.h5'
-        valid_file = data_dir / 'valid.h5'
+        data_dir / 'train.h5'
+        data_dir / 'valid.h5'
         parity_structures = _build_match_structures()
         train_subset = tmp_path / 'train_subset.h5'
         valid_subset = tmp_path / 'valid_subset.h5'
@@ -676,8 +677,8 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
     cleanup_paths: list[Path] = []
     try:
         data_dir = Path(__file__).with_name('data')
-        train_file = data_dir / 'train.h5'
-        valid_file = data_dir / 'valid.h5'
+        data_dir / 'train.h5'
+        data_dir / 'valid.h5'
         parity_structures = _build_match_structures()
         train_subset = tmp_path / 'train_subset.h5'
         valid_subset = tmp_path / 'valid_subset.h5'

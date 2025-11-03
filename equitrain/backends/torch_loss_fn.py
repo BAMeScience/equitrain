@@ -5,6 +5,7 @@ import copy
 import torch
 
 from equitrain.data.backend_torch.scatter import scatter_mean
+
 from .torch_loss import Loss, LossCollection
 
 

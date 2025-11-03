@@ -8,7 +8,7 @@ class LossComponent:
         self.value = value if value is not None else torch.tensor(0.0, device=device)
         self.n = n if n is not None else torch.tensor(0.0, device=device)
 
-    def __iadd__(self, component: 'LossComponent'):
+    def __iadd__(self, component: LossComponent):
         self.value = (self.value * self.n + component.value * component.n) / (
             self.n + component.n
         )
@@ -43,7 +43,7 @@ class Loss(dict):
         self['forces'] = LossComponent(device=device)
         self['stress'] = LossComponent(device=device)
 
-    def __iadd__(self, loss: 'Loss'):
+    def __iadd__(self, loss: Loss):
         for key, component in loss.items():
             self[key] += component
         return self
@@ -70,7 +70,7 @@ class LossCollection(dict):
         for loss_type in loss_types:
             self[loss_type] = Loss(device=device)
 
-    def __iadd__(self, loss_collection: 'LossCollection'):
+    def __iadd__(self, loss_collection: LossCollection):
         self.main += loss_collection.main
         for loss_type, loss in loss_collection.items():
             self[loss_type] += loss

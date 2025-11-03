@@ -6,8 +6,8 @@ import pytest
 
 from equitrain import get_args_parser_evaluate
 from equitrain.backends import jax_evaluate
-from equitrain.backends.jax_utils import ModelBundle
 from equitrain.backends.jax_loss import JaxLossCollection
+from equitrain.backends.jax_utils import ModelBundle
 
 
 class _DummyLoader:

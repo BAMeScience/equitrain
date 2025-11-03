@@ -7,11 +7,11 @@ from accelerate import Accelerator
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from equitrain.data.backend_torch.atoms_to_graphs import AtomsToGraphs
-from equitrain.data.backend_torch.loaders import get_dataloader
-from equitrain.data.atomic import AtomicNumberTable
 from equitrain.backends.torch_model import get_model
 from equitrain.backends.torch_utils import set_dtype
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_torch.atoms_to_graphs import AtomsToGraphs
+from equitrain.data.backend_torch.loaders import get_dataloader
 
 
 def predict_graphs(
