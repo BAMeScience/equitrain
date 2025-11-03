@@ -149,6 +149,9 @@ def _init_common_args(
     args.energy_weight = 1.0
     args.forces_weight = 0.0
     args.stress_weight = 0.0
+    args.scheduler = 'step'
+    args.gamma = 1.0
+    args.step_size = 1
     return args
 
 
@@ -171,9 +174,6 @@ def _build_torch_args(
     )
     args.backend = 'torch'
     args.opt = 'momentum'
-    args.scheduler = 'step'
-    args.gamma = 1.0
-    args.step_size = 1
     args.model = TorchFinetuneWrapper(args, filename_model=mace_model_path)
     return args
 
@@ -198,7 +198,6 @@ def _build_jax_args(
     args.backend = 'jax'
     args.model = str(model_path)
     args.opt = 'momentum'
-    args.scheduler = 'constant'
     args.freeze_params = [r'params\.base\..*']
     args.unfreeze_params = [r'params\.delta\..*']
     return args
