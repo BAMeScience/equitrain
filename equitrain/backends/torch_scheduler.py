@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+from .scheduler_common import scheduler_kwargs as _common_scheduler_kwargs
+
 
 class SchedulerWrapper:
     def __init__(self, args, scheduler):
@@ -28,18 +30,7 @@ class SchedulerWrapper:
 
 
 def scheduler_kwargs(args):
-    return dict(
-        scheduler_name=args.scheduler,
-        gamma=args.gamma,
-        min_lr=args.min_lr,
-        step_size=args.step_size,
-        plateau_mode=args.plateau_mode,
-        plateau_factor=args.plateau_factor,
-        plateau_patience=args.plateau_patience,
-        plateau_threshold=args.plateau_threshold,
-        plateau_threshold_mode=args.plateau_threshold_mode,
-        plateau_eps=args.plateau_eps,
-    )
+    return _common_scheduler_kwargs(args)
 
 
 def create_scheduler(args, optimizer: torch.optim.Optimizer):

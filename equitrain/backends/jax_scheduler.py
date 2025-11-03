@@ -2,22 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .scheduler_common import scheduler_kwargs as _common_scheduler_kwargs
+
 
 def scheduler_kwargs(args):
-    return {
-        'scheduler_name': getattr(args, 'scheduler', None),
-        'gamma': getattr(args, 'gamma', 0.8),
-        'step_size': getattr(args, 'step_size', 1),
-        'min_lr': getattr(args, 'min_lr', 0.0),
-        'plateau_mode': getattr(args, 'plateau_mode', 'min'),
-        'plateau_factor': getattr(args, 'plateau_factor', 0.1),
-        'plateau_patience': getattr(args, 'plateau_patience', 10),
-        'plateau_threshold': getattr(args, 'plateau_threshold', 0.0001),
-        'plateau_threshold_mode': getattr(args, 'plateau_threshold_mode', 'rel'),
-        'plateau_eps': getattr(args, 'plateau_eps', 1e-8),
-        'monitor': getattr(args, 'scheduler_monitor', 'val'),
-        'start_epoch': getattr(args, 'epochs_start', 1),
-    }
+    return _common_scheduler_kwargs(args)
 
 
 @dataclass
@@ -132,56 +121,57 @@ class _PlateauScheduler(_SchedulerBase):
 
 def create_scheduler_controller(args, initial_lr: float):
     cfg = scheduler_kwargs(args)
-    name = (cfg['scheduler_name'] or 'constant').lower()
-    monitor = (cfg['monitor'] or 'val').lower()
+    name = (cfg.get('scheduler_name') or 'constant').lower()
+    monitor = str(getattr(args, 'scheduler_monitor', 'val') or 'val').lower()
+    start_epoch = int(getattr(args, 'epochs_start', 1))
     if name in {'none', 'constant', ''}:
         return _ConstantScheduler(
             name='constant',
             monitor=monitor,
             current_lr=float(initial_lr),
-            min_lr=float(cfg['min_lr']),
-            start_epoch=int(cfg['start_epoch']),
+            min_lr=float(cfg.get('min_lr', 0.0)),
+            start_epoch=start_epoch,
         )
     if name == 'step':
         return _StepScheduler(
             name='step',
             monitor=monitor,
             current_lr=float(initial_lr),
-            min_lr=float(cfg['min_lr']),
-            start_epoch=int(cfg['start_epoch']),
-            gamma=float(cfg['gamma']),
-            step_size=max(int(cfg['step_size']), 1),
+            min_lr=float(cfg.get('min_lr', 0.0)),
+            start_epoch=start_epoch,
+            gamma=float(cfg.get('gamma', 0.8)),
+            step_size=max(int(cfg.get('step_size', 1)), 1),
         )
     if name == 'exponential':
         return _ExponentialScheduler(
             name='exponential',
             monitor=monitor,
             current_lr=float(initial_lr),
-            min_lr=float(cfg['min_lr']),
-            start_epoch=int(cfg['start_epoch']),
-            gamma=float(cfg['gamma']),
+            min_lr=float(cfg.get('min_lr', 0.0)),
+            start_epoch=start_epoch,
+            gamma=float(cfg.get('gamma', 0.8)),
         )
     if name == 'plateau':
         return _PlateauScheduler(
             name='plateau',
             monitor=monitor,
             current_lr=float(initial_lr),
-            min_lr=float(cfg['min_lr']),
-            start_epoch=int(cfg['start_epoch']),
-            factor=float(cfg['plateau_factor']),
-            patience=max(int(cfg['plateau_patience']), 0),
-            threshold=float(cfg['plateau_threshold']),
-            threshold_mode=str(cfg['plateau_threshold_mode']).lower(),
-            mode=str(cfg['plateau_mode']).lower(),
-            eps=float(cfg['plateau_eps']),
+            min_lr=float(cfg.get('min_lr', 0.0)),
+            start_epoch=start_epoch,
+            factor=float(cfg.get('plateau_factor', 0.1)),
+            patience=max(int(cfg.get('plateau_patience', 10)), 0),
+            threshold=float(cfg.get('plateau_threshold', 0.0001)),
+            threshold_mode=str(cfg.get('plateau_threshold_mode', 'rel')).lower(),
+            mode=str(cfg.get('plateau_mode', 'min')).lower(),
+            eps=float(cfg.get('plateau_eps', 1e-8)),
         )
     # fallback to constant
     return _ConstantScheduler(
         name='constant',
         monitor=monitor,
         current_lr=float(initial_lr),
-        min_lr=float(cfg['min_lr']),
-        start_epoch=int(cfg['start_epoch']),
+        min_lr=float(cfg.get('min_lr', 0.0)),
+        start_epoch=start_epoch,
     )
 
 
