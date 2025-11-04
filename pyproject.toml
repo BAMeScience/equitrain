@@ -58,6 +58,10 @@ orb = [
   "cuml-cu11; sys_platform == 'linux'",  # Optional GPU acceleration for neighbor graphs
 ]
 
+ani = [
+  "torchani>=2.2",  # TorchANI for ANI models
+]
+
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
 equitrain-evaluate   = "equitrain.scripts.equitrain_evaluate:main"

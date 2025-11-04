@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import torch
 
-from .torch_wrappers import AbstractWrapper, MaceWrapper, OrbWrapper, SevennetWrapper
+from .torch_wrappers import (
+    AbstractWrapper,
+    AniWrapper,
+    MaceWrapper,
+    OrbWrapper,
+    SevennetWrapper,
+)
 
 
 def get_model(args, logger=None):
@@ -19,6 +25,8 @@ def get_model(args, logger=None):
         if not hasattr(args, 'stress_weight'):
             setattr(args, 'stress_weight', 0.0)
 
+        if args.model_wrapper == 'ani':
+            model = AniWrapper(args, model)
         if args.model_wrapper == 'mace':
             model = MaceWrapper(args, model)
         if args.model_wrapper == 'orb':
