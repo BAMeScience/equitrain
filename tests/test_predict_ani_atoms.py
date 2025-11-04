@@ -4,8 +4,6 @@ Test script for ANI wrapper.
 This script tests the ANI wrapper by predicting energies and forces for a set of atoms.
 """
 
-from pathlib import Path
-
 import numpy as np
 import torch
 from ase import Atoms
@@ -33,8 +31,12 @@ def _create_test_atoms():
         ]
     )
 
-    water = Atoms('H2O', positions=positions_water, cell=np.eye(3) * 10.0, pbc=[0, 0, 0])
-    methane = Atoms('CH4', positions=positions_methane, cell=np.eye(3) * 10.0, pbc=[0, 0, 0])
+    water = Atoms(
+        'H2O', positions=positions_water, cell=np.eye(3) * 10.0, pbc=[0, 0, 0]
+    )
+    methane = Atoms(
+        'CH4', positions=positions_methane, cell=np.eye(3) * 10.0, pbc=[0, 0, 0]
+    )
 
     return [water, methane]
 

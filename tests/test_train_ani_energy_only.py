@@ -7,7 +7,6 @@ This script tests the ANI wrapper's ability to train using only energy labels.
 from pathlib import Path
 
 import numpy as np
-import torch
 import torchani
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
