@@ -8,6 +8,7 @@ from the legacy ``equitrain.model_wrappers`` module for compatibility.
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 
 import torch
@@ -224,316 +225,299 @@ class SevennetWrapper(AbstractWrapper):
 
 class OrbWrapper(AbstractWrapper):
     """
-    Wrapper for ORB (Orbital Materials) models to be used with Equitrain.
+    Wrapper for ORB (Orbital Materials) models.
 
-    This wrapper integrates the ORB universal interatomic potential family from Orbital Materials
-    into the Equitrain framework. ORB models are PyTorch-native and support energy, forces, and
-    stress prediction workflows with excellent performance across >80 elements.
-
-    Parameters
-    ----------
-    args : object
-        Arguments object containing training parameters
-    model : torch.nn.Module, optional
-        A pre-trained ORB model. If None, a new model will be created.
-    model_variant : str, optional
-        ORB model variant ('direct' or 'conservative'). Default is 'direct'.
-        - 'direct': forwards also output per-atom forces + stress
-        - 'conservative': only energy; forces/stress via torch.autograd.grad
-    enable_zbl : bool, optional
-        Enable ZBL repulsion term for systems with high-Z elements (Z > 56). Default is False.
+    orb-models>=0.5 expects the input as an `AtomGraphs` object.  The torch backend
+    operates on Torch Geometric `Data`/`Batch` instances, so this wrapper performs the
+    conversion and exposes a uniform dictionary with `energy`, `forces`, and `stress`
+    tensors to the shared training pipeline.
     """
 
     def __init__(self, args, model=None, model_variant='direct', enable_zbl=False):
-        """Initialize the ORB wrapper."""
         super().__init__(model)
 
-        # Store arguments for later use
         self.compute_force = getattr(args, 'forces_weight', 0.0) > 0.0
         self.compute_stress = getattr(args, 'stress_weight', 0.0) > 0.0
         self.model_variant = model_variant
         self.enable_zbl = enable_zbl
 
-        # If no model is provided, create a default one
         if model is None:
             self.model = self._create_default_model()
 
-        # Cache for graph compilation - run dummy batch to avoid first-step delay
-        self._compile_cache_initialized = False
-        self._initialize_compile_cache()
+        self.system_config = getattr(self.model, 'system_config', None)
+        if self.system_config is None:
+            from orb_models.forcefield.atomic_system import SystemConfig
+
+            self.system_config = SystemConfig(radius=6.0, max_num_neighbors=20)
+
+        self.model_dtype = next(self.model.parameters()).dtype
+        self.model.train()
+        for param in self.model.parameters():
+            param.requires_grad_(True)
 
     def _create_default_model(self):
-        """
-        Create a default ORB model from the model zoo.
-
-        Returns
-        -------
-        torch.nn.Module
-            An ORB model from the OMat24 model zoo
-        """
         try:
             from orb_models.forcefield import pretrained
-
-            # Use OMat24 model from the zoo (covers >80 elements)
-            if self.model_variant == 'direct':
-                model = pretrained.orb_v3_small_direct()
-            else:
-                model = pretrained.orb_v3_small()
-
-            # Enable ZBL repulsion if requested
-            if self.enable_zbl:
-                model.enable_zbl = True
-
-            return model
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
-                'ORB models are required. Install with: pip install "orb-models>=3.0"'
-            )
+                'ORB models are required. Install with: pip install "orb-models>=0.5"'
+            ) from exc
 
-    def _initialize_compile_cache(self):
-        """
-        Initialize graph compilation cache by running dummy batches.
+        if self.model_variant == 'direct':
+            candidate_names = [
+                'orb_v3_direct_20_mpa',
+                'orb_v3_direct_inf_mpa',
+                'orb_v2',
+                'orb_v1',
+            ]
+        else:
+            candidate_names = [
+                'orb_v3_conservative_20_mpa',
+                'orb_v3_conservative_inf_mpa',
+            ]
 
-        This prevents compilation delays on the first forward pass by pre-compiling
-        common batch sizes with torch.compile.
-        """
-        if self._compile_cache_initialized:
-            return
+        for name in candidate_names:
+            factory = getattr(pretrained, name, None)
+            if callable(factory):
+                try:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            'ignore',
+                            message='Setting global torch default dtype to torch.float32.',
+                            category=UserWarning,
+                        )
+                        return factory()
+                except Exception:
+                    continue
+
+        raise RuntimeError(
+            'Could not instantiate an ORB model. Please ensure orb-models>=0.5 is '
+            'installed together with the pretrained weights cache.'
+        )
+
+    def _ensure_batch_from_args(self, *args):
+        if not args:
+            raise TypeError('OrbWrapper.forward() missing inputs')
+
+        if len(args) == 1:
+            return args[0]
+
+        atomic_numbers = args[0]
+        positions = args[1].to(self.model_dtype)
+        lattice = args[2] if len(args) > 2 else None
+        batch = args[3] if len(args) > 3 else None
 
         try:
-            # Create dummy batches for common sizes to trigger compilation
-            dummy_sizes = [1, 8, 16, 32]
-            device = next(self.model.parameters()).device
+            from torch_geometric.data import Batch, Data
+        except ImportError as exc:
+            raise ImportError(
+                'torch_geometric is required to batch OrbWrapper inputs.'
+            ) from exc
 
-            for batch_size in dummy_sizes:
-                # Create dummy input
-                dummy_atomic_numbers = torch.randint(
-                    1, 84, (batch_size * 10,), device=device
-                )
-                dummy_positions = torch.randn(batch_size * 10, 3, device=device)
-                dummy_lattice = (
-                    torch.eye(3, device=device).unsqueeze(0).repeat(batch_size, 1, 1)
-                )
+        if batch is None:
+            graph = Data(
+                atomic_numbers=atomic_numbers,
+                positions=positions,
+                cell=lattice.to(self.model_dtype).unsqueeze(0)
+                if lattice is not None
+                else None,
+                pbc=torch.zeros(3, dtype=torch.bool, device=positions.device),
+            )
+            graph.idx = 0
+            return Batch.from_data_list([graph])
 
-                # Create batch indices
-                dummy_batch = torch.repeat_interleave(
-                    torch.arange(batch_size, device=device), 10
-                )
+        num_graphs = int(batch.max().item()) + 1
+        data_list = []
+        for graph_idx in range(num_graphs):
+            mask = batch == graph_idx
+            graph = Data(
+                atomic_numbers=atomic_numbers[mask],
+                positions=positions[mask],
+                cell=lattice[graph_idx].to(self.model_dtype).unsqueeze(0)
+                if lattice is not None
+                else None,
+                pbc=torch.zeros(3, dtype=torch.bool, device=positions.device),
+            )
+            graph.idx = graph_idx
+            data_list.append(graph)
 
-                with torch.no_grad():
-                    try:
-                        _ = self.model(
-                            atomic_numbers=dummy_atomic_numbers,
-                            positions=dummy_positions,
-                            lattice=dummy_lattice,
-                            batch=dummy_batch,
-                        )
-                    except Exception:
-                        # If dummy forward fails, continue - real data might work
-                        pass
+        return Batch.from_data_list(data_list)
 
-            self._compile_cache_initialized = True
-        except Exception:
-            # If cache initialization fails, continue without it
-            self._compile_cache_initialized = True
+    def _cast_batch_to_model_dtype(self, data):
+        float_attrs = [
+            'positions',
+            'pos',
+            'cell',
+            'y',
+            'force',
+            'stress',
+            'shifts',
+            'unit_shifts',
+            'cell_volume',
+        ]
+        for attr in float_attrs:
+            value = getattr(data, attr, None)
+            if torch.is_tensor(value) and value.is_floating_point():
+                setattr(data, attr, value.to(self.model_dtype))
+        return data
+
+    def _data_to_atom_graphs(self, data):
+        try:
+            from ase import Atoms
+        except ImportError as exc:
+            raise ImportError(
+                'ASE is required to construct ORB AtomGraphs. Install with: pip install ase'
+            ) from exc
+
+        from orb_models.forcefield.atomic_system import ase_atoms_to_atom_graphs
+
+        positions = getattr(data, 'positions', getattr(data, 'pos', None))
+        if positions is None:
+            raise ValueError('Input data object must provide `positions`.')
+        positions = positions.to(self.model_dtype)
+
+        cell = getattr(data, 'cell', None)
+        if cell is None:
+            cell_tensor = torch.zeros(
+                (3, 3), dtype=self.model_dtype, device=positions.device
+            )
+        else:
+            cell_tensor = cell.to(self.model_dtype)
+            if cell_tensor.dim() == 3:
+                cell_tensor = cell_tensor[0]
+
+        pbc = getattr(data, 'pbc', None)
+        if pbc is None:
+            pbc_tensor = torch.zeros(3, dtype=torch.bool, device=positions.device)
+        else:
+            pbc_tensor = pbc
+            if pbc_tensor.dim() > 1:
+                pbc_tensor = pbc_tensor[0]
+            pbc_tensor = pbc_tensor.to(dtype=torch.bool)
+
+        device = positions.device
+
+        atoms = Atoms(
+            numbers=data.atomic_numbers.detach().cpu().numpy(),
+            positions=positions.detach().cpu().numpy(),
+            cell=cell_tensor.detach().cpu().numpy(),
+            pbc=pbc_tensor.detach().cpu().numpy(),
+        )
+
+        if hasattr(data, 'tags'):
+            atoms.set_tags(data.tags.detach().cpu().numpy())
+
+        system_id = int(getattr(data, 'idx', -1)) if hasattr(data, 'idx') else None
+
+        return ase_atoms_to_atom_graphs(
+            atoms,
+            self.system_config,
+            device=device,
+            output_dtype=self.model_dtype,
+            system_id=system_id,
+        )
+
+    def _as_atom_graphs(self, data):
+        try:
+            from torch_geometric.data import Batch
+        except ImportError:
+            Batch = None
+
+        if Batch is not None and isinstance(data, Batch):
+            data_list = data.to_data_list()
+        else:
+            data_list = [data]
+
+        from orb_models.forcefield.base import batch_graphs
+
+        atom_graphs = [self._data_to_atom_graphs(item) for item in data_list]
+        if len(atom_graphs) == 1:
+            return atom_graphs[0]
+        return batch_graphs(atom_graphs)
 
     def forward(self, *args):
-        """
-        Forward pass through the ORB model.
+        """Run the wrapped ORB model and return energy/forces/stress tensors."""
+        data = self._ensure_batch_from_args(*args)
+        data = self._cast_batch_to_model_dtype(data)
+        atom_graphs = self._as_atom_graphs(data)
 
-        Parameters
-        ----------
-        *args : tuple
-            Input data. Can be a PyTorch Geometric Data object or a tuple of
-            (atomic_numbers, positions, lattice, batch).
+        dtype = atom_graphs.node_features['positions'].dtype
 
-        Returns
-        -------
-        Dict[str, torch.Tensor]
-            Dictionary containing 'energy', 'forces', and 'stress' predictions.
-        """
-        # Handle different input formats
-        if len(args) == 1:
-            # PyG Data object
-            data = args[0]
-            atomic_numbers = data.atomic_numbers
-            positions = data.positions
-            lattice = getattr(data, 'cell', None)
-            batch = getattr(data, 'batch', None)
+        autocast_enabled = torch.cuda.is_available()
+        with torch.amp.autocast('cuda', enabled=autocast_enabled):
+            outputs = self.model(atom_graphs)
 
-            # If no lattice provided, create identity matrices for non-periodic systems
-            if lattice is None:
-                batch_size = batch.max().item() + 1 if batch is not None else 1
-                lattice = (
-                    torch.eye(3, device=positions.device)
-                    .unsqueeze(0)
-                    .repeat(batch_size, 1, 1)
+        energy = outputs.get('energy')
+        if energy is None:
+            raise KeyError('ORB model output is missing an `energy` tensor.')
+        energy = energy.view(-1).to(dtype)
+
+        forces = None
+        if self.compute_force:
+            force_key = 'grad_forces' if 'grad_forces' in outputs else 'forces'
+            forces = outputs.get(force_key)
+            if forces is None:
+                raise KeyError(
+                    f'ORB model output is missing `{force_key}` predictions.'
                 )
+            forces = forces.to(dtype)
 
-        else:
-            # Direct arguments
-            atomic_numbers = args[0]
-            positions = args[1]
-            lattice = args[2] if len(args) > 2 else None
-            batch = args[3] if len(args) > 3 else None
-
-            # Default lattice if not provided
-            if lattice is None:
-                batch_size = batch.max().item() + 1 if batch is not None else 1
-                lattice = (
-                    torch.eye(3, device=positions.device)
-                    .unsqueeze(0)
-                    .repeat(batch_size, 1, 1)
+        stress = None
+        if self.compute_stress:
+            stress_key = 'grad_stress' if 'grad_stress' in outputs else 'stress'
+            stress_voigt = outputs.get(stress_key)
+            if stress_voigt is None:
+                raise KeyError(
+                    f'ORB model output is missing `{stress_key}` predictions.'
                 )
+            if stress_voigt.dim() == 1:
+                stress_voigt = stress_voigt.unsqueeze(0)
 
-        # Enable mixed precision for better performance
-        with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-            if self.model_variant == 'direct':
-                # Direct variant outputs energy, forces, and stress directly
-                result = self.model(
-                    atomic_numbers=atomic_numbers,
-                    positions=positions,
-                    lattice=lattice,
-                    batch=batch,
-                )
+            from orb_models.forcefield.forcefield_utils import (
+                torch_voigt_6_to_full_3x3_stress,
+            )
 
-                # ORB direct models return a dictionary with energy, forces, stress
-                y_pred = {
-                    'energy': result.get('energy', result.get('total_energy')),
-                    'forces': result.get('forces') if self.compute_force else None,
-                    'stress': result.get('stress') if self.compute_stress else None,
-                }
+            stress = torch_voigt_6_to_full_3x3_stress(stress_voigt.to(dtype))
 
-            else:
-                # Conservative variant - only energy, compute forces/stress via autograd
-                positions_grad = positions.requires_grad_(
-                    self.compute_force or self.compute_stress
-                )
-                lattice_grad = (
-                    lattice.requires_grad_(self.compute_stress)
-                    if self.compute_stress
-                    else lattice
-                )
-
-                energy = self.model(
-                    atomic_numbers=atomic_numbers,
-                    positions=positions_grad,
-                    lattice=lattice_grad,
-                    batch=batch,
-                )
-
-                y_pred = {'energy': energy, 'forces': None, 'stress': None}
-
-                # Compute forces via autograd if needed
-                if self.compute_force:
-                    forces = -torch.autograd.grad(
-                        energy.sum(),
-                        positions_grad,
-                        create_graph=self.compute_stress,
-                        retain_graph=self.compute_stress,
-                    )[0]
-                    y_pred['forces'] = forces
-
-                # Compute stress via autograd if needed
-                if self.compute_stress:
-                    # Stress computation via lattice gradients
-                    stress_grad = torch.autograd.grad(
-                        energy.sum(),
-                        lattice_grad,
-                        create_graph=False,
-                        retain_graph=False,
-                    )[0]
-
-                    # Convert lattice gradients to stress tensor
-                    volume = torch.det(lattice_grad)
-                    stress = stress_grad / volume.unsqueeze(-1).unsqueeze(-1)
-                    y_pred['stress'] = stress
-
-        return y_pred
+        return {'energy': energy, 'forces': forces, 'stress': stress}
 
     @property
     def atomic_numbers(self):
-        """
-        Get the atomic numbers supported by the model.
-
-        Returns
-        -------
-        AtomicNumberTable
-            Table of atomic numbers supported by the model.
-        """
-        # ORB models support elements 1-84 (H to Po)
-        # Return the full range as ORB is a universal potential
         if hasattr(self.model, 'atomic_numbers'):
             return AtomicNumberTable(self.model.atomic_numbers.cpu().tolist())
-        else:
-            # Default to elements 1-84 for ORB universal models
-            return AtomicNumberTable(list(range(1, 85)))
+        return AtomicNumberTable(list(range(1, 85)))
 
     @property
     def atomic_energies(self):
-        """
-        Get the atomic reference energies.
-
-        Returns
-        -------
-        List[float] or None
-            List of atomic reference energies or None if not available.
-        """
-        # ORB models typically don't expose atomic reference energies
-        # as they are learned during training
         if hasattr(self.model, 'atomic_energies'):
             return self.model.atomic_energies.cpu().tolist()
-        else:
-            return None
+        return None
 
     @property
     def r_max(self):
-        """
-        Get the maximum cutoff radius.
-
-        Returns
-        -------
-        float
-            Maximum cutoff radius.
-        """
+        if self.system_config is not None:
+            return float(self.system_config.radius)
         if hasattr(self.model, 'cutoff'):
-            return (
-                self.model.cutoff.item()
-                if torch.is_tensor(self.model.cutoff)
-                else self.model.cutoff
-            )
-        elif hasattr(self.model, 'r_max'):
-            return (
-                self.model.r_max.item()
-                if torch.is_tensor(self.model.r_max)
-                else self.model.r_max
-            )
-        else:
-            # Default cutoff for ORB models (typically around 6.0 Å)
-            return 6.0
+            cutoff = self.model.cutoff
+            return float(cutoff.item()) if torch.is_tensor(cutoff) else float(cutoff)
+        return 6.0
 
     @r_max.setter
     def r_max(self, value):
-        """
-        Set the maximum cutoff radius.
-
-        Parameters
-        ----------
-        value : float
-            New maximum cutoff radius.
-        """
+        if self.system_config is not None:
+            self.system_config.radius = float(value)
         if hasattr(self.model, 'cutoff'):
-            if torch.is_tensor(self.model.cutoff):
+            cutoff = self.model.cutoff
+            if torch.is_tensor(cutoff):
                 self.model.cutoff.fill_(value)
             else:
                 self.model.cutoff = value
         elif hasattr(self.model, 'r_max'):
-            if torch.is_tensor(self.model.r_max):
-                self.model.r_max.fill_(value)
+            r_max_tensor = self.model.r_max
+            if torch.is_tensor(r_max_tensor):
+                r_max_tensor.fill_(value)
             else:
                 self.model.r_max = value
-        # Note: Changing r_max for ORB models may require model recompilation
-        # depending on the specific architecture
 
 
 __all__ = ['AbstractWrapper', 'MaceWrapper', 'OrbWrapper', 'SevennetWrapper']

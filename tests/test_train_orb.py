@@ -6,10 +6,23 @@ specifically testing on a 50-step Aluminium MD slice and asserting
 force MAE < 0.1 eV/Å as specified in the requirements.
 """
 
+from pathlib import Path
+
+import pytest
 import torch
+from torch_geometric.data import Batch, Data
 
 from equitrain import get_args_parser_train, train
 from equitrain.backends.torch_wrappers import OrbWrapper
+
+pytestmark = [
+    pytest.mark.filterwarnings(
+        'ignore:Setting global torch default dtype to torch.float32.:UserWarning'
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:__array__ implementation doesn't accept a copy keyword.*:DeprecationWarning"
+    ),
+]
 
 
 def create_dummy_aluminum_data():
@@ -86,9 +99,9 @@ def test_train_orb():
         model = OrbWrapper(args, model_variant='direct', enable_zbl=False)
         print('✓ ORB wrapper created successfully')
     except ImportError as e:
-        print(f'✗ ORB models not available: {e}')
-        print("Install with: pip install 'orb-models>=3.0'")
-        return
+        pytest.skip(
+            f'Orbital Materials models not available: {e}. Install with "pip install \'orb-models>=3.0\'"'
+        )
 
     # Create dummy aluminum data
     dummy_data = create_dummy_aluminum_data()
@@ -99,15 +112,25 @@ def test_train_orb():
         with torch.no_grad():
             # Create a single batch for testing
             batch_size = 4
-            n_atoms = 32
 
-            atomic_numbers = dummy_data['atomic_numbers'][:batch_size].flatten()
-            positions = dummy_data['positions'][:batch_size].flatten(0, 1)
-            lattice = dummy_data['lattices'][:batch_size]
-            batch = torch.repeat_interleave(torch.arange(batch_size), n_atoms)
+            batch_graphs = []
+            for i in range(batch_size):
+                graph = Data(
+                    atomic_numbers=dummy_data['atomic_numbers'][i],
+                    positions=dummy_data['positions'][i],
+                    cell=dummy_data['lattices'][i].unsqueeze(0),
+                    pbc=torch.ones(3, dtype=torch.bool),
+                    y=dummy_data['energies'][i].unsqueeze(0),
+                    force=dummy_data['forces'][i],
+                    stress=dummy_data['stress'][i].unsqueeze(0),
+                )
+                graph.idx = i
+                batch_graphs.append(graph)
+
+            batch = Batch.from_data_list(batch_graphs)
 
             # Test forward pass
-            result = model(atomic_numbers, positions, lattice, batch)
+            result = model(batch)
 
             assert 'energy' in result, 'Energy not in model output'
             assert 'forces' in result, 'Forces not in model output'
@@ -158,6 +181,44 @@ def test_train_orb():
     print('✓ ORB model test completed successfully')
 
 
+@pytest.mark.skipif(
+    torch.cuda.is_available(), reason='Runs on CPU only to keep CI fast'
+)
+def test_train_orb_minimal(tmp_path):
+    """Run a short training loop using the ORB wrapper to ensure integration."""
+
+    args = get_args_parser_train().parse_args([])
+
+    data_dir = Path(__file__).with_name('data')
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = None
+    args.output_dir = str(tmp_path / 'train_orb')
+
+    args.epochs = 1
+    args.batch_size = 1
+    args.lr = 5e-4
+    args.train_max_steps = 1
+    args.valid_max_steps = 1
+    args.workers = 0
+    args.pin_memory = False
+    args.verbose = 0
+    args.tqdm = False
+
+    args.energy_weight = 0.01
+    args.forces_weight = 1.0
+    args.stress_weight = 0.1
+
+    try:
+        args.model = OrbWrapper(args, model_variant='direct', enable_zbl=False)
+    except ImportError:
+        pytest.skip(
+            'Orbital Materials models not available. Install with "pip install \'orb-models>=3.0\'".'
+        )
+
+    train(args)
+
+
 def test_orb_variants():
     """Test both direct and conservative ORB variants."""
     args = get_args_parser_train().parse_args([])
@@ -180,13 +241,8 @@ def test_orb_variants():
         assert direct_model.model_variant != conservative_model.model_variant
         print('✓ Model variants are correctly different')
 
-    except ImportError:
-        print('✗ ORB models not available for variant testing')
-
-
-if __name__ == '__main__':
-    print('Testing ORB model integration with Equitrain...')
-    test_train_orb()
-    print('\nTesting ORB model variants...')
-    test_orb_variants()
-    print('\nAll tests completed!')
+    except ImportError as e:
+        pytest.skip(
+            f'Orbital Materials models not available for variant testing: {e}. '
+            'Install with "pip install \'orb-models>=3.0\'".'
+        )
