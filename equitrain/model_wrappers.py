@@ -274,6 +274,22 @@ class AniWrapper(AbstractWrapper):
         except ImportError:
             self.species_converter = None
 
+        self._model_device = next(self.model.parameters()).device
+        self._model_dtype = next(self.model.parameters()).dtype
+        self._atomic_number_to_species_index = None
+        if self._species_order is not None:
+            try:
+                from ase.data import atomic_numbers as _atomic_numbers_lookup
+            except ImportError as exc:
+                raise ImportError(
+                    "Optional dependency 'ase' is required for ANI models."
+                ) from exc
+
+            self._atomic_number_to_species_index = {
+                _atomic_numbers_lookup[symbol]: idx
+                for idx, symbol in enumerate(self._species_order)
+            }
+
     def _create_default_model(self, species_order=None):
         """
         Create a default ANI model.
@@ -303,6 +319,89 @@ class AniWrapper(AbstractWrapper):
                 'TorchANI is required for ANI models. Install with: pip install torchani'
             )
 
+    def _atomic_numbers_to_species_indices(
+        self, atomic_numbers: torch.Tensor
+    ) -> torch.Tensor:
+        if self._atomic_number_to_species_index is None:
+            raise ValueError(
+                'ANI wrapper requires a species order to convert atomic numbers to species indices.'
+            )
+
+        indices = []
+        for value in atomic_numbers.detach().cpu().tolist():
+            if value not in self._atomic_number_to_species_index:
+                raise ValueError(
+                    f'Observed atom type {value} that is not listed in the ANI species order.'
+                )
+            indices.append(self._atomic_number_to_species_index[value])
+
+        return torch.tensor(indices, device=self._model_device, dtype=torch.long)
+
+    def _prepare_batch_inputs(self, data):
+        try:
+            from torch_geometric.data import Batch
+        except ImportError as exc:
+            raise ImportError(
+                'torch_geometric is required for ANI training workflows.'
+            ) from exc
+
+        if isinstance(data, Batch):
+            molecules = data.to_data_list()
+        else:
+            molecules = [data]
+
+        species_tensors: list[torch.Tensor] = []
+        coordinate_tensors: list[torch.Tensor] = []
+        counts: list[int] = []
+
+        for molecule in molecules:
+            coordinates = getattr(molecule, 'positions', getattr(molecule, 'pos', None))
+            if coordinates is None:
+                raise ValueError('ANI wrapper expects `positions` in the data object.')
+
+            coordinates = coordinates.to(
+                device=self._model_device, dtype=self._model_dtype
+            )
+
+            if hasattr(molecule, 'species'):
+                species = molecule.species.to(self._model_device)
+            else:
+                atomic_numbers = getattr(molecule, 'atomic_numbers', None)
+                if atomic_numbers is None:
+                    raise ValueError(
+                        'ANI wrapper requires either `species` or `atomic_numbers` in the data object.'
+                    )
+                species = self._atomic_numbers_to_species_indices(atomic_numbers)
+
+            species_tensors.append(species)
+            coordinate_tensors.append(coordinates)
+            counts.append(species.shape[0])
+
+        max_atoms = max(counts)
+        batch_size = len(molecules)
+
+        species_batch = torch.full(
+            (batch_size, max_atoms),
+            -1,
+            dtype=torch.long,
+            device=self._model_device,
+        )
+        coordinates_batch = torch.zeros(
+            (batch_size, max_atoms, 3),
+            dtype=self._model_dtype,
+            device=self._model_device,
+        )
+
+        for index, (species, coords) in enumerate(
+            zip(species_tensors, coordinate_tensors)
+        ):
+            natoms = species.shape[0]
+            species_batch[index, :natoms] = species
+            coordinates_batch[index, :natoms] = coords
+
+        coordinates_batch.requires_grad_(self.compute_force)
+        return species_batch, coordinates_batch, counts
+
     def forward(self, *args):
         """
         Forward pass through the ANI model.
@@ -318,39 +417,48 @@ class AniWrapper(AbstractWrapper):
         Dict[str, torch.Tensor]
             Dictionary containing 'energy', 'forces', and 'stress' predictions.
         """
-        # Handle different input formats
         if len(args) == 1:
-            # PyG Data object
-            data = args[0]
-            species = data.species
-            coordinates = data.positions.requires_grad_(self.compute_force)
+            species_batch, coordinates_batch, counts = self._prepare_batch_inputs(
+                args[0]
+            )
         else:
-            # Tuple of (species, coordinates)
-            species = args[0]
-            coordinates = args[1].requires_grad_(self.compute_force)
+            species_batch = args[0].to(device=self._model_device, dtype=torch.long)
+            coordinates_batch = args[1].to(
+                device=self._model_device, dtype=self._model_dtype
+            )
+            coordinates_batch.requires_grad_(self.compute_force)
+            counts = [
+                int((species_batch[i] >= 0).sum().item())
+                for i in range(species_batch.shape[0])
+            ]
 
-        # Get energy prediction from the model
-        _, energies = self.model((species, coordinates))
+        outputs = self.model((species_batch, coordinates_batch))
+        energies = getattr(outputs, 'energies', outputs[1]).to(self._model_dtype)
+        energies = energies.view(-1)
 
-        # Prepare output dictionary
         y_pred = {'energy': energies, 'forces': None, 'stress': None}
 
-        # Compute forces if needed
         if self.compute_force:
-            forces = -torch.autograd.grad(
+            forces_full = -torch.autograd.grad(
                 energies.sum(),
-                coordinates,
+                coordinates_batch,
                 create_graph=True,
                 retain_graph=self.compute_stress,
             )[0]
-            y_pred['forces'] = forces
+            force_chunks = [
+                forces_full[index, :count] for index, count in enumerate(counts)
+            ]
+            y_pred['forces'] = (
+                torch.cat(force_chunks, dim=0)
+                if len(force_chunks) > 1
+                else force_chunks[0]
+            )
 
-        # Compute stress if needed (not implemented in ANI)
         if self.compute_stress:
-            # ANI doesn't natively support stress calculation
-            # Return zeros for stress with proper shape
             batch_size = energies.shape[0]
-            y_pred['stress'] = torch.zeros(batch_size, 3, 3, device=energies.device)
+            y_pred['stress'] = torch.zeros(
+                batch_size, 3, 3, device=self._model_device, dtype=self._model_dtype
+            )
 
         return y_pred
 
