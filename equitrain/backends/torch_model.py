@@ -2,13 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from .torch_wrappers import (
-    AbstractWrapper,
-    AniWrapper,
-    MaceWrapper,
-    OrbWrapper,
-    SevennetWrapper,
-)
+from . import torch_wrappers as _torch_wrappers
 
 
 def get_model(args, logger=None):
@@ -16,6 +10,8 @@ def get_model(args, logger=None):
         model = args.model
     else:
         model = torch.load(args.model, weights_only=False)
+
+    AbstractWrapper = _torch_wrappers.AbstractWrapper
 
     if not isinstance(model, AbstractWrapper):
         if not hasattr(args, 'energy_weight'):
@@ -26,13 +22,13 @@ def get_model(args, logger=None):
             setattr(args, 'stress_weight', 0.0)
 
         if args.model_wrapper == 'ani':
-            model = AniWrapper(args, model)
+            model = _torch_wrappers.AniWrapper(args, model)
         if args.model_wrapper == 'mace':
-            model = MaceWrapper(args, model)
+            model = _torch_wrappers.MaceWrapper(args, model)
         if args.model_wrapper == 'orb':
-            model = OrbWrapper(args, model)
+            model = _torch_wrappers.OrbWrapper(args, model)
         if args.model_wrapper == 'sevennet':
-            model = SevennetWrapper(args, model)
+            model = _torch_wrappers.SevennetWrapper(args, model)
 
     if hasattr(args, 'r_max') and args.r_max is not None:
         if logger is not None:

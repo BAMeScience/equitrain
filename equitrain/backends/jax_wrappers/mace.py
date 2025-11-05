@@ -1,14 +1,11 @@
 """
-JAX-specific wrappers that provide a higher level interface similar to the torch
-wrappers. They encapsulate a Flax/Equinox style model (module + parameters) and
-expose helpers for metadata and applying the model with sensible defaults.
+JAX MACE wrapper.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -20,9 +17,7 @@ ensure_multiprocessing_spawn()
 
 class MaceWrapper:
     """
-    Thin wrapper around a MACE-JAX module that mirrors the torch wrapper
-    interface. It stores metadata extracted from the configuration so callers
-    can query atomic numbers / energies / cutoffs in a uniform way.
+    Thin wrapper around a MACE-JAX module mirroring the torch counterpart.
     """
 
     def __init__(
@@ -46,19 +41,6 @@ class MaceWrapper:
         compute_force: bool | None = None,
         compute_stress: bool | None = None,
     ) -> dict[str, jnp.ndarray]:
-        """
-        Run a forward pass of the wrapped module.
-
-        Parameters
-        ----------
-        variables:
-            PyTree of parameters/state for the module.
-        data_dict:
-            Dictionary of arrays matching the input structure expected by the
-            JAX MACE model.
-        compute_force, compute_stress:
-            Optional overrides for the default behaviour.
-        """
         return self.module.apply(
             variables,
             data_dict,
@@ -101,14 +83,10 @@ class MaceWrapper:
 
     @r_max.setter
     def r_max(self, value: float):
-        """
-        Update the cutoff radius. This rebuilds the underlying module to keep
-        the configuration in sync.
-        """
         self.config['r_max'] = float(value)
         try:
             from mace_jax.cli import mace_torch2jax
-        except ImportError as exc:  # pragma: no cover - optional dependency
+        except ImportError as exc:  # pragma: no cover
             raise ImportError(
                 'mace_jax is required to modify the cutoff radius for JAX models.'
             ) from exc
