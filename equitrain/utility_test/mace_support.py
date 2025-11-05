@@ -213,6 +213,24 @@ def _write_small_mace_model(path: Path) -> None:
     torch.save(torch_model, path)
 
 
+def build_structures() -> list[Atoms]:
+    """Public helper to build the small benchmark structures."""
+
+    return _build_structures()
+
+
+def build_statistics(zs: Iterable[int]):
+    """Public helper mirroring the original test utility."""
+
+    return _build_statistics(zs)
+
+
+def create_model_args(statistics: dict):
+    """Return default CLI args for constructing a small MACE model."""
+
+    return _create_args(statistics)
+
+
 def get_mace_model_path() -> Path:
     """
     Ensure the tiny MACE model used by the tests exists and return its path.
@@ -226,4 +244,9 @@ def get_mace_model_path() -> Path:
     return path
 
 
-__all__ = ['get_mace_model_path']
+__all__ = [
+    'build_structures',
+    'build_statistics',
+    'create_model_args',
+    'get_mace_model_path',
+]

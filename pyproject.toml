@@ -64,6 +64,14 @@ m3gnet = [
   "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
   "dgl>=1.0.0",    # Deep Graph Library required by MatGL
 ]
+mace = [
+  "mace-torch>=0.3.6",  # Torch implementation of MACE potentials
+]
+mace-jax = [
+  "mace-jax>=0.2.0",  # JAX implementation of MACE potentials
+  "jax>=0.4",         # Core JAX runtime
+  "jaxlib>=0.4",      # JAX XLA binaries
+]
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"

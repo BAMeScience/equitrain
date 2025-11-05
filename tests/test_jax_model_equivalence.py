@@ -13,11 +13,15 @@ from mace.tools import torch_geometric
 from mace.tools.scripts_utils import extract_config_mace_model
 from mace_jax.cli import mace_torch2jax
 
-from .conftest import _build_statistics, _build_structures, _create_args
+from equitrain.utility_test.mace_support import (
+    build_statistics,
+    build_structures,
+    create_model_args,
+)
 
 
 def _make_batch(statistics: dict) -> torch_geometric.batch.Batch:
-    structures = _build_structures()
+    structures = build_structures()
     atomic_data_list = []
     for atoms in structures:
         config = config_from_atoms(atoms)
@@ -54,7 +58,7 @@ def test_small_mace_conversion_matches():
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
-    statistics = _build_statistics([11, 17])
+    statistics = build_statistics([11, 17])
     batch = _make_batch(statistics)
     if hasattr(batch, 'positions') and isinstance(batch.positions, torch.Tensor):
         batch.positions.requires_grad_(True)
@@ -63,7 +67,7 @@ def test_small_mace_conversion_matches():
 
     from mace.tools.model_script_utils import configure_model as configure_model_torch
 
-    args = _create_args(statistics)
+    args = create_model_args(statistics)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             'ignore',
