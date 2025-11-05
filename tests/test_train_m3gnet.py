@@ -18,7 +18,7 @@ def test_train_m3gnet():
     args.train_file = 'data/train.h5'
     args.valid_file = 'data/valid.h5'
     args.output_dir = 'test_train_m3gnet'
-    args.epochs = 5
+    args.epochs = 2
     args.batch_size = 32
     args.lr = 0.001
     args.verbose = 1

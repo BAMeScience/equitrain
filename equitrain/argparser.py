@@ -1,6 +1,19 @@
 import argparse
 
 
+class LenientArgumentParser(argparse.ArgumentParser):
+    """Argument parser that silently ignores unknown CLI arguments.
+
+    Pytest injects test file names into sys.argv, which would normally make the
+    default parser exit. This subclass keeps the CLI forgiving while maintaining
+    backwards compatibility for scripts invoked by users.
+    """
+
+    def parse_args(self, args=None, namespace=None):
+        parsed, _ = self.parse_known_args(args=args, namespace=namespace)
+        return parsed
+
+
 def str2bool(value):
     if isinstance(value, bool):
         return value
@@ -374,7 +387,7 @@ def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def get_args_parser(script_type: str) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(f'Equitrain {script_type} script')
+    parser = LenientArgumentParser(f'Equitrain {script_type} script')
 
     if script_type == 'preprocess':
         add_common_file_args(parser)

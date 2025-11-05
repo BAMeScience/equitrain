@@ -59,6 +59,7 @@ def evaluate_main(
 
                     if loss.main.isfinite():
                         loss_collection += loss
+                        error = error.to(dtype=errors.dtype, device=errors.device)
                         errors[data.idx] = error
 
             # Gather loss across processes for computing metrics

@@ -7,9 +7,10 @@ from equitrain import get_args_parser_predict, predict_structures
 from equitrain.backends.torch_utils import set_dtype
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.utility_test import MaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 
-def test_predict_mace_structures(mace_model_path):
+def test_predict_mace_structures():
     set_dtype('float64')
 
     r = 4.5
@@ -17,6 +18,7 @@ def test_predict_mace_structures(mace_model_path):
 
     args = get_args_parser_predict().parse_args([])
 
+    mace_model_path = get_mace_model_path()
     args.model = MaceWrapper(args, filename_model=mace_model_path)
 
     atoms_list = ase.io.read(filename, index=':')

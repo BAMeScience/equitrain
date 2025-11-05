@@ -1,26 +1,69 @@
-import os
+"""
+Helpers for constructing lightweight MACE models used in tests.
+
+The real MACE dependency tree is optional. All imports are done lazily so that
+test modules that do not need MACE can still be collected/executed even when
+the package is not installed (or built against a different torch version).
+"""
+
+from __future__ import annotations
+
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Iterable
 
 import numpy as np
-import pytest
 import torch
 from ase import Atoms
 from ase.build import bulk
-from mace.data.atomic_data import AtomicData
-from mace.data.utils import config_from_atoms
-from mace.tools import torch_geometric
-from mace.tools.model_script_utils import configure_model as configure_model_torch
-from mace.tools.multihead_tools import AtomicNumberTable, prepare_default_head
-from mace.tools.torch_geometric.batch import Batch
 
-collect_ignore_glob = ['tmp/*.py', 'tmp/*.ipynb']
+_MACE_MODULES: SimpleNamespace | None = None
+_MACE_IMPORT_ERROR: Exception | None = None
 
-warnings.filterwarnings(
-    'ignore',
-    message=r'.*TorchScript type system doesn\'t support instance-level annotations.*',
-    category=UserWarning,
-)
+
+def _load_mace_modules() -> SimpleNamespace | None:
+    """
+    Attempt to import the optional MACE stack.
+    Returns a namespace with the required symbols or None when unavailable.
+    """
+    global _MACE_MODULES, _MACE_IMPORT_ERROR
+    if _MACE_MODULES is not None or _MACE_IMPORT_ERROR is not None:
+        return _MACE_MODULES
+
+    try:  # pragma: no cover - optional dependency guard
+        from mace.data.atomic_data import AtomicData
+        from mace.data.utils import config_from_atoms
+        from mace.tools import torch_geometric
+        from mace.tools.model_script_utils import configure_model as configure_model_torch
+        from mace.tools.multihead_tools import AtomicNumberTable, prepare_default_head
+        from mace.tools.torch_geometric.batch import Batch
+        from mace.tools import build_default_arg_parser, check_args
+    except Exception as exc:  # pragma: no cover
+        _MACE_IMPORT_ERROR = exc
+        return None
+
+    _MACE_MODULES = SimpleNamespace(
+        AtomicData=AtomicData,
+        config_from_atoms=config_from_atoms,
+        torch_geometric=torch_geometric,
+        configure_model_torch=configure_model_torch,
+        AtomicNumberTable=AtomicNumberTable,
+        prepare_default_head=prepare_default_head,
+        Batch=Batch,
+        build_default_arg_parser=build_default_arg_parser,
+        check_args=check_args,
+    )
+    return _MACE_MODULES
+
+
+def _require_mace():  # pragma: no cover - helper for skipping tests
+    modules = _load_mace_modules()
+    if modules is None:
+        import pytest
+
+        pytest.skip(f'MACE is unavailable: {_MACE_IMPORT_ERROR!r}')
+    return modules
 
 
 def _build_structures() -> list[Atoms]:
@@ -38,19 +81,24 @@ def _build_structures() -> list[Atoms]:
     return structures
 
 
-def _build_statistics(zs: list[int]) -> dict:
+def _build_statistics(zs: Iterable[int]):
+    modules = _require_mace()
+    AtomicNumberTable = modules.AtomicNumberTable
     return {
         'mean': [0.0],
         'std': [1.0],
         'avg_num_neighbors': 4.0,
         'r_max': 3.5,
-        'atomic_numbers': AtomicNumberTable(zs),
+        'atomic_numbers': AtomicNumberTable(sorted(set(int(z) for z in zs))),
         'atomic_energies': [0.0 for _ in zs],
     }
 
 
 def _create_args(statistics: dict):
-    from mace.tools import build_default_arg_parser, check_args  # local import
+    modules = _require_mace()
+    build_default_arg_parser = modules.build_default_arg_parser
+    check_args = modules.check_args
+    prepare_default_head = modules.prepare_default_head
 
     args_list = [
         '--name',
@@ -118,10 +166,15 @@ def _create_args(statistics: dict):
 
 
 def _write_small_mace_model(path: Path) -> None:
-    pytest.importorskip('mace')
+    modules = _require_mace()
+    AtomicData = modules.AtomicData
+    config_from_atoms = modules.config_from_atoms
+    torch_geometric = modules.torch_geometric
+    configure_model_torch = modules.configure_model_torch
+    Batch = modules.Batch
 
     structures = _build_structures()
-    zs = sorted({int(z) for atoms in structures for z in atoms.get_atomic_numbers()})
+    zs = [int(z) for atoms in structures for z in atoms.get_atomic_numbers()]
     statistics = _build_statistics(zs)
 
     atomic_data_list = []
@@ -159,8 +212,11 @@ def _write_small_mace_model(path: Path) -> None:
     torch.save(torch_model, path)
 
 
-@pytest.fixture(scope='session')
-def mace_model_path():
+def get_mace_model_path() -> Path:
+    """
+    Ensure the tiny MACE model used by the tests exists and return its path.
+    Will skip the caller if MACE cannot be imported.
+    """
     path = Path(__file__).resolve().parents[2] / 'tests' / 'mace.model'
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -169,12 +225,5 @@ def mace_model_path():
     return path
 
 
-if os.getenv('_PYTEST_RAISE', '0') != '0':
+__all__ = ['get_mace_model_path']
 
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_exception_interact(call):
-        raise call.excinfo.value
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_internalerror(excinfo):
-        raise excinfo.value

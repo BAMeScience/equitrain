@@ -41,6 +41,7 @@ from equitrain.backends.jax_utils import (
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 
 def _cleanup_path(path: Path) -> None:
@@ -84,8 +85,9 @@ def _write_dataset(path: Path, structures: list[Atoms]) -> None:
         dataset.close()
 
 
-def _create_jax_bundle(tmp_path: Path, mace_model_path: Path) -> Path:
+def _create_jax_bundle(tmp_path: Path) -> Path:
     args = get_args_parser_train().parse_args([])
+    mace_model_path = get_mace_model_path()
     torch_wrapper = TorchMaceWrapper(args, filename_model=mace_model_path)
     torch_model = torch_wrapper.float().eval()
     torch_model_path = tmp_path / 'torch_reference.model'
@@ -219,7 +221,7 @@ def _predict_jax_energy_from_bundle(
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
-def test_train_torch_and_jax_match(tmp_path, mace_model_path):
+def test_train_torch_and_jax_match(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
@@ -237,6 +239,7 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
         args_torch.valid_file = str(valid_file)
         args_torch.test_file = str(valid_file)
         args_torch.output_dir = str(tmp_path / 'torch_out')
+        mace_model_path = get_mace_model_path()
         args_torch.model = TorchMaceWrapper(args_torch, filename_model=mace_model_path)
         args_torch.epochs = 1
         args_torch.train_max_steps = 2
@@ -409,10 +412,10 @@ def test_train_torch_and_jax_match(tmp_path, mace_model_path):
             _cleanup_path(path)
 
 
-def test_jax_weighted_sampler_not_supported(tmp_path, mace_model_path):
+def test_jax_weighted_sampler_not_supported(tmp_path):
     pytest.importorskip('mace_jax')
 
-    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    jax_bundle = _create_jax_bundle(tmp_path)
     data_dir = Path(__file__).with_name('data')
 
     args = get_args_parser_train().parse_args([])
@@ -431,10 +434,10 @@ def test_jax_weighted_sampler_not_supported(tmp_path, mace_model_path):
         equitrain_train(args)
 
 
-def test_jax_step_scheduler_updates_learning_rate(tmp_path, mace_model_path):
+def test_jax_step_scheduler_updates_learning_rate(tmp_path):
     pytest.importorskip('mace_jax')
 
-    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    jax_bundle = _create_jax_bundle(tmp_path)
     data_dir = Path(__file__).with_name('data')
 
     args = get_args_parser_train().parse_args([])
@@ -462,10 +465,10 @@ def test_jax_step_scheduler_updates_learning_rate(tmp_path, mace_model_path):
     assert summary['lr_history'][2] == pytest.approx(args.lr * args.gamma * args.gamma)
 
 
-def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path, mace_model_path):
+def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path):
     pytest.importorskip('mace_jax')
 
-    jax_bundle = _create_jax_bundle(tmp_path, mace_model_path)
+    jax_bundle = _create_jax_bundle(tmp_path)
     data_dir = Path(__file__).with_name('data')
 
     args = get_args_parser_train().parse_args([])

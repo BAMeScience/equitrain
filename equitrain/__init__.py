@@ -1,15 +1,3 @@
-try:  # pragma: no cover - lightweight import guard
-    import torch.serialization as _torch_serialization  # type: ignore[attr-defined]
-except Exception:  # noqa: BLE001
-    _torch_serialization = None
-else:  # pragma: no branch
-    add_safe_globals = getattr(_torch_serialization, 'add_safe_globals', None)
-    if callable(add_safe_globals):
-        try:
-            add_safe_globals([slice])
-        except Exception:  # noqa: BLE001
-            pass
-
 from .argparser import (  # noqa: E402
     ArgumentError,
     check_args_complete,

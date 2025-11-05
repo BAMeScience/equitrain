@@ -5,6 +5,7 @@ import torch
 
 from equitrain import get_args_parser_train, train
 from equitrain.utility_test import MaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 
 class FineTuneModule(torch.nn.Module):
@@ -34,7 +35,7 @@ class FinetuneMaceWrapper(MaceWrapper):
             self.model.readouts[i] = FineTuneModule(readout)
 
 
-def test_finetune_mace(tmp_path, mace_model_path):
+def test_finetune_mace(tmp_path):
     args = get_args_parser_train().parse_args([])
 
     data_dir = Path(__file__).with_name('data')
@@ -43,6 +44,7 @@ def test_finetune_mace(tmp_path, mace_model_path):
     args.test_file = None
     output_dir = tmp_path / 'finetune_mace_readout'
     args.output_dir = str(output_dir)
+    mace_model_path = get_mace_model_path()
     args.model = FinetuneMaceWrapper(args, filename_model=mace_model_path)
     # Freeze all weights except for fine-tuning layers
     args.unfreeze_params = ['.*finetune_train.*']

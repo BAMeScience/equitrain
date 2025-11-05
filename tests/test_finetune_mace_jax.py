@@ -54,6 +54,7 @@ from equitrain.finetune.delta_torch import (
     DeltaFineTuneWrapper as TorchDeltaFineTuneWrapper,
 )
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 from tests.test_train_mace_jax import (
     _build_structures as _build_match_structures,
 )
@@ -117,11 +118,13 @@ def _build_torch_args(
     train_file,
     valid_file,
     output_dir,
-    mace_model_path,
+    mace_model_path=None,
     *,
     max_steps=_MAX_STEPS,
     lr=_FINE_TUNE_LR,
 ):
+    if mace_model_path is None:
+        mace_model_path = get_mace_model_path()
     args = _init_common_args(
         get_args_parser_train().parse_args([]),
         train_file,
@@ -423,9 +426,11 @@ def _convert_torch_model_to_jax_params(
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
-def test_finetune_gradient_parity(tmp_path, mace_model_path):
+def test_finetune_gradient_parity(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
+
+    mace_model_path = get_mace_model_path()
 
     structures = _build_match_structures()
     train_subset = tmp_path / 'train_subset.h5'
@@ -437,7 +442,6 @@ def test_finetune_gradient_parity(tmp_path, mace_model_path):
         train_subset,
         valid_subset,
         tmp_path / 'torch_grad',
-        mace_model_path,
         max_steps=1,
         lr=1e-4,
     )
@@ -555,12 +559,13 @@ def test_finetune_gradient_parity(tmp_path, mace_model_path):
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
-def test_finetune_mace_jax(tmp_path, mace_model_path):
+def test_finetune_mace_jax(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
     cleanup_paths: list[Path] = []
     try:
+        mace_model_path = get_mace_model_path()
         data_dir = Path(__file__).with_name('data')
         data_dir / 'train.h5'
         data_dir / 'valid.h5'
@@ -575,7 +580,6 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
             train_subset,
             valid_subset,
             tmp_path / 'torch_out',
-            mace_model_path,
         )
         cleanup_paths.append(Path(args_torch.output_dir))
 
@@ -670,12 +674,13 @@ def test_finetune_mace_jax(tmp_path, mace_model_path):
 
 
 @pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
-def test_jax_checkpoint_parity(tmp_path, mace_model_path):
+def test_jax_checkpoint_parity(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
 
     cleanup_paths: list[Path] = []
     try:
+        mace_model_path = get_mace_model_path()
         data_dir = Path(__file__).with_name('data')
         data_dir / 'train.h5'
         data_dir / 'valid.h5'
@@ -701,7 +706,6 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
             train_subset,
             valid_subset,
             tmp_path / 'torch_checkpoint',
-            mace_model_path,
             max_steps=_PARITY_STEPS,
             lr=1e-4,
         )
@@ -725,7 +729,6 @@ def test_jax_checkpoint_parity(tmp_path, mace_model_path):
             train_subset,
             valid_subset,
             tmp_path / 'torch_reload',
-            mace_model_path,
             max_steps=_PARITY_STEPS,
             lr=1e-4,
         )

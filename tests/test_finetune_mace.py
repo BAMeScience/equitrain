@@ -6,6 +6,7 @@ from equitrain import get_args_parser_train, train
 from equitrain.checkpoint import load_checkpoint
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 from equitrain.utility_test import MaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 
 def get_params_and_deltas(model):
@@ -30,7 +31,7 @@ def save_result(args, filename):
     args.model.export(filename)
 
 
-def test_finetune_mace(tmp_path, mace_model_path):
+def test_finetune_mace(tmp_path):
     args = get_args_parser_train().parse_args([])
 
     data_dir = Path(__file__).with_name('data')
@@ -39,6 +40,7 @@ def test_finetune_mace(tmp_path, mace_model_path):
     args.test_file = None
     output_dir = tmp_path / 'finetune_mace'
     args.output_dir = str(output_dir)
+    mace_model_path = get_mace_model_path()
     base_model = MaceWrapper(args, filename_model=mace_model_path)
     args.model = DeltaFineTuneWrapper(base_model)
 

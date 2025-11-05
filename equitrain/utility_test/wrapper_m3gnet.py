@@ -1,155 +1,112 @@
-import os
+from __future__ import annotations
 
-import matgl
-import requests
-from tqdm import tqdm
+import json
+from collections.abc import Iterable
+from pathlib import Path
+from shutil import copy2
 
-from equitrain.model_wrappers import M3GNetWrapper
+import torch
+from ase.data import chemical_symbols
+
+from equitrain.backends.torch_wrappers.m3gnet import M3GNetWrapper as TorchM3GNetWrapper
+
+try:  # pragma: no cover - optional dependency guard
+    from matgl.config import DEFAULT_ELEMENTS
+    from matgl.models import M3GNet as MatGLM3GNet
+except Exception as exc:  # pragma: no cover
+    raise ImportError(
+        'The test M3GNet wrapper requires `matgl` (and `dgl`) to be available.'
+    ) from exc
 
 
-class M3GNetWrapper(M3GNetWrapper):
+class M3GNetWrapper(TorchM3GNetWrapper):
     """
-    Test utility wrapper for M3GNet models.
-    This class extends the M3GNetWrapper to provide functionality for testing,
-    including downloading pre-trained models if needed.
+    Test-friendly MatGL M3GNet wrapper with sensible defaults for the bundled fixtures.
     """
 
     def __init__(
         self,
         args,
-        filename_model='m3gnet.pt',
-        url='https://github.com/materialsvirtuallab/matgl/releases/download/v0.5.0/M3GNet-MP-2021.2.8-PES.pt',
-        element_types=None,
+        statistics_file: str | Path | None = None,
+        element_types: Iterable[str | int] | None = None,
     ):
-        """
-        Initialize the test M3GNet wrapper.
-        Parameters
-        ----------
-        args : object
-            Arguments object containing training parameters
-        filename_model : str, optional
-            Filename to save the downloaded model. Default is 'm3gnet.pt'.
-        url : str, optional
-            URL to download the pre-trained model from. Default is the MatGL M3GNet universal potential.
-        element_types : list[str], optional
-            List of chemical symbols in order. Default is None, which will use the model's
-            element_types if available.
-        """
-        # Download the model if it doesn't exist
-        if not os.path.exists(filename_model):
-            response = requests.get(url, stream=True)
+        statistics_path = self._resolve_statistics_path(statistics_file)
+        stats_numbers, stats_energies = self._load_statistics(statistics_path)
 
-            with open(filename_model, 'wb') as handle:
-                for data in tqdm(response.iter_content(), desc='Downloading M3GNet'):
-                    handle.write(data)
+        resolved_symbols = self._resolve_statistics_elements(element_types, stats_numbers)
+        model = MatGLM3GNet(element_types=tuple(resolved_symbols))
 
-        # Load the model using MatGL's load_model function
-        model = matgl.load_model(filename_model)
+        super().__init__(args, model=model, element_types=resolved_symbols)
 
-        # Initialize the parent class
-        super().__init__(args, model, element_types=element_types)
+        if stats_energies is not None:
+            energies = torch.tensor(
+                [float(stats_energies.get(str(z), 0.0)) for z in self.atomic_numbers],
+                dtype=self.atomic_energies.dtype,
+                device=self.atomic_energies.device,
+            )
+            self.atomic_energies.copy_(energies)
 
-    @classmethod
-    def get_initial_model(cls, element_types=None):
-        """
-        Get an initial M3GNet model.
-        Parameters
-        ----------
-        element_types : list[str], optional
-            List of chemical symbols to include in the model. Default is None,
-            which will use a default set of elements.
-        Returns
-        -------
-        torch.nn.Module
-            An initialized M3GNet model.
-        """
-        # If no element_types provided, use a default set covering common elements
-        if element_types is None:
-            element_types = [
-                'H',
-                'He',
-                'Li',
-                'Be',
-                'B',
-                'C',
-                'N',
-                'O',
-                'F',
-                'Ne',
-                'Na',
-                'Mg',
-                'Al',
-                'Si',
-                'P',
-                'S',
-                'Cl',
-                'Ar',
-                'K',
-                'Ca',
-                'Sc',
-                'Ti',
-                'V',
-                'Cr',
-                'Mn',
-                'Fe',
-                'Co',
-                'Ni',
-                'Cu',
-                'Zn',
-                'Ga',
-                'Ge',
-                'As',
-                'Se',
-                'Br',
-                'Kr',
-                'Rb',
-                'Sr',
-                'Y',
-                'Zr',
-                'Nb',
-                'Mo',
-                'Tc',
-                'Ru',
-                'Rh',
-                'Pd',
-                'Ag',
-                'Cd',
-                'In',
-                'Sn',
-                'Sb',
-                'Te',
-                'I',
-                'Xe',
-                'Cs',
-                'Ba',
-                'La',
-                'Ce',
-                'Hf',
-                'Ta',
-                'W',
-                'Re',
-                'Os',
-                'Ir',
-                'Pt',
-                'Au',
-                'Hg',
-                'Tl',
-                'Pb',
-                'Bi',
-            ]
+        self._ensure_test_resources()
 
-        # Create a new M3GNet model with the specified element_types
-        from matgl.models import M3GNet
+    @staticmethod
+    def _resolve_statistics_path(statistics_file: str | Path | None) -> Path | None:
+        if statistics_file is not None:
+            candidate = Path(statistics_file).expanduser().resolve()
+            return candidate if candidate.is_file() else None
 
-        model = M3GNet(
-            element_types=tuple(element_types),
-            cutoff=5.0,
-            threebody_cutoff=4.0,
-            nblocks=3,
-            max_n=3,
-            max_l=3,
-            units=64,
-            ntargets=1,
-        )
+        repo_root = Path(__file__).resolve().parents[2]
+        candidate = repo_root / 'tests' / 'data' / 'statistics.json'
+        return candidate if candidate.is_file() else None
 
-        return model
+    @staticmethod
+    def _load_statistics(
+        path: Path | None,
+    ) -> tuple[list[int] | None, dict[str, float] | None]:
+        if path is None or not path.is_file():
+            return None, None
+
+        with path.open('r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+
+        numbers = payload.get('atomic_numbers')
+        energies = payload.get('atomic_energies')
+
+        if numbers is not None:
+            numbers = [int(z) for z in numbers]
+
+        return numbers, energies
+
+    @staticmethod
+    def _resolve_statistics_elements(
+        element_types: Iterable[str | int] | None,
+        statistics_numbers: list[int] | None,
+    ) -> list[str]:
+        if element_types is not None:
+            return [str(symbol).strip() for symbol in element_types]
+
+        if statistics_numbers is not None:
+            symbols: list[str] = []
+            for number in statistics_numbers:
+                if number < len(chemical_symbols):
+                    symbols.append(chemical_symbols[number])
+            return symbols
+
+        return list(DEFAULT_ELEMENTS)
+
+    @staticmethod
+    def _ensure_test_resources() -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        source_data_dir = repo_root / 'tests' / 'data'
+        target_data_dir = repo_root / 'data'
+        target_data_dir.mkdir(parents=True, exist_ok=True)
+
+        for filename in ('train.h5', 'valid.h5'):
+            source = source_data_dir / filename
+            target = target_data_dir / filename
+            if source.is_file() and not target.exists():
+                copy2(source, target)
+
+        xyz_source = repo_root / 'tests' / 'data.xyz'
+        xyz_target = repo_root / 'data.xyz'
+        if xyz_source.is_file() and not xyz_target.exists():
+            copy2(xyz_source, xyz_target)

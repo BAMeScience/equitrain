@@ -78,6 +78,7 @@ def forward_and_backward(
 
     loss_collection += loss
 
+    error = error.to(dtype=errors.dtype, device=errors.device)
     errors[data.idx] = error
 
 

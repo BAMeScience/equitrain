@@ -161,7 +161,7 @@ class LossFn(torch.nn.Module):
 
         if self.loss_energy_per_atom:
             num_atoms = y_true.ptr[1:] - y_true.ptr[:-1]
-            energy_weights = 1.0 / num_atoms
+            energy_weights = (1.0 / num_atoms).to(dtype=y_pred['energy'].dtype, device=y_pred['energy'].device)
 
         e_true = y_true.y
         f_true = y_true['force']
@@ -195,6 +195,10 @@ class LossFn(torch.nn.Module):
             loss['stress'].n += s_true.numel()
 
         error = self.compute_weighted(error_e, error_f, error_s)
+        if not isinstance(error, torch.Tensor):
+            error = torch.tensor(error, device=e_pred.device, dtype=e_pred.dtype)
+        else:
+            error = error.to(dtype=e_pred.dtype, device=e_pred.device)
         return loss, error
 
 
