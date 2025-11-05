@@ -2,6 +2,11 @@
 Test script for training a M3GNet model with Equitrain.
 """
 
+import pytest
+
+pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
+pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
+
 from equitrain import get_args_parser_train, train
 from equitrain.utility_test import M3GNetWrapper
 
@@ -13,6 +18,7 @@ def test_train_m3gnet():
     """
     # Parse arguments
     args = get_args_parser_train().parse_args()
+    args.dtype = 'float32'
 
     # Set training parameters
     args.train_file = 'data/train.h5'

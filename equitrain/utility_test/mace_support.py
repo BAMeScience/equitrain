@@ -85,13 +85,17 @@ def _build_structures() -> list[Atoms]:
 def _build_statistics(zs: Iterable[int]):
     modules = _require_mace()
     AtomicNumberTable = modules.AtomicNumberTable
+    base_set = {int(z) for z in zs}
+    # Ensure we also cover common elements so that shared fixtures work
+    default_set = set(range(1, 95))  # 1..94 inclusive
+    all_zs = sorted(default_set | base_set)
     return {
         'mean': [0.0],
         'std': [1.0],
         'avg_num_neighbors': 4.0,
         'r_max': 3.5,
-        'atomic_numbers': AtomicNumberTable(sorted(set(int(z) for z in zs))),
-        'atomic_energies': [0.0 for _ in zs],
+        'atomic_numbers': AtomicNumberTable(all_zs),
+        'atomic_energies': [0.0 for _ in all_zs],
     }
 
 
@@ -192,7 +196,6 @@ def _write_small_mace_model(path: Path) -> None:
 
     batch = torch_geometric.batch.Batch.from_data_list(atomic_data_list)
     batch = batch.to(torch.float32)
-    Batch.validate(batch)
 
     args = _create_args(statistics)
     with warnings.catch_warnings():

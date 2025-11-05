@@ -11,6 +11,7 @@ def test_mace_predict():
     data_dir = Path(__file__).with_name('data')
     args.predict_file = str(data_dir / 'valid.h5')
     args.batch_size = 5
+    args.dtype = 'float32'
     mace_model_path = get_mace_model_path()
     args.model = MaceWrapper(args, filename_model=mace_model_path)
 

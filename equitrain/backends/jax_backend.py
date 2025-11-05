@@ -565,6 +565,7 @@ def train(args):
     lr_history: list[float] = [current_lr]
     best_val = None
     best_epoch = None
+    start_epoch = getattr(args, 'epochs_start', 1)
 
     metric_settings = dict(
         include_energy=loss_settings.energy_weight > 0.0,
@@ -608,14 +609,13 @@ def train(args):
                 },
                 step=args.epochs_start - 1,
             )
-        if initial_val_loss is not None:
+        if initial_val_loss is not None and start_epoch > 1:
             best_val = float(initial_val_loss)
-            best_epoch = args.epochs_start - 1
+            best_epoch = start_epoch - 1
     scheduler_controller.register_initial_metric(
         initial_val_loss, epoch=args.epochs_start - 1
     )
 
-    start_epoch = getattr(args, 'epochs_start', 1)
     num_epochs = args.epochs
     last_train_metrics = JaxLossCollection()
 
@@ -692,6 +692,7 @@ def train(args):
             best_params_host = current_params_host
             best_ema_params_host = current_ema_host
             best_epoch = epoch
+            improved = True
         elif best_val is None or val_loss_value < best_val:
             best_val = float(val_loss_value)
             best_params_host = current_params_host

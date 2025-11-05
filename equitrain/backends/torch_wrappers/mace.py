@@ -42,8 +42,23 @@ class MaceWrapper(AbstractWrapper):
         self.compute_stress = getattr(args, 'stress_weight', 0.0) > 0.0
 
     def forward(self, *args):
+        if len(args) != 1:
+            raise NotImplementedError('MaceWrapper expects a single PyG batch argument.')
+
+        data = args[0]
+        param = next(self.model.parameters(), None)
+        target_device = param.device if param is not None else None
+        target_dtype = param.dtype if param is not None else None
+
+        if target_device is not None:
+            data = data.to(target_device)
+        if target_dtype is not None:
+            for key, value in data:
+                if isinstance(value, torch.Tensor) and value.dtype.is_floating_point and value.dtype != target_dtype:
+                    setattr(data, key, value.to(dtype=target_dtype))
+
         y_pred = self.model(
-            *args,
+            data,
             compute_force=self.compute_force,
             compute_stress=self.compute_stress,
             training=self.training,

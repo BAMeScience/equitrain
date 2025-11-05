@@ -308,7 +308,8 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             max_steps=args.valid_max_steps,
         )
 
-        best_metrics.update(valid_loss.main, args.epochs_start - 1)
+        if args.epochs_start > 1:
+            best_metrics.update(valid_loss.main, args.epochs_start - 1)
 
         accelerator.log(
             {'val_loss': valid_loss.main['total'].avg}, step=args.epochs_start - 1

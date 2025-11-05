@@ -1,5 +1,9 @@
 import ase.io
+import pytest
 from pymatgen.io.ase import AseAtomsAdaptor
+
+pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
+pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
 
 from equitrain import get_args_parser_predict, predict_structures
 from equitrain.data.atomic import AtomicNumberTable
@@ -16,6 +20,7 @@ def test_predict_m3gnet_structures():
     filename = 'data.xyz'
 
     args = get_args_parser_predict().parse_args()
+    args.dtype = 'float32'
 
     # Create the M3GNet wrapper
     args.model = M3GNetWrapper(args)

@@ -14,6 +14,7 @@ def test_train_mace(tmp_path):
     args.test_file = None
     output_dir = tmp_path / 'train_mace'
     args.output_dir = str(output_dir)
+    args.dtype = 'float32'
     mace_model_path = get_mace_model_path()
     args.model = MaceWrapper(args, filename_model=mace_model_path)
 

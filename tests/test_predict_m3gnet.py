@@ -2,8 +2,10 @@
 Test script for making predictions with a M3GNet model using Equitrain.
 """
 
-import h5py
-import torch
+import pytest
+
+pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
+pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
 
 from equitrain import get_args_parser_predict, predict
 from equitrain.utility_test import M3GNetWrapper
@@ -21,6 +23,7 @@ def test_m3gnet_predict():
     # Set prediction parameters
     args.predict_file = 'data/valid.h5'
     args.batch_size = 32
+    args.dtype = 'float32'
 
     # Create the M3GNet wrapper
     args.model = M3GNetWrapper(args)

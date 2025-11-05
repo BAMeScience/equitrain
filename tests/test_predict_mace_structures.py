@@ -17,6 +17,7 @@ def test_predict_mace_structures():
     filename = Path(__file__).with_name('data.xyz')
 
     args = get_args_parser_predict().parse_args([])
+    args.dtype = 'float32'
 
     mace_model_path = get_mace_model_path()
     args.model = MaceWrapper(args, filename_model=mace_model_path)

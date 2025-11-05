@@ -60,9 +60,6 @@ class M3GNetWrapper(AbstractWrapper):
 
         super().__init__(model)  # type: ignore[arg-type]
 
-        if hasattr(args, 'dtype') and getattr(args, 'dtype') != 'float32':
-            args.dtype = 'float32'
-
         self.compute_force = bool(getattr(args, 'forces_weight', 0.0) > 0.0)
         self.compute_stress = bool(getattr(args, 'stress_weight', 0.0) > 0.0)
 

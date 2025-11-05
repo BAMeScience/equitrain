@@ -44,6 +44,7 @@ def test_finetune_mace(tmp_path):
     args.test_file = None
     output_dir = tmp_path / 'finetune_mace_readout'
     args.output_dir = str(output_dir)
+    args.dtype = 'float32'
     mace_model_path = get_mace_model_path()
     args.model = FinetuneMaceWrapper(args, filename_model=mace_model_path)
     # Freeze all weights except for fine-tuning layers
