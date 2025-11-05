@@ -9,9 +9,9 @@ the package is not installed (or built against a different torch version).
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable
 
 import numpy as np
 import torch
@@ -34,11 +34,12 @@ def _load_mace_modules() -> SimpleNamespace | None:
     try:  # pragma: no cover - optional dependency guard
         from mace.data.atomic_data import AtomicData
         from mace.data.utils import config_from_atoms
-        from mace.tools import torch_geometric
-        from mace.tools.model_script_utils import configure_model as configure_model_torch
+        from mace.tools import build_default_arg_parser, check_args, torch_geometric
+        from mace.tools.model_script_utils import (
+            configure_model as configure_model_torch,
+        )
         from mace.tools.multihead_tools import AtomicNumberTable, prepare_default_head
         from mace.tools.torch_geometric.batch import Batch
-        from mace.tools import build_default_arg_parser, check_args
     except Exception as exc:  # pragma: no cover
         _MACE_IMPORT_ERROR = exc
         return None
@@ -226,4 +227,3 @@ def get_mace_model_path() -> Path:
 
 
 __all__ = ['get_mace_model_path']
-

@@ -33,7 +33,9 @@ class M3GNetWrapper(TorchM3GNetWrapper):
         statistics_path = self._resolve_statistics_path(statistics_file)
         stats_numbers, stats_energies = self._load_statistics(statistics_path)
 
-        resolved_symbols = self._resolve_statistics_elements(element_types, stats_numbers)
+        resolved_symbols = self._resolve_statistics_elements(
+            element_types, stats_numbers
+        )
         model = MatGLM3GNet(element_types=tuple(resolved_symbols))
 
         super().__init__(args, model=model, element_types=resolved_symbols)

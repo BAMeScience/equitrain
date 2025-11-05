@@ -3,7 +3,6 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from equitrain import get_args_parser_predict, predict_structures
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.utility import set_dtype
 from equitrain.utility_test import M3GNetWrapper
 
 
@@ -13,8 +12,6 @@ def test_predict_m3gnet_structures():
     This test loads structures from a file, creates a M3GNet wrapper,
     and uses it to predict energy, forces, and stress.
     """
-    set_dtype('float64')
-
     r = 5.0  # M3GNet default cutoff
     filename = 'data.xyz'
 

@@ -161,7 +161,9 @@ class LossFn(torch.nn.Module):
 
         if self.loss_energy_per_atom:
             num_atoms = y_true.ptr[1:] - y_true.ptr[:-1]
-            energy_weights = (1.0 / num_atoms).to(dtype=y_pred['energy'].dtype, device=y_pred['energy'].device)
+            energy_weights = (1.0 / num_atoms).to(
+                dtype=y_pred['energy'].dtype, device=y_pred['energy'].device
+            )
 
         e_true = y_true.y
         f_true = y_true['force']

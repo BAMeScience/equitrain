@@ -46,7 +46,6 @@ from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply
 from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.finetune.delta_jax import (
-    DeltaFineTuneModule,
     ensure_delta_params,
     wrap_with_deltas,
 )
@@ -76,7 +75,6 @@ add_safe_globals([slice])
 
 _FINE_TUNE_LR = 2.5e-3
 _MAX_STEPS = 24
-_DATASET_LIMIT = 16
 _PARITY_STEPS = 64
 
 
@@ -565,7 +563,6 @@ def test_finetune_mace_jax(tmp_path):
 
     cleanup_paths: list[Path] = []
     try:
-        mace_model_path = get_mace_model_path()
         data_dir = Path(__file__).with_name('data')
         data_dir / 'train.h5'
         data_dir / 'valid.h5'

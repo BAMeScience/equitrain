@@ -22,10 +22,40 @@ def evaluate(args):
     return _evaluate(args)
 
 
-def get_model(*args, **kwargs):
-    from .model import get_model as _get_model
+def get_model(args, *extra_args, **extra_kwargs):
+    """Backend-aware model loader.
 
-    return _get_model(*args, **kwargs)
+    Parameters
+    ----------
+    args : Namespace
+        Parsed CLI/pytest arguments that include at least a ``backend`` field.
+    *extra_args, **extra_kwargs
+        Forwarded to the backend specific loader when supported (Torch only for now).
+
+    Returns
+    -------
+    object
+        Torch: ``torch.nn.Module`` (possibly wrapped).
+        JAX : ``ModelBundle`` as returned by ``equitrain.backends.jax_utils.load_model_bundle``.
+    """
+
+    backend = getattr(args, 'backend', 'torch') or 'torch'
+
+    if backend == 'torch':
+        from .backends.torch_model import get_model as _torch_get_model
+
+        return _torch_get_model(args, *extra_args, **extra_kwargs)
+
+    if backend == 'jax':
+        from .backends.jax_utils import load_model_bundle
+
+        model_path = getattr(args, 'model', None)
+        if model_path is None:
+            raise ValueError('JAX backend requires ``args.model`` to be set.')
+        dtype = getattr(args, 'dtype', 'float32')
+        return load_model_bundle(model_path, dtype=dtype)
+
+    raise NotImplementedError(f"get_model is not implemented for backend '{backend}'.")
 
 
 def preprocess(*args, **kwargs):
