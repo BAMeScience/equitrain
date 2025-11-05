@@ -53,13 +53,16 @@ docu = [
   "pymdown-extensions",
   "mkdocs-click",
 ]
+ani = [
+  "torchani>=2.2",  # TorchANI for ANI models
+]
 orb = [
   "orb-models>=3.0",  # ORB universal interatomic potentials
   "cuml-cu11; sys_platform == 'linux'",  # Optional GPU acceleration for neighbor graphs
 ]
-
-ani = [
-  "torchani>=2.2",  # TorchANI for ANI models
+m3gnet = [
+  "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
+  "dgl>=1.0.0",    # Deep Graph Library required by MatGL
 ]
 
 [project.scripts]
