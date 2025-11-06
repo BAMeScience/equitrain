@@ -26,6 +26,9 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:__array__ implementation doesn't accept a copy keyword.*:DeprecationWarning"
     ),
+    pytest.mark.filterwarnings(
+        "ignore:Please use the new API settings to control TF32 behavior.*:UserWarning"
+    ),
 ]
 
 
