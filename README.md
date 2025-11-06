@@ -8,7 +8,7 @@ Equitrain is an open-source software package designed to simplify the training a
 
 - **Unified Framework**: Train and fine-tune MLIPs using a consistent interface.
 - **Flexible Backends**: Parity-tested Torch and JAX backends that share schedulers, EMA, and fine-tuning workflows.
-- **Flexible Model Wrappers**: Support for different MLIP architectures  (MACE, SevenNet, and ORB) through model-specific wrappers.
+- **Flexible Model Wrappers**: Support for different MLIP architectures  (MACE, SevenNet, ORB, ANI, and M3GNet) through model-specific wrappers.
 - **Efficient Preprocessing**: Automated preprocessing with options for computing statistics and managing data.
 - **GPU/Node Scalability**: Seamless integration with multi-GPU and multi-node environments using `accelerate`.
 - **Extensive Resources**: Includes scripts for dataset preparation, initial model setup, and training workflows.
@@ -63,6 +63,7 @@ uv pip install -e '.[dev,docu]'
 * The `[dev]` optional dependencies install a set of packages used for formatting, typing, and testing.
 * The `[docu]` optional dependencies install the packages for launching the documentation page.
 * For specific model support, you can install additional dependencies:
+  * `[ani]` - Install TorchANI models for molecular systems
   * `[orb]` - Install ORB models and dependencies for universal interatomic potentials
 
 **Using `conda`**
