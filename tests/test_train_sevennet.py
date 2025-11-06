@@ -35,7 +35,7 @@ def test_train_sevennet():
     args.train_file = str(data_dir / 'train.h5')
     args.valid_file = str(data_dir / 'valid.h5')
     args.test_file = str(data_dir / 'train.h5')
-    args.output_dir = 'test_train_sevennet'
+    args.output_dir = str(Path(__file__).with_name('test_train_sevennet'))
     args.model = SevennetWrapper(
         args,
         filename_config=str(Path(__file__).with_name('test_train_sevennet.yaml')),

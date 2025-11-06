@@ -82,7 +82,7 @@ def test_train_orb():
     # Set training parameters for quick test
     args.train_file = None  # We'll use dummy data
     args.valid_file = None
-    args.output_dir = 'test_train_orb'
+    args.output_dir = str(Path(__file__).with_name('test_train_orb'))
     args.epochs = 5  # Short training for test
     args.batch_size = 8
     args.lr = 0.001

@@ -2,6 +2,8 @@
 Test script for training a M3GNet model with Equitrain.
 """
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
@@ -23,7 +25,7 @@ def test_train_m3gnet():
     # Set training parameters
     args.train_file = 'data/train.h5'
     args.valid_file = 'data/valid.h5'
-    args.output_dir = 'test_train_m3gnet'
+    args.output_dir = str(Path(__file__).with_name('test_train_m3gnet'))
     args.epochs = 2
     args.batch_size = 32
     args.lr = 0.001
