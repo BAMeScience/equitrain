@@ -3,7 +3,6 @@ from __future__ import annotations
 import ase
 import torch
 import torch_geometric
-from accelerate import Accelerator
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
