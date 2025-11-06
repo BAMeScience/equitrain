@@ -43,7 +43,9 @@ class MaceWrapper(AbstractWrapper):
 
     def forward(self, *args):
         if len(args) != 1:
-            raise NotImplementedError('MaceWrapper expects a single PyG batch argument.')
+            raise NotImplementedError(
+                'MaceWrapper expects a single PyG batch argument.'
+            )
 
         data = args[0]
         param = next(self.model.parameters(), None)
@@ -54,7 +56,11 @@ class MaceWrapper(AbstractWrapper):
             data = data.to(target_device)
         if target_dtype is not None:
             for key, value in data:
-                if isinstance(value, torch.Tensor) and value.dtype.is_floating_point and value.dtype != target_dtype:
+                if (
+                    isinstance(value, torch.Tensor)
+                    and value.dtype.is_floating_point
+                    and value.dtype != target_dtype
+                ):
                     setattr(data, key, value.to(dtype=target_dtype))
 
         y_pred = self.model(
