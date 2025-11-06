@@ -63,6 +63,7 @@ uv pip install -e '.[dev,docu]'
 * The `[dev]` optional dependencies install a set of packages used for formatting, typing, and testing.
 * The `[docu]` optional dependencies install the packages for launching the documentation page.
 * For specific model support, you can install additional dependencies:
+  * `[torch]` - Install the core Torch backend (PyTorch, torch_geometric, accelerate, torch-ema)
   * `[ani]` - Install TorchANI models for molecular systems
   * `[orb]` - Install ORB models and dependencies for universal interatomic potentials
 
@@ -96,6 +97,12 @@ conda activate equitrain
 ---
 
 ## Quickstart Guide
+
+Many examples below use the Torch backend. Ensure the relevant extras are installed, for example:
+
+```bash
+pip install equitrain[torch,mace]
+```
 
 ### 1. Preprocessing Data
 

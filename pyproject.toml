@@ -33,11 +33,7 @@ dependencies = [
     "ase",
     "h5py",
     "pymatgen",
-    "torch",
-    "torch_geometric",
-    "torch_ema",
     "tqdm",
-    "accelerate",
 ]
 
 [project.optional-dependencies]
@@ -52,19 +48,41 @@ docu = [
   "pymdown-extensions",
   "mkdocs-click",
 ]
+torch = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+]
 ani = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
   "torchani>=2.2",  # TorchANI for ANI models
   "ase>=3.22.0",    # Atomic Simulation Environment for symbol/structure utilities
 ]
 orb = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
   "orb-models>=3.0",  # ORB universal interatomic potentials
   "cuml-cu11; sys_platform == 'linux'",  # Optional GPU acceleration for neighbor graphs
 ]
 m3gnet = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
   "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
   "dgl>=1.0.0",    # Deep Graph Library required by MatGL
 ]
 mace = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
   "mace-torch>=0.3.6",  # Torch implementation of MACE potentials
 ]
 mace-jax = [
