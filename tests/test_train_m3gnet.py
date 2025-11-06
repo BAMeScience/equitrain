@@ -2,6 +2,7 @@
 Test script for training a M3GNet model with Equitrain.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,10 @@ def test_train_m3gnet():
     # Set training parameters
     args.train_file = 'data/train.h5'
     args.valid_file = 'data/valid.h5'
-    args.output_dir = str(Path(__file__).with_name('test_train_m3gnet'))
+    output_dir = Path(__file__).with_name('test_train_m3gnet')
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    args.output_dir = str(output_dir)
     args.epochs = 2
     args.batch_size = 32
     args.lr = 0.001
@@ -41,7 +45,11 @@ def test_train_m3gnet():
     args.model = M3GNetWrapper(args)
 
     # Train the model
-    train(args)
+    try:
+        train(args)
+    finally:
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
 
 
 if __name__ == '__main__':
