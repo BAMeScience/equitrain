@@ -6,7 +6,6 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import jraph
-import numpy as np
 import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
@@ -15,7 +14,6 @@ from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 from equitrain.argparser import (
     ArgsFormatter,
     check_args_consistency,
-    validate_evaluate_args,
     validate_training_args,
 )
 from equitrain.backends import jax_checkpoint

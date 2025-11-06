@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 from equitrain.backends.jax_loss import JaxLossCollection
 from equitrain.loss_metrics import AverageMeter
 
