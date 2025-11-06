@@ -176,7 +176,6 @@ def _write_small_mace_model(path: Path) -> None:
     config_from_atoms = modules.config_from_atoms
     torch_geometric = modules.torch_geometric
     configure_model_torch = modules.configure_model_torch
-    Batch = modules.Batch
 
     structures = _build_structures()
     zs = [int(z) for atoms in structures for z in atoms.get_atomic_numbers()]

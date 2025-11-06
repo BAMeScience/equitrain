@@ -30,7 +30,6 @@ dependencies = [
     "lightning",
     "beautifulsoup4",
     "pqdm",
-    "mace-torch",
     "ase",
     "h5py",
     "pymatgen",
@@ -55,6 +54,7 @@ docu = [
 ]
 ani = [
   "torchani>=2.2",  # TorchANI for ANI models
+  "ase>=3.22.0",    # Atomic Simulation Environment for symbol/structure utilities
 ]
 orb = [
   "orb-models>=3.0",  # ORB universal interatomic potentials
@@ -83,7 +83,7 @@ equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
-include = ["equitrain/*.py", "tests/*.py"]
+include = ["equitrain/**/*.py", "tests/**/*.py"]
 exclude = [
     ".bzr",
     ".direnv",
