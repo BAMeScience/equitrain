@@ -5,43 +5,48 @@ import json
 import shutil
 from pathlib import Path
 
-import jax.numpy as jnp
-import jraph
 import numpy as np
 import pytest
 import torch
 from ase import Atoms
 from ase.build import bulk
 from ase.calculators.singlepoint import SinglePointCalculator
-from flax import core as flax_core
-from flax import serialization, traverse_util
-from mace.data.atomic_data import AtomicData
-from mace.data.utils import config_from_atoms
-from mace.tools import torch_geometric
-from mace.tools.scripts_utils import extract_config_mace_model
-from mace_jax.cli import mace_torch2jax
-from mace_jax.data.utils import (
+
+pytest.importorskip('mace', reason='MACE is required for MACE JAX integration tests.')
+pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
+pytest.importorskip('jax', reason='JAX runtime is required for these tests.')
+
+import jax.numpy as jnp  # noqa: E402
+import jraph  # noqa: E402
+from flax import core as flax_core  # noqa: E402
+from flax import serialization, traverse_util  # noqa: E402
+from mace.data.atomic_data import AtomicData  # noqa: E402
+from mace.data.utils import config_from_atoms  # noqa: E402
+from mace.tools import torch_geometric  # noqa: E402
+from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
+from mace_jax.cli import mace_torch2jax  # noqa: E402
+from mace_jax.data.utils import (  # noqa: E402
     AtomicNumberTable as JaxAtomicNumberTable,
 )
-from mace_jax.data.utils import (
+from mace_jax.data.utils import (  # noqa: E402
     Configuration as JaxConfiguration,
 )
-from mace_jax.data.utils import (
+from mace_jax.data.utils import (  # noqa: E402
     graph_from_configuration,
 )
 
-from equitrain import get_args_parser_train
-from equitrain import train as equitrain_train
-from equitrain.backends.jax_utils import (
+from equitrain import get_args_parser_train  # noqa: E402
+from equitrain import train as equitrain_train  # noqa: E402
+from equitrain.backends.jax_utils import (  # noqa: E402
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     ModelBundle,
     load_model_bundle,
 )
-from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
-from equitrain.data.format_hdf5.dataset import HDF5Dataset
-from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
-from equitrain.utility_test.mace_support import get_mace_model_path
+from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data  # noqa: E402
+from equitrain.data.format_hdf5.dataset import HDF5Dataset  # noqa: E402
+from equitrain.utility_test import MaceWrapper as TorchMaceWrapper  # noqa: E402
+from equitrain.utility_test.mace_support import get_mace_model_path  # noqa: E402
 
 
 def _cleanup_path(path: Path) -> None:

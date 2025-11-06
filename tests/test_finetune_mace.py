@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
 import torch
+
+pytest.importorskip('mace', reason='MACE is required for MACE integration tests.')
 
 from equitrain import get_args_parser_train, train
 from equitrain.checkpoint import load_checkpoint

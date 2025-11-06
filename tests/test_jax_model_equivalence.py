@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import warnings
 
-import jax
 import numpy as np
 import pytest
 import torch
-from flax import serialization
-from mace.data.atomic_data import AtomicData
-from mace.data.utils import config_from_atoms
-from mace.tools import torch_geometric
-from mace.tools.scripts_utils import extract_config_mace_model
-from mace_jax.cli import mace_torch2jax
 
-from equitrain.utility_test.mace_support import (
+pytest.importorskip('mace', reason='MACE is required for MACE JAX integration tests.')
+pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
+pytest.importorskip('jax', reason='JAX runtime is required for these tests.')
+
+import jax  # noqa: E402
+from flax import serialization  # noqa: E402
+from mace.data.atomic_data import AtomicData  # noqa: E402
+from mace.data.utils import config_from_atoms  # noqa: E402
+from mace.tools import torch_geometric  # noqa: E402
+from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
+from mace_jax.cli import mace_torch2jax  # noqa: E402
+
+from equitrain.utility_test.mace_support import (  # noqa: E402
     build_statistics,
     build_structures,
     create_model_args,

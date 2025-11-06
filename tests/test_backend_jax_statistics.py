@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch_geometric
 
-pytest.importorskip('jax')
-pytest.importorskip('mace_jax')
+pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
+pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
 
 from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable  # noqa: E402
 

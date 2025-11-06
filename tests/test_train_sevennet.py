@@ -2,7 +2,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip('sevenn')
+pytest.importorskip(
+    'sevenn', reason='sevenn is required for SevenNet integration tests.'
+)
 
 from equitrain import get_args_parser_train, train
 from equitrain.data.statistics_data import Statistics

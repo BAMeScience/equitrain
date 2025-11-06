@@ -5,8 +5,13 @@ This script tests the ANI wrapper by predicting energies and forces for a set of
 """
 
 import numpy as np
+import pytest
 import torch
 from ase import Atoms
+
+pytest.importorskip(
+    'torchani', reason='TorchANI is required for ANI integration tests.'
+)
 
 from equitrain import get_args_parser_predict, predict_atoms
 from equitrain.data.atomic import AtomicNumberTable

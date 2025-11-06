@@ -6,9 +6,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip('jax')
-import jax.numpy as jnp
-import jraph
+pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
+
+import jax.numpy as jnp  # noqa: E402
+import jraph  # noqa: E402
 
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 

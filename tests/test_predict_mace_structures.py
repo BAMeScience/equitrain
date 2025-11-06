@@ -1,7 +1,10 @@
 from pathlib import Path
 
 import ase.io
+import pytest
 from pymatgen.io.ase import AseAtomsAdaptor
+
+pytest.importorskip('mace', reason='MACE is required for MACE integration tests.')
 
 from equitrain import get_args_parser_predict, predict_structures
 from equitrain.backends.torch_utils import set_dtype

@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip('mace', reason='MACE is required for MACE integration tests.')
+
 from equitrain import get_args_parser_train, train
 from equitrain.utility_test import MaceWrapper
 from equitrain.utility_test.mace_support import get_mace_model_path

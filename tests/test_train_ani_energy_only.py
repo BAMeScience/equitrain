@@ -7,12 +7,16 @@ This script tests the ANI wrapper's ability to train using only energy labels.
 from pathlib import Path
 
 import numpy as np
-import torchani
+import pytest
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 
 from equitrain import get_args_parser_train, train
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
+
+torchani = pytest.importorskip(
+    'torchani', reason='TorchANI is required for ANI integration tests.'
+)
 
 
 def _write_energy_only_dataset(path: Path) -> None:

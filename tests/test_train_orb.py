@@ -12,6 +12,10 @@ import pytest
 import torch
 from torch_geometric.data import Batch, Data
 
+pytest.importorskip(
+    'orb_models', reason='orb-models is required for ORB integration tests.'
+)
+
 from equitrain import get_args_parser_train, train
 from equitrain.backends.torch_wrappers import OrbWrapper
 
