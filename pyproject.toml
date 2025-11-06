@@ -54,6 +54,10 @@ torch = [
   "torch_ema>=0.3.0",
   "accelerate>=0.28.0",
 ]
+jax = [
+  "jax>=0.4",
+  "jaxlib>=0.4",
+]
 ani = [
   "torch>=2.0.0",
   "torch_geometric>=2.4.0",

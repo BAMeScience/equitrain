@@ -64,6 +64,7 @@ uv pip install -e '.[dev,docu]'
 * The `[docu]` optional dependencies install the packages for launching the documentation page.
 * For specific model support, you can install additional dependencies:
   * `[torch]` - Install the core Torch backend (PyTorch, torch_geometric, accelerate, torch-ema)
+  * `[jax]` - Install the JAX backend runtime (jax, jaxlib)
   * `[ani]` - Install TorchANI models for molecular systems
   * `[orb]` - Install ORB models and dependencies for universal interatomic potentials
 
@@ -102,6 +103,12 @@ Many examples below use the Torch backend. Ensure the relevant extras are instal
 
 ```bash
 pip install equitrain[torch,mace]
+```
+
+For JAX-based workflows, install the corresponding extras, e.g.:
+
+```bash
+pip install equitrain[jax,mace-jax]
 ```
 
 ### 1. Preprocessing Data
