@@ -135,21 +135,21 @@ The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; 
 ```python
 from equitrain import get_args_parser_preprocess, preprocess
 
-def test_preprocess():
-    args = get_args_parser_preprocess().parse_args()
-    args.train_file         = 'data.xyz'
-    args.valid_file         = 'data.xyz'
-    args.output_dir         = 'test_preprocess/'
+
+def run_preprocess():
+    args = get_args_parser_preprocess().parse_args([])
+    args.train_file = 'data.xyz'
+    args.valid_file = 'data.xyz'
+    args.output_dir = 'test_preprocess'
     args.compute_statistics = True
-    # Compute atomic energies
-    args.atomic_energies    = "average"
-    # Cutoff radius for computing graphs
+    args.atomic_energies = 'average'
     args.r_max = 4.5
 
     preprocess(args)
 
-if __name__ == "__main__":
-    test_preprocess()
+
+if __name__ == '__main__':
+    run_preprocess()
 ```
 
 ---
@@ -166,7 +166,7 @@ equitrain -v \
     --train-file data/train.h5 \
     --valid-file data/valid.h5 \
     --output-dir result_mace \
-    --model mace.model \
+    --model path/to/mace.model \
     --model-wrapper 'mace' \
     --epochs 10 \
     --tqdm
@@ -176,6 +176,7 @@ equitrain -v \
     --train-file data/train.h5 \
     --valid-file data/valid.h5 \
     --output-dir result_orb \
+    --model path/to/orb.model \
     --model-wrapper 'orb' \
     --epochs 10 \
     --tqdm
@@ -186,26 +187,45 @@ equitrain -v \
 
 ```python
 from equitrain import get_args_parser_train, train
-from equitrain.backends.torch_wrappers import MaceWrapper, OrbWrapper
 
-# Training with MACE
-def test_train_mace():
-    args = get_args_parser_train().parse_args()
-    args.train_file  = 'data/train.h5'
-    args.valid_file  = 'data/valid.h5'
-    args.output_dir  = 'test_train_mace'
-    args.epochs      = 10
-    args.batch_size  = 64
-    args.lr          = 0.01
-    args.verbose     = 1
-    args.tqdm        = True
-    args.model       = MaceWrapper(args, "mace.model")
+
+def train_mace():
+    args = get_args_parser_train().parse_args([])
+    args.train_file = 'data/train.h5'
+    args.valid_file = 'data/valid.h5'
+    args.output_dir = 'runs/mace'
+    args.epochs = 10
+    args.batch_size = 64
+    args.lr = 1e-2
+    args.verbose = 1
+    args.tqdm = True
+
+    args.model = 'path/to/mace.model'
+    args.model_wrapper = 'mace'
 
     train(args)
 
-if __name__ == "__main__":
-    test_train_mace()
-    # test_train_orb()
+
+def train_orb():
+    args = get_args_parser_train().parse_args([])
+    args.train_file = 'data/train.h5'
+    args.valid_file = 'data/valid.h5'
+    args.output_dir = 'runs/orb'
+    args.epochs = 10
+    args.batch_size = 32
+    args.lr = 5e-4
+    args.verbose = 1
+    args.tqdm = True
+
+    args.model = 'path/to/orb.model'
+    args.model_wrapper = 'orb'
+
+    train(args)
+
+
+if __name__ == '__main__':
+    train_mace()
+    # train_orb()
 ```
 
 #### Running the JAX backend
@@ -233,22 +253,23 @@ Use a trained model to make predictions on new data:
 
 ```python
 from equitrain import get_args_parser_predict, predict
-from equitrain.backends.torch_wrappers import MaceWrapper
 
-def test_mace_predict():
-    args = get_args_parser_predict().parse_args()
+
+def predict_with_mace():
+    args = get_args_parser_predict().parse_args([])
     args.predict_file = 'data/valid.h5'
-    args.batch_size   = 64
-    args.model        = MaceWrapper(args, "mace.model")
+    args.batch_size = 64
+    args.model = 'path/to/mace.model'
+    args.model_wrapper = 'mace'
 
     energy_pred, forces_pred, stress_pred = predict(args)
-
     print(energy_pred)
     print(forces_pred)
     print(stress_pred)
 
-if __name__ == "__main__":
-    test_mace_predict()
+
+if __name__ == '__main__':
+    predict_with_mace()
 ```
 
 ---
