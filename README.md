@@ -129,6 +129,13 @@ equitrain-preprocess \
 
 The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed. XYZ files are parsed through ASE so that lattice vectors, species labels, and per-configuration metadata are retained. The generated HDF5 archive is a lightweight collection of numbered groups where each entry stores positions, atomic numbers, energy, optional forces and stress, the cell matrix, and periodic boundary conditions. Precomputed statistics (means, standard deviations, cutoff radius, atomic energies) are stored alongside and reused by the training entry points.
 
+Under the hood, each processed file is organised as:
+
+- `/structures`: per-configuration metadata (cell, energy, stress, weights, etc.) and pointers into the per-atom arrays.
+- `/positions`, `/forces`, `/atomic_numbers`: flat, chunked arrays sized by the total number of atoms across the dataset. Random reads only touch the slices required for a batch.
+
+This layout keeps the HDF5 file compact even for tens of millions of structures: chunked per-atom arrays avoid the pointer-chasing overhead of variable-length fields, enabling efficient multi-worker dataloaders that issue many small reads concurrently.
+
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
 

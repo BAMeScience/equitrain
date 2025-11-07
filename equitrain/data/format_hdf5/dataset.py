@@ -9,29 +9,60 @@ from equitrain.data.configuration import CachedCalc
 
 
 class HDF5Dataset:
-    # ! check whether this can be pushed to repo
+    """
+    Lightweight, append-only HDF5 store for ASE ``Atoms`` objects.
+
+    Layout & performance
+    --------------------
+    - ``/structures``: per-configuration metadata (cell, PBC, energy, stress, weights,
+      etc.) plus the offset/length that point into the contiguous arrays below.
+      Structure-level quantities such as stress or dipole live here because they do
+      not scale with atom count.
+    - ``/positions``, ``/forces``, ``/atomic_numbers``: flat, chunked arrays that
+      contain per-atom data. Random access only touches the slices required for a
+      given structure.
+
+    Each per-atom array is chunked by a configurable number of atoms (default 1024),
+    which keeps small random reads in-cache for typical batch sizes and avoids the
+    pointer-chasing penalty of HDF5 variable-length fields. Appending new structures
+    only requires extending those arrays, so the file remains compact and performant
+    even with tens of millions of entries.
+    """
+
     MAGIC_STRING = 'ZVNjaWVuY2UgRXF1aXRyYWlu'
+    STRUCTURES_DATASET = 'structures'
+    POSITIONS_DATASET = 'positions'
+    FORCES_DATASET = 'forces'
+    ATOMIC_NUMBERS_DATASET = 'atomic_numbers'
+    _DEFAULT_CHUNK_ATOMS = 1024
 
     def __init__(self, filename: Path | str, mode: str = 'r'):
         filename = Path(filename)
 
-        if filename.exists():
-            self.file = h5py.File(filename, mode)
-            self.check_magic()
-        else:
-            self.file = h5py.File(filename, mode)
+        self.file = h5py.File(filename, mode)
+
+        if 'MAGIC' not in self.file:
             self.write_magic()
             self.create_dataset()
+        else:
+            self.check_magic()
+            if self.STRUCTURES_DATASET not in self.file:
+                raise OSError(
+                    'HDF5 file was created with an unsupported legacy format. '
+                    'Please regenerate the dataset with the current Equitrain version.'
+                )
 
     def create_dataset(self):
+        if self.STRUCTURES_DATASET in self.file:
+            return
+
         atom_dtype = np.dtype(
             [
-                ('atomic_numbers', h5py.special_dtype(vlen=np.int32)),
-                ('positions', h5py.special_dtype(vlen=np.float64)),
+                ('offset', np.int64),
+                ('length', np.int32),
                 ('cell', np.float64, (3, 3)),
                 ('pbc', np.bool_, (3,)),
                 ('energy', np.float64),
-                ('forces', h5py.special_dtype(vlen=np.float64)),
                 ('stress', np.float64, (6,)),
                 ('virials', np.float64, (3, 3)),
                 ('dipole', np.float64, (3,)),
@@ -42,13 +73,36 @@ class HDF5Dataset:
                 ('dipole_weight', np.float32),
             ]
         )
-        # There are some parameters that should be accessible through
-        # command-line options, i.e. chunking and compression
+
         self.file.create_dataset(
-            'atoms',
-            shape=(0,),  # Initially empty
-            maxshape=(None,),  # Extendable along the first dimension
+            self.STRUCTURES_DATASET,
+            shape=(0,),
+            maxshape=(None,),
             dtype=atom_dtype,
+            chunks=True,
+        )
+
+        chunk_atoms = self._DEFAULT_CHUNK_ATOMS
+        self.file.create_dataset(
+            self.POSITIONS_DATASET,
+            shape=(0, 3),
+            maxshape=(None, 3),
+            dtype=np.float64,
+            chunks=(chunk_atoms, 3),
+        )
+        self.file.create_dataset(
+            self.FORCES_DATASET,
+            shape=(0, 3),
+            maxshape=(None, 3),
+            dtype=np.float64,
+            chunks=(chunk_atoms, 3),
+        )
+        self.file.create_dataset(
+            self.ATOMIC_NUMBERS_DATASET,
+            shape=(0,),
+            maxshape=(None,),
+            dtype=np.int32,
+            chunks=(chunk_atoms,),
         )
 
     def open(self, filename: Path | str, mode: str = 'r'):
@@ -82,21 +136,29 @@ class HDF5Dataset:
         return d
 
     def __len__(self):
-        if 'atoms' not in self.file:
-            raise RuntimeError("Dataset 'atoms' does not exist")
-        return self.file['atoms'].shape[0]
+        return self.file[self.STRUCTURES_DATASET].shape[0]
 
     def __getitem__(self, i: int) -> Atoms:
-        entry = self.file['atoms'][i]
-        num_atoms = len(entry['positions']) // 3
+        structures = self.file[self.STRUCTURES_DATASET]
+        entry = structures[i]
+        offset = int(entry['offset'])
+        length = int(entry['length'])
+        end = offset + length
+
+        positions = self.file[self.POSITIONS_DATASET][offset:end]
+        forces = self.file[self.FORCES_DATASET][offset:end]
+        atomic_numbers = self.file[self.ATOMIC_NUMBERS_DATASET][offset:end]
+
         atoms = Atoms(
-            numbers=entry['atomic_numbers'],
-            positions=entry['positions'].reshape((num_atoms, 3)),
+            numbers=atomic_numbers.astype(np.int32, copy=False),
+            positions=positions,
             cell=entry['cell'],
             pbc=entry['pbc'],
         )
         atoms.calc = CachedCalc(
-            entry['energy'], entry['forces'].reshape((num_atoms, 3)), entry['stress']
+            float(entry['energy']),
+            forces,
+            entry['stress'],
         )
         atoms.info['virials'] = entry['virials']
         atoms.info['dipole'] = entry['dipole']
@@ -108,26 +170,99 @@ class HDF5Dataset:
         return atoms
 
     def __setitem__(self, i: int, atoms: Atoms) -> None:
-        dataset = self.file['atoms']
-        # Extend dataset if necessary
-        if i >= len(dataset):
-            dataset.resize(i + 1, axis=0)
+        structures = self.file[self.STRUCTURES_DATASET]
+        positions_ds = self.file[self.POSITIONS_DATASET]
+        forces_ds = self.file[self.FORCES_DATASET]
+        atomic_numbers_ds = self.file[self.ATOMIC_NUMBERS_DATASET]
 
-        dataset[i] = (
-            atoms.get_atomic_numbers().astype(np.int32),
-            atoms.get_positions().flatten().astype(np.float64),
-            atoms.get_cell().astype(np.float64),
-            atoms.get_pbc().astype(np.bool_),
-            np.float64(atoms.get_potential_energy()),
-            atoms.get_forces().flatten().astype(np.float64),
-            atoms.get_stress().astype(np.float64),
-            atoms.info['virials'].astype(np.float64),
-            atoms.info['dipole'].astype(np.float64),
-            np.float32(atoms.info.get('energy_weight', 1.0)),
-            np.float32(atoms.info.get('forces_weight', 1.0)),
-            np.float32(atoms.info.get('stress_weight', 1.0)),
-            np.float32(atoms.info.get('virials_weight', 1.0)),
-            np.float32(atoms.info.get('dipole_weight', 1.0)),
+        numbers = atoms.get_atomic_numbers().astype(np.int32, copy=True)
+        positions = np.asarray(atoms.get_positions(), dtype=np.float64)
+        forces = np.asarray(atoms.get_forces(), dtype=np.float64)
+        length = positions.shape[0]
+
+        if length != numbers.shape[0] or length != forces.shape[0]:
+            raise ValueError('Inconsistent atom count for positions/forces/numbers')
+
+        cell = atoms.get_cell().astype(np.float64)
+        pbc = atoms.get_pbc().astype(np.bool_)
+        energy = np.float64(atoms.get_potential_energy())
+        stress = np.asarray(atoms.get_stress(), dtype=np.float64).reshape(6)
+        virials = np.asarray(
+            atoms.info.get('virials', np.zeros((3, 3), dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(3, 3)
+        dipole = np.asarray(
+            atoms.info.get('dipole', np.zeros(3, dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(3)
+        energy_weight = np.float32(atoms.info.get('energy_weight', 1.0))
+        forces_weight = np.float32(atoms.info.get('forces_weight', 1.0))
+        stress_weight = np.float32(atoms.info.get('stress_weight', 1.0))
+        virials_weight = np.float32(atoms.info.get('virials_weight', 1.0))
+        dipole_weight = np.float32(atoms.info.get('dipole_weight', 1.0))
+
+        current_len = len(structures)
+        if i < current_len:
+            entry = structures[i]
+            if int(entry['length']) != length:
+                raise ValueError(
+                    'Cannot change number of atoms for an existing entry in HDF5Dataset'
+                )
+            offset = int(entry['offset'])
+            end = offset + length
+            positions_ds[offset:end] = positions
+            forces_ds[offset:end] = forces
+            atomic_numbers_ds[offset:end] = numbers
+            structures[i] = (
+                offset,
+                length,
+                cell,
+                pbc,
+                energy,
+                stress,
+                virials,
+                dipole,
+                energy_weight,
+                forces_weight,
+                stress_weight,
+                virials_weight,
+                dipole_weight,
+            )
+            return
+
+        if i > current_len:
+            raise IndexError(
+                'Cannot assign to non-contiguous index in HDF5Dataset; '
+                f'expected index {current_len}, received {i}'
+            )
+
+        offset = positions_ds.shape[0]
+        end = offset + length
+
+        positions_ds.resize(end, axis=0)
+        positions_ds[offset:end] = positions
+
+        forces_ds.resize(end, axis=0)
+        forces_ds[offset:end] = forces
+
+        atomic_numbers_ds.resize(end, axis=0)
+        atomic_numbers_ds[offset:end] = numbers
+
+        structures.resize(current_len + 1, axis=0)
+        structures[current_len] = (
+            offset,
+            length,
+            cell,
+            pbc,
+            energy,
+            stress,
+            virials,
+            dipole,
+            energy_weight,
+            forces_weight,
+            stress_weight,
+            virials_weight,
+            dipole_weight,
         )
 
     def check_magic(self):
