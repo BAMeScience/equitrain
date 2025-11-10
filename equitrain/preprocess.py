@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 import shutil
@@ -8,6 +9,7 @@ import torch_geometric
 
 from equitrain.argparser import ArgumentError, check_args_complete
 from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.configuration import niggli_reduce_inplace
 from equitrain.data.backend_torch import statistics as torch_statistics
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_lmdb import convert_lmdb_to_hdf5
@@ -32,6 +34,8 @@ def _convert_to_hdf5(
     filename_hdf5,
     extract_atomic_numbers=False,
     extract_atomic_energies=False,
+    *,
+    niggli_reduce=False,
 ):
     atomic_numbers = None
     atomic_energies = None
@@ -39,6 +43,8 @@ def _convert_to_hdf5(
     source_path = Path(source_filename)
     target_path = Path(filename_hdf5)
     target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    atoms_transform = niggli_reduce_inplace if niggli_reduce else None
 
     lower_name = source_path.name.lower()
     if lower_name.endswith('.xyz') or lower_name.endswith('.xyz.gz'):
@@ -51,8 +57,10 @@ def _convert_to_hdf5(
             extract_atomic_energies=extract_atomic_energies,
         )
         with HDF5Dataset(target_path, 'w') as file:
-            for i, config in enumerate(reader):
-                file[i] = config
+            for i, atoms in enumerate(reader):
+                if atoms_transform is not None:
+                    atoms_transform(atoms)
+                file[i] = atoms
         if extract_atomic_numbers:
             atomic_numbers = reader.atomic_numbers
         if extract_atomic_energies:
@@ -60,7 +68,11 @@ def _convert_to_hdf5(
 
     elif lower_name.endswith('.lmdb') or lower_name.endswith('.aselmdb'):
         convert_lmdb_to_hdf5(
-            source_path, target_path, overwrite=True, show_progress=False
+            source_path,
+            target_path,
+            atoms_transform=atoms_transform,
+            overwrite=True,
+            show_progress=False,
         )
         if extract_atomic_numbers:
             atomic_numbers = _collect_atomic_numbers(target_path)
@@ -68,6 +80,12 @@ def _convert_to_hdf5(
     elif lower_name.endswith('.h5') or lower_name.endswith('.hdf5'):
         if source_path.resolve() != target_path.resolve():
             shutil.copyfile(source_path, target_path)
+        if niggli_reduce:
+            logging.warning(
+                'Requested Niggli reduction is skipped for existing HDF5 source %s. '
+                'Regenerate the dataset from raw structures if reduction is required.',
+                source_path,
+            )
         if extract_atomic_numbers:
             atomic_numbers = _collect_atomic_numbers(target_path)
 
@@ -135,6 +153,7 @@ def _preprocess(args):
                 extract_atomic_energies=(
                     args.compute_statistics and statistics.atomic_energies is None
                 ),
+                niggli_reduce=args.niggli_reduce,
             )
 
             if statistics.atomic_numbers is None:
@@ -150,7 +169,12 @@ def _preprocess(args):
 
         else:
             logger.log(1, 'Converting valid file')
-            _convert_to_hdf5(args, args.valid_file, filename_valid)
+            _convert_to_hdf5(
+                args,
+                args.valid_file,
+                filename_valid,
+                niggli_reduce=args.niggli_reduce,
+            )
 
     # Convert test file
     if args.test_file:
@@ -159,7 +183,12 @@ def _preprocess(args):
 
         else:
             logger.log(1, 'Converting test file')
-            _convert_to_hdf5(args, args.test_file, filename_test)
+            _convert_to_hdf5(
+                args,
+                args.test_file,
+                filename_test,
+                niggli_reduce=args.niggli_reduce,
+            )
 
     if Path(filename_train).exists() and args.compute_statistics:
         logger.log(1, 'Computing statistics')
@@ -200,7 +229,12 @@ def _preprocess(args):
                 )
 
             jax_z_table = JaxAtomicNumberTable(list(statistics.atomic_numbers))
-            jax_graphs = atoms_to_graphs(filename_train, statistics.r_max, jax_z_table)
+            jax_graphs = atoms_to_graphs(
+                filename_train,
+                statistics.r_max,
+                jax_z_table,
+                niggli_reduce=args.niggli_reduce,
+            )
             if not jax_graphs:
                 raise RuntimeError('Training dataset is empty.')
 

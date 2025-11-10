@@ -44,7 +44,12 @@ def evaluate(args):
     if r_max <= 0.0:
         raise RuntimeError('Model configuration must define a positive `r_max`.')
 
-    test_graphs = atoms_to_graphs(args.test_file, r_max, z_table)
+    test_graphs = atoms_to_graphs(
+        args.test_file,
+        r_max,
+        z_table,
+        niggli_reduce=getattr(args, 'niggli_reduce', False),
+    )
     if not test_graphs:
         raise RuntimeError('Test dataset is empty.')
 

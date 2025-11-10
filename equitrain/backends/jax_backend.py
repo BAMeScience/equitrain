@@ -470,8 +470,13 @@ def train(args):
     if r_max <= 0.0:
         raise RuntimeError('Model configuration must define a positive `r_max`.')
 
-    train_graphs = atoms_to_graphs(args.train_file, r_max, z_table)
-    valid_graphs = atoms_to_graphs(args.valid_file, r_max, z_table)
+    reduce_cells = getattr(args, 'niggli_reduce', False)
+    train_graphs = atoms_to_graphs(
+        args.train_file, r_max, z_table, niggli_reduce=reduce_cells
+    )
+    valid_graphs = atoms_to_graphs(
+        args.valid_file, r_max, z_table, niggli_reduce=reduce_cells
+    )
 
     if not train_graphs:
         raise RuntimeError('Training dataset is empty.')
@@ -755,7 +760,9 @@ def train(args):
 
     test_metrics = None
     if getattr(args, 'test_file', None):
-        test_graphs = atoms_to_graphs(args.test_file, r_max, z_table)
+        test_graphs = atoms_to_graphs(
+            args.test_file, r_max, z_table, niggli_reduce=reduce_cells
+        )
         test_loader = build_loader(
             test_graphs,
             batch_size=args.batch_size,

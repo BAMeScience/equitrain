@@ -3,23 +3,33 @@
 from __future__ import annotations
 
 
-def _ensure_torch_backend(args):
+def _select_backend(args):
     backend_name = getattr(args, 'backend', 'torch') or 'torch'
-    if backend_name != 'torch':
+    if backend_name not in {'torch', 'jax'}:
         raise NotImplementedError(
             f'Prediction is not implemented for backend "{backend_name}".'
         )
+    return backend_name
 
 
 def predict(args):
-    _ensure_torch_backend(args)
-    from equitrain.backends.torch_predict import predict as _predict
+    backend_name = _select_backend(args)
+    if backend_name == 'torch':
+        from equitrain.backends.torch_predict import predict as _predict_impl
 
-    return _predict(args)
+        return _predict_impl(args)
+
+    from equitrain.backends.jax_predict import predict as _predict_impl
+
+    return _predict_impl(args)
 
 
 def _predict(args, device=None):
-    _ensure_torch_backend(args)
+    backend_name = _select_backend(args)
+    if backend_name != 'torch':
+        raise NotImplementedError(
+            '_predict with explicit device control is only available for the Torch backend.'
+        )
     from equitrain.backends.torch_predict import _predict as _impl
 
     return _impl(args, device=device)

@@ -130,6 +130,7 @@ def convert_lmdb_to_hdf5(
     dst: Path | str,
     *,
     config: Mapping | None = None,
+    atoms_transform=None,
     overwrite: bool = False,
     show_progress: bool = False,
 ) -> Path:
@@ -145,6 +146,9 @@ def convert_lmdb_to_hdf5(
         ``overwrite`` is ``True``.
     config:
         Optional dictionary passed to ``AseDBDataset`` (e.g. metadata entries).
+    atoms_transform:
+        Optional callable applied to each ``Atoms`` object prior to storage
+        (e.g. lattice reductions).
     overwrite:
         When ``False`` (default) an existing destination file raises ``FileExistsError``.
     show_progress:
@@ -174,6 +178,8 @@ def convert_lmdb_to_hdf5(
     with HDF5Dataset(dst, mode='w') as storage:
         for index, record in enumerate(iterator):
             atoms = lmdb_entry_to_atoms(record)
+            if atoms_transform is not None:
+                atoms = atoms_transform(atoms)
             storage[index] = atoms
 
     return dst

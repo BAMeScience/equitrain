@@ -10,7 +10,10 @@ from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 from mace_jax.data.utils import Configuration as JaxConfiguration
 from mace_jax.data.utils import graph_from_configuration
 
-from equitrain.data.configuration import Configuration as EqConfiguration
+from equitrain.data.configuration import (
+    Configuration as EqConfiguration,
+    niggli_reduce_inplace,
+)
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 
 
@@ -18,6 +21,8 @@ def atoms_to_graphs(
     data_path: Path | str,
     r_max: float,
     z_table: JaxAtomicNumberTable,
+    *,
+    niggli_reduce: bool = False,
 ) -> list[jraph.GraphsTuple]:
     if data_path is None:
         return []
@@ -27,6 +32,9 @@ def atoms_to_graphs(
     try:
         for idx in range(len(dataset)):
             atoms = dataset[idx]
+            if niggli_reduce:
+                atoms = atoms.copy()
+                niggli_reduce_inplace(atoms)
             eq_conf = EqConfiguration.from_atoms(atoms)
             jax_conf = JaxConfiguration(
                 atomic_numbers=eq_conf.atomic_numbers,

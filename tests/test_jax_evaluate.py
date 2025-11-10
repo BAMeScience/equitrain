@@ -3,11 +3,20 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import torch.serialization
+
+torch.serialization.add_safe_globals([slice])
 
 from equitrain import get_args_parser_evaluate
-from equitrain.backends import jax_evaluate
-from equitrain.backends.jax_loss import JaxLossCollection
-from equitrain.backends.jax_utils import ModelBundle
+
+try:  # pragma: no cover - optional dependency chain
+    from equitrain.backends import jax_evaluate
+    from equitrain.backends.jax_loss import JaxLossCollection
+    from equitrain.backends.jax_utils import ModelBundle
+except Exception as exc:  # pragma: no cover - skip tests when deps unavailable
+    pytestmark = pytest.mark.skip(
+        reason=f'JAX evaluation unavailable in this environment: {exc}'
+    )
 
 
 class _DummyLoader:
@@ -58,8 +67,9 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     def fake_build_loader(graphs, **_):
         return _DummyLoader(graphs)
 
-    def fake_atoms_to_graphs(path, *_):
+    def fake_atoms_to_graphs(path, *_args, **kwargs):
         captured['atoms_to_graphs_path'] = path
+        captured['atoms_niggli'] = kwargs.get('niggli_reduce', False)
         return ['g0', 'g1', 'g2', 'g3']
 
     def fake_make_apply_fn(wrapper, num_species):

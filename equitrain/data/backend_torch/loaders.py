@@ -80,7 +80,13 @@ def get_dataloader(
     if data_file is None:
         return None
 
-    data_set = HDF5GraphDataset(data_file, r_max=r_max, atomic_numbers=atomic_numbers)
+    niggli_reduce = getattr(args, 'niggli_reduce', False)
+    data_set = HDF5GraphDataset(
+        data_file,
+        r_max=r_max,
+        atomic_numbers=atomic_numbers,
+        niggli_reduce=niggli_reduce,
+    )
 
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
     num_workers = _resolve_num_workers(args.workers, accelerator)

@@ -5,7 +5,7 @@ import numpy as np
 from ase import Atoms
 
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.configuration import CachedCalc
+from equitrain.data.configuration import CachedCalc, niggli_reduce_inplace
 
 
 class HDF5Dataset:
@@ -295,11 +295,13 @@ class HDF5GraphDataset(HDF5Dataset):
         r_max: float,
         atomic_numbers: AtomicNumberTable,
         *,
+        niggli_reduce: bool = False,
         atoms_to_graphs_cls=None,
         **kwargs,
     ):
         super().__init__(filename, mode='r', **kwargs)
 
+        self._niggli_reduce = niggli_reduce
         if atoms_to_graphs_cls is None:
             from equitrain.data.backend_torch import (
                 AtomsToGraphs as atoms_to_graphs_cls,
@@ -317,6 +319,8 @@ class HDF5GraphDataset(HDF5Dataset):
 
     def __getitem__(self, index):
         atoms = super().__getitem__(index)
+        if self._niggli_reduce:
+            niggli_reduce_inplace(atoms)
         graph = self.converter.convert(atoms)
         graph.idx = index
 

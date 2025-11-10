@@ -440,6 +440,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         parser.add_argument(
             '--output-dir', help='Output directory', type=str, default=''
         )
+        parser.add_argument(
+            '--niggli-reduce',
+            help='Apply Niggli reduction to periodic cells before writing HDF5 data',
+            action='store_true',
+            default=False,
+        )
 
     elif script_type == 'train':
         add_common_file_args(parser)
@@ -510,6 +516,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_common_data_args(parser)
         add_model_args(parser)
         add_loss_weights_args(parser)
+        parser.add_argument(
+            '--niggli-reduce',
+            help='Apply Niggli reduction before graph construction at inference time',
+            action='store_true',
+            default=False,
+        )
         parser.add_argument(
             '--predict-file',
             help='File with data for which predictions should be computed',
