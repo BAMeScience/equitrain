@@ -9,8 +9,8 @@ import torch_geometric
 
 from equitrain.argparser import ArgumentError, check_args_complete
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.configuration import niggli_reduce_inplace
 from equitrain.data.backend_torch import statistics as torch_statistics
+from equitrain.data.configuration import niggli_reduce_inplace
 from equitrain.data.format_hdf5 import HDF5Dataset, HDF5GraphDataset
 from equitrain.data.format_lmdb import convert_lmdb_to_hdf5
 from equitrain.data.format_xyz import XYZReader

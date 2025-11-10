@@ -12,6 +12,8 @@ from mace_jax.data.utils import graph_from_configuration
 
 from equitrain.data.configuration import (
     Configuration as EqConfiguration,
+)
+from equitrain.data.configuration import (
     niggli_reduce_inplace,
 )
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
@@ -109,12 +111,10 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
     batch = jnp.repeat(
         graph_indices, graph.n_node, total_repeat_length=positions.shape[0]
     )
-    ptr = jnp.concatenate(
-        [
-            jnp.array([0], dtype=jnp.int32),
-            jnp.cumsum(graph.n_node.astype(jnp.int32)),
-        ]
-    )
+    ptr = jnp.concatenate([
+        jnp.array([0], dtype=jnp.int32),
+        jnp.cumsum(graph.n_node.astype(jnp.int32)),
+    ])
 
     data_dict: dict[str, jnp.ndarray] = {
         'positions': positions,

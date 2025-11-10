@@ -1,9 +1,9 @@
-from ase import Atoms
 import torch
+from ase import Atoms
 from torch_geometric.data import Data
 
-from equitrain.data.atomic import AtomicNumberTable
 from equitrain.backends import torch_predict as torch_predict_mod
+from equitrain.data.atomic import AtomicNumberTable
 
 
 def test_predict_atoms_applies_niggli_flag(monkeypatch):

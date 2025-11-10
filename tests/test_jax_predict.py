@@ -6,7 +6,7 @@ import torch.serialization
 torch.serialization.add_safe_globals([slice])
 
 from equitrain import get_args_parser_predict
-import equitrain.backends.jax_predict as jax_predict
+from equitrain.backends import jax_predict
 
 
 def test_jax_predict_basic(monkeypatch):
