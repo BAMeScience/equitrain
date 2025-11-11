@@ -216,7 +216,7 @@ def _copy_dataset_subset(src: Path, dst: Path, limit: int) -> Path:
 def _patch_jax_loader_for_deltas():
     from equitrain.backends import jax_utils as jax_utils_module
 
-    def patched(model_arg, dtype):
+    def patched(model_arg, dtype, wrapper=None):
         config_path, params_path = jax_utils_module.resolve_model_paths(model_arg)
         config_data = json.loads(Path(config_path).read_text())
 

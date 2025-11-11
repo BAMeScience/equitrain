@@ -9,10 +9,10 @@ from pathlib import Path
 import jax
 from flax import core as flax_core
 from flax import serialization
-from mace_jax.cli import mace_torch2jax
 
 from equitrain.argparser import ArgumentError
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
+from equitrain.backends.jax_wrappers import get_wrapper_builder
 
 ensure_multiprocessing_spawn()
 
@@ -62,14 +62,32 @@ def resolve_model_paths(model_arg: str) -> tuple[Path, Path]:
     return config_path, params_path
 
 
-def load_model_bundle(model_arg: str, dtype: str) -> ModelBundle:
+def _discover_wrapper_name(config: dict, explicit: str | None) -> str:
+    if explicit:
+        return explicit.strip().lower()
+
+    for key in ('model_wrapper', 'wrapper', 'wrapper_name'):
+        value = config.get(key)
+        if value:
+            return str(value).strip().lower()
+    return 'mace'
+
+
+def load_model_bundle(
+    model_arg: str,
+    dtype: str,
+    *,
+    wrapper: str | None = None,
+) -> ModelBundle:
     config_path, params_path = resolve_model_paths(model_arg)
     config = json.loads(config_path.read_text())
 
     set_jax_dtype(dtype)
 
-    jax_module = mace_torch2jax._build_jax_model(config)
-    template = mace_torch2jax._prepare_template_data(config)
+    wrapper_name = _discover_wrapper_name(config, wrapper)
+    build_module = get_wrapper_builder(wrapper_name)
+
+    jax_module, template = build_module(config)
     variables = jax_module.init(jax.random.PRNGKey(0), template)
     variables = serialization.from_bytes(variables, params_path.read_bytes())
     variables = flax_core.freeze(variables)

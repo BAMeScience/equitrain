@@ -7,7 +7,7 @@ from __future__ import annotations
 from importlib import import_module
 from types import MappingProxyType
 
-__all__ = ['MaceWrapper', 'available_wrappers']
+__all__ = ['MaceWrapper', 'available_wrappers', 'get_wrapper_builder']
 
 _MODULE_MAP = {'MaceWrapper': 'mace'}
 _CACHE = {}
@@ -50,3 +50,28 @@ def available_wrappers() -> MappingProxyType:
         else:
             status[name] = True
     return MappingProxyType(status)
+
+
+def get_wrapper_builder(name: str):
+    """
+    Return the ``build_module`` helper for the requested wrapper.
+    """
+
+    if not name:
+        raise ValueError('Wrapper name must be provided to load a JAX model.')
+
+    module_name = name.strip().lower()
+    try:
+        module = import_module(f'.{module_name}', __name__)
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            f'Unknown JAX wrapper "{name}". Expected module '
+            f'"{__name__}.{module_name}".'
+        ) from exc
+
+    builder = getattr(module, 'build_module', None)
+    if builder is None:
+        raise AttributeError(
+            f'Wrapper "{name}" does not expose a build_module(config) helper.'
+        )
+    return builder

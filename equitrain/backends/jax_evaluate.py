@@ -33,7 +33,11 @@ def evaluate(args):
     )
     logger.log(1, ArgsFormatter(args))
 
-    bundle = load_model_bundle(args.model, dtype=args.dtype)
+    bundle = load_model_bundle(
+        args.model,
+        dtype=args.dtype,
+        wrapper=getattr(args, 'model_wrapper', None),
+    )
 
     atomic_numbers = bundle.config.get('atomic_numbers')
     if not atomic_numbers:

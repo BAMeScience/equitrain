@@ -102,4 +102,24 @@ class MaceWrapper:
         return self
 
 
-__all__ = ['MaceWrapper']
+def build_module(config: dict[str, Any]):
+    """
+    Build a JAX MACE module and its template data from a configuration dict.
+
+    This helper lives alongside the wrapper so that the backend can stay agnostic
+    of the model-specific dependencies (``mace_jax`` in this case).
+    """
+
+    try:
+        from mace_jax.cli import mace_torch2jax
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            'mace_jax is required to load MACE models for the JAX backend.'
+        ) from exc
+
+    module = mace_torch2jax._build_jax_model(config)
+    template = mace_torch2jax._prepare_template_data(config)
+    return module, template
+
+
+__all__ = ['MaceWrapper', 'build_module']

@@ -95,6 +95,7 @@ def convert_foundation_model(
     torch_model = torch_model.float().eval()
 
     config = extract_config_mace_model(torch_model)
+    config['model_wrapper'] = 'mace'
     config['torch_model_class'] = torch_model.__class__.__name__
 
     _, jax_params, _ = mace_torch2jax.convert_model(torch_model, config)

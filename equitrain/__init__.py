@@ -53,7 +53,11 @@ def get_model(args, *extra_args, **extra_kwargs):
         if model_path is None:
             raise ValueError('JAX backend requires ``args.model`` to be set.')
         dtype = getattr(args, 'dtype', 'float32')
-        return load_model_bundle(model_path, dtype=dtype)
+        return load_model_bundle(
+            model_path,
+            dtype=dtype,
+            wrapper=getattr(args, 'model_wrapper', None),
+        )
 
     raise NotImplementedError(f"get_model is not implemented for backend '{backend}'.")
 

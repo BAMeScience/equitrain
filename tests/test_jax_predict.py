@@ -12,8 +12,9 @@ from equitrain.backends import jax_predict
 def test_jax_predict_basic(monkeypatch):
     records = {'graphs': []}
 
-    def fake_load_model_bundle(path, dtype=None):
+    def fake_load_model_bundle(path, dtype=None, wrapper=None):
         records['bundle_path'] = path
+        records['bundle_wrapper'] = wrapper
         return SimpleNamespace(
             params={'weights': 1.0},
             module=None,
@@ -73,3 +74,4 @@ def test_jax_predict_basic(monkeypatch):
     assert stress is None
     assert records['bundle_path'] == 'model.bundle'
     assert records['atoms_args'][3]['niggli_reduce'] is True
+    assert records['bundle_wrapper'] == getattr(args, 'model_wrapper', None)

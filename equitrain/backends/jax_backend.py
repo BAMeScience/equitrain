@@ -459,7 +459,11 @@ def train(args):
             init_kwargs['group'] = args.wandb_group
         wandb_run = wandb.init(**init_kwargs, config={'backend': 'jax'})
 
-    bundle = load_model_bundle(args.model, dtype=args.dtype)
+    bundle = load_model_bundle(
+        args.model,
+        dtype=args.dtype,
+        wrapper=getattr(args, 'model_wrapper', None),
+    )
 
     atomic_numbers = bundle.config.get('atomic_numbers')
     if not atomic_numbers:

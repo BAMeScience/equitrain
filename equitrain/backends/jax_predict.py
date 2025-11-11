@@ -48,7 +48,11 @@ def predict(args):
             'Set XLA flags to limit execution to one device.'
         )
 
-    bundle = _load_bundle(args.model, dtype=args.dtype)
+    bundle = _load_bundle(
+        args.model,
+        dtype=args.dtype,
+        wrapper=getattr(args, 'model_wrapper', None),
+    )
 
     atomic_numbers = bundle.config.get('atomic_numbers')
     if not atomic_numbers:
@@ -110,10 +114,10 @@ def predict(args):
     return _stack_or_none(energies), _stack_or_none(forces), _stack_or_none(stresses)
 
 
-def _load_bundle(model_path: str, dtype: str):
+def _load_bundle(model_path: str, dtype: str, wrapper: str | None):
     from equitrain.backends.jax_utils import load_model_bundle as _load_model_bundle
 
-    return _load_model_bundle(model_path, dtype=dtype)
+    return _load_model_bundle(model_path, dtype=dtype, wrapper=wrapper)
 
 
 def _create_wrapper(bundle, *, compute_force: bool, compute_stress: bool):
