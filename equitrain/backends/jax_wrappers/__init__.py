@@ -65,8 +65,7 @@ def get_wrapper_builder(name: str):
         module = import_module(f'.{module_name}', __name__)
     except ModuleNotFoundError as exc:
         raise ImportError(
-            f'Unknown JAX wrapper "{name}". Expected module '
-            f'"{__name__}.{module_name}".'
+            f'Unknown JAX wrapper "{name}". Expected module "{__name__}.{module_name}".'
         ) from exc
 
     builder = getattr(module, 'build_module', None)
