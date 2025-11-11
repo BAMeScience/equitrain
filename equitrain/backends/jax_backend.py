@@ -9,7 +9,6 @@ import jraph
 import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
-from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import (
     ArgsFormatter,
@@ -27,6 +26,7 @@ from equitrain.backends.jax_utils import (
     load_model_bundle,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
+from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
 from equitrain.logger import ensure_output_dir, init_logger
 
@@ -464,7 +464,7 @@ def train(args):
     atomic_numbers = bundle.config.get('atomic_numbers')
     if not atomic_numbers:
         raise RuntimeError('Model configuration is missing `atomic_numbers`.')
-    z_table = JaxAtomicNumberTable(atomic_numbers)
+    z_table = AtomicNumberTable(list(atomic_numbers))
 
     r_max = float(bundle.config.get('r_max', 0.0))
     if r_max <= 0.0:

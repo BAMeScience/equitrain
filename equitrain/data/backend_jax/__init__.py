@@ -1,4 +1,9 @@
-from .atoms_to_graphs import atoms_to_graphs, graph_to_data, make_apply_fn  # noqa: F401
+from .atoms_to_graphs import (  # noqa: F401
+    atoms_to_graphs,
+    graph_from_configuration,
+    graph_to_data,
+    make_apply_fn,
+)
 from .loaders import build_loader, compute_padding_limits  # noqa: F401
 from .statistics import (
     compute_atomic_numbers,
@@ -8,6 +13,7 @@ from .statistics import (
 
 __all__ = [
     'atoms_to_graphs',
+    'graph_from_configuration',
     'graph_to_data',
     'make_apply_fn',
     'build_loader',

@@ -42,7 +42,7 @@ def compute_statistics(
     ----------
     graphs
         Iterable returning ``jraph.GraphsTuple`` batches, typically a
-        :class:`mace_jax.data.utils.GraphDataLoader`.
+        :class:`equitrain.data.backend_jax.loaders.GraphDataLoader`.
     atomic_energies
         Mapping from atomic number to reference energy.
     atomic_numbers

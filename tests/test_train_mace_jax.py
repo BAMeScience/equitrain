@@ -25,15 +25,6 @@ from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_torch2jax  # noqa: E402
-from mace_jax.data.utils import (  # noqa: E402
-    AtomicNumberTable as JaxAtomicNumberTable,
-)
-from mace_jax.data.utils import (  # noqa: E402
-    Configuration as JaxConfiguration,
-)
-from mace_jax.data.utils import (  # noqa: E402
-    graph_from_configuration,
-)
 
 from equitrain import get_args_parser_train  # noqa: E402
 from equitrain import train as equitrain_train  # noqa: E402
@@ -43,7 +34,12 @@ from equitrain.backends.jax_utils import (  # noqa: E402
     ModelBundle,
     load_model_bundle,
 )
-from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data  # noqa: E402
+from equitrain.data.atomic import AtomicNumberTable  # noqa: E402
+from equitrain.data.backend_jax import (  # noqa: E402
+    graph_from_configuration,
+    graph_to_data,
+)
+from equitrain.data.configuration import Configuration as EqConfiguration  # noqa: E402
 from equitrain.data.format_hdf5.dataset import HDF5Dataset  # noqa: E402
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper  # noqa: E402
 from equitrain.utility_test.mace_support import get_mace_model_path  # noqa: E402
@@ -137,18 +133,25 @@ def _make_torch_batch(structures: list[Atoms], wrapper: TorchMaceWrapper):
 
 
 def _make_jax_graph(structures: list[Atoms], wrapper: TorchMaceWrapper):
-    z_table = JaxAtomicNumberTable(tuple(int(z) for z in list(wrapper.atomic_numbers)))
+    z_table = AtomicNumberTable(list(wrapper.atomic_numbers))
     graphs = []
     for atoms in structures:
-        config = JaxConfiguration(
+        num_atoms = len(atoms)
+        config = EqConfiguration(
             atomic_numbers=np.asarray(atoms.get_atomic_numbers(), dtype=np.int32),
             positions=np.asarray(atoms.positions, dtype=np.float32),
-            energy=np.array(0.0, dtype=np.float32),
-            forces=np.zeros((len(atoms), 3), dtype=np.float32),
-            stress=np.zeros((3, 3), dtype=np.float32),
+            energy=0.0,
+            forces=np.zeros((num_atoms, 3), dtype=np.float32),
+            stress=np.zeros(6, dtype=np.float32),
             cell=np.asarray(atoms.cell.array, dtype=np.float32),
             pbc=tuple(bool(x) for x in atoms.pbc),
-            weight=np.array(1.0, dtype=np.float32),
+            energy_weight=1.0,
+            forces_weight=0.0,
+            stress_weight=0.0,
+            virials=np.zeros((3, 3), dtype=np.float32),
+            virials_weight=0.0,
+            dipole=np.zeros(3, dtype=np.float32),
+            dipole_weight=0.0,
         )
         graphs.append(
             graph_from_configuration(

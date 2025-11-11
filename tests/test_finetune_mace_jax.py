@@ -29,9 +29,6 @@ from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_torch2jax  # noqa: E402
-from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable  # noqa: E402
-from mace_jax.data.utils import Configuration as JaxConfiguration  # noqa: E402
-from mace_jax.data.utils import graph_from_configuration  # noqa: E402
 from torch.serialization import add_safe_globals  # noqa: E402
 
 from equitrain import get_args_parser_train
@@ -47,8 +44,15 @@ from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.backends.torch_checkpoint import (
     load_model_state as load_torch_model_state,
 )
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
-from equitrain.data.backend_jax.atoms_to_graphs import graph_to_data
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_jax import (
+    atoms_to_graphs,
+    build_loader,
+    graph_from_configuration,
+    graph_to_data,
+    make_apply_fn,
+)
+from equitrain.data.configuration import Configuration as EqConfiguration
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.finetune.delta_jax import (
     ensure_delta_params,
@@ -300,18 +304,25 @@ def _make_torch_batch(structures: list[Atoms], wrapper: TorchDeltaFineTuneWrappe
 
 
 def _make_jax_graph(structures: list[Atoms], wrapper: TorchDeltaFineTuneWrapper):
-    z_table = JaxAtomicNumberTable(tuple(int(z) for z in list(wrapper.atomic_numbers)))
+    z_table = AtomicNumberTable(list(wrapper.atomic_numbers))
     graphs = []
     for atoms in structures:
-        config = JaxConfiguration(
+        num_atoms = len(atoms)
+        config = EqConfiguration(
             atomic_numbers=np.asarray(atoms.get_atomic_numbers(), dtype=np.int32),
             positions=np.asarray(atoms.positions, dtype=np.float32),
-            energy=np.array(0.0, dtype=np.float32),
-            forces=np.zeros((len(atoms), 3), dtype=np.float32),
-            stress=np.zeros((3, 3), dtype=np.float32),
+            energy=0.0,
+            forces=np.zeros((num_atoms, 3), dtype=np.float32),
+            stress=np.zeros(6, dtype=np.float32),
             cell=np.asarray(atoms.cell.array, dtype=np.float32),
             pbc=tuple(bool(x) for x in atoms.pbc),
-            weight=np.array(1.0, dtype=np.float32),
+            energy_weight=1.0,
+            forces_weight=0.0,
+            stress_weight=0.0,
+            virials=np.zeros((3, 3), dtype=np.float32),
+            virials_weight=0.0,
+            dipole=np.zeros(3, dtype=np.float32),
+            dipole_weight=0.0,
         )
         graphs.append(
             graph_from_configuration(
@@ -507,7 +518,7 @@ def test_finetune_gradient_parity(tmp_path):
 
     with _patch_jax_loader_for_deltas():
         bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
-        z_table = JaxAtomicNumberTable(tuple(bundle.config['atomic_numbers']))
+        z_table = AtomicNumberTable(list(bundle.config['atomic_numbers']))
         graphs = atoms_to_graphs(str(train_subset), bundle.config['r_max'], z_table)
         loader = build_loader(
             graphs,

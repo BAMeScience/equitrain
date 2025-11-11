@@ -21,7 +21,6 @@ def test_jax_predict_basic(monkeypatch):
         )
 
     monkeypatch.setattr(jax_predict, '_load_bundle', fake_load_model_bundle)
-    monkeypatch.setattr(jax_predict, 'JaxAtomicNumberTable', lambda nums: nums)
 
     def fake_atoms_to_graphs(path, r_max, z_table, **kwargs):
         records['atoms_args'] = (path, r_max, z_table, kwargs)

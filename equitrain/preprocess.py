@@ -211,15 +211,6 @@ def _preprocess(args):
                 )
 
         if getattr(args, 'backend', 'torch') == 'jax':
-            try:
-                from mace_jax.data.utils import (
-                    AtomicNumberTable as JaxAtomicNumberTable,
-                )
-            except ImportError as exc:  # pragma: no cover - optional dependency
-                raise RuntimeError(
-                    'The JAX backend requires the mace-jax package to be installed.'
-                ) from exc
-
             from equitrain.data.backend_jax import atoms_to_graphs, build_loader
             from equitrain.data.backend_jax import statistics as jax_statistics
 
@@ -228,7 +219,7 @@ def _preprocess(args):
                     'JAX preprocessing requires --r-max to be specified.'
                 )
 
-            jax_z_table = JaxAtomicNumberTable(list(statistics.atomic_numbers))
+            jax_z_table = AtomicNumberTable(list(statistics.atomic_numbers))
             jax_graphs = atoms_to_graphs(
                 filename_train,
                 statistics.r_max,

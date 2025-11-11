@@ -4,9 +4,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import tree_util as jtu
-from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable
 
 from equitrain.argparser import check_args_complete
+from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
 
 
@@ -53,7 +53,7 @@ def predict(args):
     atomic_numbers = bundle.config.get('atomic_numbers')
     if not atomic_numbers:
         raise RuntimeError('Model configuration is missing `atomic_numbers`.')
-    z_table = JaxAtomicNumberTable(atomic_numbers)
+    z_table = AtomicNumberTable(list(atomic_numbers))
 
     r_max = (
         float(args.r_max)

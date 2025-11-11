@@ -7,10 +7,8 @@ import pytest
 import torch_geometric
 
 pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
-pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
 
-from mace_jax.data.utils import AtomicNumberTable as JaxAtomicNumberTable  # noqa: E402
-
+from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import atoms_to_graphs, build_loader
 from equitrain.data.backend_jax.statistics import (
     compute_statistics as compute_statistics_jax,
@@ -44,7 +42,7 @@ def test_backend_jax_statistics_matches_torch():
             stats.atomic_numbers,
         )
 
-    jax_z_table = JaxAtomicNumberTable(list(stats.atomic_numbers))
+    jax_z_table = AtomicNumberTable(list(stats.atomic_numbers))
     graphs = atoms_to_graphs(train_file, stats.r_max, jax_z_table)
     jax_loader = build_loader(
         graphs,
