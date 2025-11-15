@@ -30,15 +30,10 @@ dependencies = [
     "lightning",
     "beautifulsoup4",
     "pqdm",
-    "mace-torch",
     "ase",
     "h5py",
     "pymatgen",
-    "torch",
-    "torch_geometric",
-    "torch_ema",
     "tqdm",
-    "accelerate",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +48,52 @@ docu = [
   "pymdown-extensions",
   "mkdocs-click",
 ]
+torch = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+]
+jax = [
+  "jax>=0.4",
+  "jaxlib>=0.4",
+]
+ani = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+  "torchani>=2.2",  # TorchANI for ANI models
+  "ase>=3.22.0",    # Atomic Simulation Environment for symbol/structure utilities
+]
+orb = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+  "orb-models>=3.0",  # ORB universal interatomic potentials
+  "cuml-cu11; sys_platform == 'linux'",  # Optional GPU acceleration for neighbor graphs
+]
+m3gnet = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+  "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
+  "dgl>=1.0.0",    # Deep Graph Library required by MatGL
+]
+mace = [
+  "torch>=2.0.0",
+  "torch_geometric>=2.4.0",
+  "torch_ema>=0.3.0",
+  "accelerate>=0.28.0",
+  "mace-torch>=0.3.6",  # Torch implementation of MACE potentials
+]
+mace-jax = [
+  "mace-jax>=0.2.0",  # JAX implementation of MACE potentials
+  "jax>=0.4",         # Core JAX runtime
+  "jaxlib>=0.4",      # JAX XLA binaries
+]
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
@@ -64,7 +105,7 @@ equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
-include = ["equitrain/*.py", "tests/*.py"]
+include = ["equitrain/**/*.py", "tests/**/*.py"]
 exclude = [
     ".bzr",
     ".direnv",
@@ -116,6 +157,7 @@ ignore = [
     "PLW2901", # redefined-loop-name
     "PLR1714", # consider-using-in
     "PLR5501", # else-if-used
+    "PLC0415", # import should be at top-level
 ]
 fixable = ["ALL"]
 # Allow unused variables when underscore-prefixed.
@@ -135,16 +177,22 @@ line-ending = "auto"
 strict = false
 ignore_missing_imports = true
 follow_imports = "silent"
-no_strict_optional = true
 disable_error_code = "import, annotation-unchecked"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["equitrain"]
-exclude = ["equitrain/data/format_lmdb"]
 
 [tool.equitrain]
 conda_env_file = "environment.yml"
 
 [tool.setuptools_scm]
 write_to = "equitrain/_version.py"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected:UserWarning",
+    "ignore:`torch_geometric.distributed` has been deprecated since 2.7.0:DeprecationWarning",
+    "ignore:This process \\(pid=.*\\) is multi-threaded, use of fork\\(\\):DeprecationWarning",
+    "ignore:Creating NamedTuple classes using keyword arguments is deprecated:DeprecationWarning",
+]

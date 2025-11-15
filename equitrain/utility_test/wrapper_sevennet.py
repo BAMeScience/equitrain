@@ -1,5 +1,5 @@
-from equitrain.data import Statistics
-from equitrain.model_wrappers import SevennetWrapper
+from equitrain.backends.torch_wrappers import SevennetWrapper as TorchSevennetWrapper
+from equitrain.data.statistics_data import Statistics
 
 try:
     import sevenn._keys as KEY
@@ -11,7 +11,7 @@ except ImportError:
     _HAS_SEVENN = False
 
 
-class SevennetWrapper(SevennetWrapper):
+class SevennetWrapper(TorchSevennetWrapper):
     def __init__(self, args, filename_config, filename_statistics):
         model = self.get_initial_model(filename_config, filename_statistics)
 

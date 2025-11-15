@@ -2,7 +2,8 @@ import logging
 
 import ase.io
 
-from equitrain.data import AtomicNumberTable, Configuration
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.configuration import Configuration
 
 
 class XYZReader:

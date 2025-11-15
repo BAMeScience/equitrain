@@ -1,17 +1,27 @@
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip(
+    'sevenn', reason='sevenn is required for SevenNet integration tests.'
+)
+
 from equitrain import get_args_parser_train, train
-from equitrain.data import Statistics
+from equitrain.data.statistics_data import Statistics
 from equitrain.utility_test import SevennetWrapper
 
 
 def test_sevennet_atomic_numbers():
-    args = get_args_parser_train().parse_args()
+    args = get_args_parser_train().parse_args([])
 
-    statistics = Statistics.load('data/statistics.json')
+    data_dir = Path(__file__).with_name('data')
+    statistics_path = data_dir / 'statistics.json'
+    statistics = Statistics.load(str(statistics_path))
 
     model = SevennetWrapper(
         args,
-        filename_config='test_train_sevennet.yaml',
-        filename_statistics='data/statistics.json',
+        filename_config=str(Path(__file__).with_name('test_train_sevennet.yaml')),
+        filename_statistics=str(statistics_path),
     )
 
     assert model.atomic_numbers == statistics.atomic_numbers, (
@@ -20,16 +30,18 @@ def test_sevennet_atomic_numbers():
 
 
 def test_train_sevennet():
-    args = get_args_parser_train().parse_args()
+    args = get_args_parser_train().parse_args([])
 
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
-    args.test_file = 'data/train.h5'
-    args.output_dir = 'test_train_sevennet'
+    data_dir = Path(__file__).with_name('data')
+    statistics_path = data_dir / 'statistics.json'
+    args.train_file = str(data_dir / 'train.h5')
+    args.valid_file = str(data_dir / 'valid.h5')
+    args.test_file = str(data_dir / 'train.h5')
+    args.output_dir = str(Path(__file__).with_name('test_train_sevennet'))
     args.model = SevennetWrapper(
         args,
-        filename_config='test_train_sevennet.yaml',
-        filename_statistics='data/statistics.json',
+        filename_config=str(Path(__file__).with_name('test_train_sevennet.yaml')),
+        filename_statistics=str(statistics_path),
     )
     args.dtype = 'float32'
 

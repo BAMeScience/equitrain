@@ -156,3 +156,17 @@ class CachedCalc:
 
     def get_stress(self, apply_constraint=False):
         return self.stress
+
+
+def niggli_reduce_inplace(atoms):
+    """Apply an in-place Niggli reduction when periodic directions exist."""
+    from ase.build.tools import niggli_reduce as _niggli_reduce
+
+    pbc = getattr(atoms, 'pbc', None)
+    if pbc is None:
+        return atoms
+    if not np.any(pbc):
+        return atoms
+
+    _niggli_reduce(atoms)
+    return atoms

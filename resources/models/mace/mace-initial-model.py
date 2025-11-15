@@ -6,7 +6,7 @@ from mace.tools import AtomicNumberTable, build_default_arg_parser, check_args
 from mace.tools.model_script_utils import configure_model
 from mace.tools.multihead_tools import prepare_default_head
 
-from equitrain.data import Statistics
+from equitrain.data.statistics_data import Statistics
 
 
 def get_statistics():
