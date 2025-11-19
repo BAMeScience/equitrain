@@ -37,9 +37,11 @@ class HDF5Dataset:
     _DEFAULT_CHUNK_ATOMS = 1024
 
     def __init__(self, filename: Path | str, mode: str = 'r'):
-        filename = Path(filename)
+        self._filename = Path(filename)
+        self._mode = mode
+        self.file = None
 
-        self.file = h5py.File(filename, mode)
+        self._open_file()
 
         if 'MAGIC' not in self.file:
             self.write_magic()
@@ -105,13 +107,20 @@ class HDF5Dataset:
             chunks=(chunk_atoms,),
         )
 
+    def _open_file(self):
+        """(Re-)open the backing HDF5 file handle if needed."""
+        if self.file is None:
+            self.file = h5py.File(self._filename, self._mode)
+
     def open(self, filename: Path | str, mode: str = 'r'):
         """Manually open the dataset file."""
         self.__init__(filename, mode)
 
     def close(self):
         """Manually close the dataset file."""
-        self.file.close()
+        if self.file is not None:
+            self.file.close()
+            self.file = None
 
     def __enter__(self):
         """Enter the runtime context."""
@@ -134,6 +143,11 @@ class HDF5Dataset:
         # An opened h5py.File cannot be pickled, so we must exclude it from the state
         d['file'] = None
         return d
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.file = None
+        self._open_file()
 
     def __len__(self):
         return self.file[self.STRUCTURES_DATASET].shape[0]
