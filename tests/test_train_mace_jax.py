@@ -389,7 +389,9 @@ def test_train_torch_and_jax_match(tmp_path):
 
             merged_params_state = _merge(template_params_state, loaded_params_state)
 
-        final_variables = flax_core.freeze({'params': merged_params_state})
+        base_variables = flax_core.unfreeze(bundle.params)
+        base_variables['params'] = merged_params_state
+        final_variables = flax_core.freeze(base_variables)
 
         jax_energy_post = _predict_jax_energy_from_bundle(
             bundle,

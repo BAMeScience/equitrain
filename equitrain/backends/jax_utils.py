@@ -11,10 +11,7 @@ from flax import core as flax_core
 from flax import serialization
 
 from equitrain.argparser import ArgumentError
-from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_wrappers import get_wrapper_builder
-
-ensure_multiprocessing_spawn()
 
 DEFAULT_CONFIG_NAME = 'config.json'
 DEFAULT_PARAMS_NAME = 'params.msgpack'

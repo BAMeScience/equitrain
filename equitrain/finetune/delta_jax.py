@@ -27,7 +27,13 @@ class DeltaFineTuneModule:
         if base_tree and 'delta' in params:
             base_tree = jtu.tree_map(jax.lax.stop_gradient, base_tree)
             combined = jtu.tree_map(lambda b, d: b + d, base_tree, params['delta'])
-            actual_vars = flax_core.freeze({'params': combined})
+            merged = {
+                key: value
+                for key, value in variables.items()
+                if key not in ('params', 'base_params')
+            }
+            merged['params'] = combined
+            actual_vars = flax_core.freeze(merged)
             return self._inner.apply(actual_vars, *args, **kwargs)
         return self._inner.apply(variables, *args, **kwargs)
 

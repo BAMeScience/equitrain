@@ -64,10 +64,13 @@ def _normalize_max_steps(value):
 
 def _sanitize_grads(grads, clip_value: float | None):
     def _sanitize(x):
-        x = jnp.nan_to_num(x)
+        arr = jnp.asarray(x)
+        if 'float0' in str(arr.dtype):
+            arr = jnp.zeros_like(arr, dtype=jnp.float32)
+        arr = jnp.nan_to_num(arr)
         if clip_value is not None and clip_value > 0.0:
-            x = jnp.clip(x, -clip_value, clip_value)
-        return x
+            arr = jnp.clip(arr, -clip_value, clip_value)
+        return arr
 
     return jtu.tree_map(_sanitize, grads)
 
@@ -140,9 +143,9 @@ def _build_train_functions(
     if multi_device:
 
         def grad_step(params, batch):
-            (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                params, batch
-            )
+            (loss, aux), grads = jax.value_and_grad(
+                loss_fn, has_aux=True, allow_int=True
+            )(params, batch)
             grads = _sanitize_grads(grads, clip_value)
             grads = jax.lax.pmean(grads, axis_name='device')
             loss = jax.lax.pmean(loss, axis_name='device')
@@ -179,7 +182,9 @@ def _build_train_functions(
         return grad_step_fn, apply_updates_fn
 
     def grad_step(params, batch):
-        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, batch)
+        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True, allow_int=True)(
+            params, batch
+        )
         grads = _sanitize_grads(grads, clip_value)
         return loss, aux, grads
 

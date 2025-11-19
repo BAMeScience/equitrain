@@ -544,7 +544,7 @@ def test_finetune_gradient_parity(tmp_path):
             return total_loss_value
 
         jax_loss_value, _ = loss_fn(bundle.params, graph)
-        jax_grads = jax.grad(scalar_loss)(bundle.params)
+        jax_grads = jax.grad(scalar_loss, allow_int=True)(bundle.params)
         flat_jax = traverse_util.flatten_dict(
             jtu.tree_map(lambda x: np.asarray(x), jax_grads['params']['delta']),
         )
