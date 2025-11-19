@@ -8,7 +8,6 @@ def main():
 
     args.train_file = 'alexandria_train.xyz'
     args.valid_file = 'alexandria_valid.xyz'
-    args.statistics_file = 'statistics.json'
     args.output_dir = 'alexandria'
     args.compute_statistics = True
     args.atomic_energies = 'average'

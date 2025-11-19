@@ -8,7 +8,6 @@ def main():
 
     args.train_file = 'mptraj_train.xyz'
     args.valid_file = 'mptraj_valid.xyz'
-    args.statistics_file = 'statistics.json'
     args.output_dir = 'mptraj'
     args.compute_statistics = True
     args.atomic_energies = 'average'
