@@ -459,6 +459,7 @@ def train(args):
             drop=getattr(args, 'batch_drop', False),
             seed=train_seed if shuffle else None,
             niggli_reduce=reduce_cells,
+            prefetch_batches=args.prefetch_batches,
         )
 
     train_loader = _build_streaming_loader(args.train_file, shuffle=args.shuffle)

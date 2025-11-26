@@ -73,6 +73,12 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default=None,
     )
     parser.add_argument(
+        '--prefetch-batches',
+        help='Number of JAX batches to build ahead of time in a background thread.',
+        type=int,
+        default=10,
+    )
+    parser.add_argument(
         '--dtype',
         help='Set default dtype [float16, float32, float64]',
         type=str,

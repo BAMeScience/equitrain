@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable
-from pathlib import Path
+from queue import Queue
 
 import jraph
 import numpy as np
@@ -30,6 +31,7 @@ class GraphDataLoader:
         shuffle: bool = False,
         seed: int | None = None,
         niggli_reduce: bool = False,
+        prefetch_batches: int | None = None,
     ) -> None:
         """
         h5_sources: list of HDF5Dataset instances or HDF5 file paths to stream.
@@ -44,6 +46,7 @@ class GraphDataLoader:
         self._shuffle = shuffle
         self._seed = seed
         self._niggli_reduce = bool(niggli_reduce)
+        self._prefetch_batches = int(prefetch_batches or 0)
         self._pack_info: dict | None = None
 
         self._datasets = list(datasets)
@@ -101,7 +104,26 @@ class GraphDataLoader:
 
     def __iter__(self):
         batches, _ = self._pack()
-        yield from batches
+        if self._prefetch_batches > 0:
+            queue: Queue = Queue(maxsize=self._prefetch_batches)
+            sentinel = object()
+
+            def _producer():
+                try:
+                    for item in batches:
+                        queue.put(item)
+                finally:
+                    queue.put(sentinel)
+
+            threading.Thread(target=_producer, daemon=True).start()
+
+            while True:
+                item = queue.get()
+                if item is sentinel:
+                    break
+                yield item
+        else:
+            yield from batches
 
     def __len__(self):
         if self._pack_info and self._pack_info.get('total_batches') is not None:

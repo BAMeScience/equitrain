@@ -99,6 +99,7 @@ def predict(args):
         max_edges=args.batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
         niggli_reduce=getattr(args, 'niggli_reduce', False),
+        prefetch_batches=args.prefetch_batches,
     )
     if loader is None:
         raise RuntimeError('Prediction dataset is empty.')

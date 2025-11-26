@@ -229,6 +229,7 @@ def _preprocess(args):
                 atomic_numbers=jax_z_table,
                 r_max=statistics.r_max,
                 niggli_reduce=args.niggli_reduce,
+                prefetch_batches=getattr(args, 'prefetch_batches', None),
             )
 
             statistics.avg_num_neighbors, statistics.mean, statistics.std = (

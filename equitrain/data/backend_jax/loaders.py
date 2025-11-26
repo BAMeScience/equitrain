@@ -21,12 +21,13 @@ def get_dataloader(
     seed: int | None = None,
     niggli_reduce: bool = False,
     max_batches: int | None = None,
+    prefetch_batches: int | None = None,
 ):
     del drop  # UNUSED: legacy option from torch backend
     if data_file is None:
         return None
 
-    if isinstance(data_file, (list, tuple)):
+    if isinstance(data_file, list | tuple):
         files = list(data_file)
     else:
         files = [data_file]
@@ -43,10 +44,12 @@ def get_dataloader(
         seed=seed,
         niggli_reduce=niggli_reduce,
         max_batches=max_batches,
+        prefetch_batches=prefetch_batches,
     )
 
 
 def get_dataloaders(args, atomic_numbers, r_max):
+    prefetch = getattr(args, 'prefetch_batches', None)
     train_loader = get_dataloader(
         data_file=args.train_file,
         atomic_numbers=atomic_numbers,
@@ -55,6 +58,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         shuffle=args.shuffle,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        prefetch_batches=prefetch,
     )
     valid_loader = get_dataloader(
         data_file=args.valid_file,
@@ -64,6 +68,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        prefetch_batches=prefetch,
     )
     test_loader = get_dataloader(
         data_file=args.test_file,
@@ -73,5 +78,6 @@ def get_dataloaders(args, atomic_numbers, r_max):
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
+        prefetch_batches=prefetch,
     )
     return train_loader, valid_loader, test_loader
