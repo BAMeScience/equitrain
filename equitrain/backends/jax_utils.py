@@ -8,6 +8,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import jraph
 import numpy as np
 from flax import core as flax_core
 from flax import serialization
@@ -122,7 +123,7 @@ def unreplicate_from_local_devices(tree):
         return tree
 
     host = jax.device_get(tree)
-    if isinstance(host, (list, tuple)) and len(host) == device_count:
+    if isinstance(host, list | tuple) and len(host) == device_count:
         return jtu.tree_map(lambda x: x[0], host, is_leaf=_none_leaf)
 
     def _maybe_collapse(leaf):
@@ -139,6 +140,47 @@ def unreplicate_from_local_devices(tree):
     return jtu.tree_map(_maybe_collapse, host, is_leaf=_none_leaf)
 
 
+def prepare_single_batch(graph):
+    """Cast a batched graph to device arrays, keeping None leaves."""
+
+    def _to_device_array(x):
+        if x is None:
+            return None
+        return jnp.asarray(x)
+
+    return jtu.tree_map(_to_device_array, graph, is_leaf=_none_leaf)
+
+
+def split_graphs_for_devices(graph, num_devices: int) -> list[list[jraph.GraphsTuple]]:
+    graphs = (
+        list(jraph.unbatch(graph)) if isinstance(graph, jraph.GraphsTuple) else [graph]
+    )
+    total = len(graphs)
+    if total % num_devices != 0:
+        raise ValueError(
+            'For JAX multi-device execution, batch size must be divisible by the number of devices.'
+        )
+    per_device = total // num_devices
+    return [graphs[i * per_device : (i + 1) * per_device] for i in range(num_devices)]
+
+
+def prepare_sharded_batch(graph, num_devices: int):
+    """Prepare a micro-batch for ``jax.pmap`` execution."""
+    chunks = split_graphs_for_devices(graph, num_devices)
+    device_batches = []
+    for chunk in chunks:
+        graphs_tuple = chunk[0] if len(chunk) == 1 else jraph.batch_np(chunk)
+        device_batches.append(prepare_single_batch(graphs_tuple))
+
+    def _stack_or_none(*values):
+        first = values[0]
+        if first is None:
+            return None
+        return jnp.stack(values)
+
+    return jtu.tree_map(_stack_or_none, *device_batches, is_leaf=_none_leaf)
+
+
 __all__ = [
     'ModelBundle',
     'set_jax_dtype',
@@ -146,4 +188,7 @@ __all__ = [
     'load_model_bundle',
     'replicate_to_local_devices',
     'unreplicate_from_local_devices',
+    'prepare_single_batch',
+    'prepare_sharded_batch',
+    'split_graphs_for_devices',
 ]

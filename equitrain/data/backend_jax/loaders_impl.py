@@ -25,7 +25,7 @@ class GraphDataLoader:
         r_max: float | None = None,
         n_node: int | None,
         n_edge: int | None,
-        n_graph: int,
+        n_graph: int | None,
         max_batches: int | None = None,
         shuffle: bool = False,
         seed: int | None = None,
@@ -39,7 +39,7 @@ class GraphDataLoader:
         if z_table is None or r_max is None:
             raise ValueError('z_table and r_max required when streaming from HDF5.')
 
-        self._n_graph = max(int(n_graph), 1)
+        self._n_graph = None if n_graph is None else max(int(n_graph), 1)
         self._max_batches = max_batches
         self._shuffle = shuffle
         self._seed = seed
@@ -59,9 +59,10 @@ class GraphDataLoader:
 
         def _iter_graphs():
             rng = np.random.default_rng(self._seed)
-            target = (
-                None if self._max_batches is None else self._max_batches * self._n_graph
-            )
+            if self._max_batches is None or self._n_graph is None:
+                target = None
+            else:
+                target = self._max_batches * self._n_graph
             emitted = 0
             sources = list(self._datasets)
             if self._shuffle and len(sources) > 1:
@@ -107,6 +108,13 @@ class GraphDataLoader:
             return int(self._pack_info['total_batches'])
         _, info = self._pack()
         return int(info.get('total_batches', 0))
+
+    def pack_info(self) -> dict:
+        """Return metadata from the most recent packing run."""
+        if not self._pack_info:
+            _, info = self._pack()
+            return dict(info)
+        return dict(self._pack_info)
 
 
 def pack_graphs_greedy(
