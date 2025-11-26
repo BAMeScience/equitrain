@@ -55,6 +55,24 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default=False,
     )
     parser.add_argument(
+        '--jax-pack-max-edges-per-batch',
+        help='(JAX) Greedy packer edge cap per batch; enables fixed-shape padding.',
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        '--jax-pack-max-nodes-per-batch',
+        help='(JAX) Greedy packer node cap per batch; enables fixed-shape padding.',
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        '--jax-pack-batch-size-limit',
+        help='(JAX) Optional graph-count limit per greedy-packed batch.',
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
         '--dtype',
         help='Set default dtype [float16, float32, float64]',
         type=str,
