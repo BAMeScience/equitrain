@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import jax
+import jax.numpy as jnp
+import numpy as np
 from flax import core as flax_core
 from flax import serialization
+from jax import tree_util as jtu
 
 from equitrain.argparser import ArgumentError
 from equitrain.backends.jax_wrappers import get_wrapper_builder
@@ -92,9 +95,55 @@ def load_model_bundle(
     return ModelBundle(config=config, params=variables, module=jax_module)
 
 
+def _none_leaf(value):
+    return value is None
+
+
+def replicate_to_local_devices(tree):
+    """Broadcast a pytree so the leading axis matches local device count."""
+    device_count = jax.local_device_count()
+    if device_count <= 1:
+        return tree
+
+    def _replicate(leaf):
+        if leaf is None:
+            return None
+        arr = jnp.asarray(leaf)
+        broadcast = jnp.broadcast_to(arr, (device_count,) + arr.shape)
+        return broadcast
+
+    return jtu.tree_map(_replicate, tree, is_leaf=_none_leaf)
+
+
+def unreplicate_from_local_devices(tree):
+    """Strip a replicated leading axis (if present) from a pytree."""
+    device_count = jax.local_device_count()
+    if device_count <= 1:
+        return tree
+
+    host = jax.device_get(tree)
+    if isinstance(host, (list, tuple)) and len(host) == device_count:
+        return jtu.tree_map(lambda x: x[0], host, is_leaf=_none_leaf)
+
+    def _maybe_collapse(leaf):
+        if leaf is None:
+            return None
+        arr = np.asarray(leaf)
+        if arr.ndim == 0 or arr.shape[0] != device_count:
+            return leaf
+        first = arr[0]
+        if np.all(arr == first):
+            return first
+        return leaf
+
+    return jtu.tree_map(_maybe_collapse, host, is_leaf=_none_leaf)
+
+
 __all__ = [
     'ModelBundle',
     'set_jax_dtype',
     'resolve_model_paths',
     'load_model_bundle',
+    'replicate_to_local_devices',
+    'unreplicate_from_local_devices',
 ]

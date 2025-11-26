@@ -12,7 +12,10 @@ from equitrain.backends.jax_backend import (
 from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
 from equitrain.backends.jax_loss_metrics import LossMetrics
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
-from equitrain.backends.jax_utils import load_model_bundle
+from equitrain.backends.jax_utils import (
+    load_model_bundle,
+    replicate_to_local_devices,
+)
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import get_dataloader, make_apply_fn
@@ -49,9 +52,7 @@ def evaluate(args):
         raise RuntimeError('Model configuration must define a positive `r_max`.')
 
     test_file = args.test_file
-    if not (
-        test_file.lower().endswith('.h5') or test_file.lower().endswith('hdf5')
-    ):
+    if not (test_file.lower().endswith('.h5') or test_file.lower().endswith('hdf5')):
         raise ValueError(
             'JAX evaluation requires datasets stored in HDF5 format. '
             f'Received: {test_file}'
@@ -96,9 +97,7 @@ def evaluate(args):
     loss_fn = build_eval_loss(apply_fn, loss_settings)
     eval_step_fn = _build_eval_step(loss_fn, multi_device=multi_device)
     eval_params = (
-        jax.device_put_replicated(bundle.params, jax.local_devices())
-        if multi_device
-        else bundle.params
+        replicate_to_local_devices(bundle.params) if multi_device else bundle.params
     )
     _, loss_collection = _run_eval_loop(
         eval_params,

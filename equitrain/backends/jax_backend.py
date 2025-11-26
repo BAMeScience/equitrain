@@ -24,6 +24,8 @@ from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
     ModelBundle,
     load_model_bundle,
+    replicate_to_local_devices,
+    unreplicate_from_local_devices,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.atomic import AtomicNumberTable
@@ -80,14 +82,11 @@ def _is_multi_device() -> bool:
 
 
 def _replicate_state(state: TrainState) -> TrainState:
-    return jax.device_put_replicated(state, jax.local_devices())
+    return replicate_to_local_devices(state)
 
 
 def _unreplicate(tree):
-    host = jax.device_get(tree)
-    if isinstance(host, list | tuple) and len(host) == jax.local_device_count():
-        return jtu.tree_map(lambda x: x[0], host)
-    return host
+    return unreplicate_from_local_devices(tree)
 
 
 def _prepare_single_batch(graph):
@@ -763,7 +762,7 @@ def train(args):
         test_loader = _build_streaming_loader(args.test_file, shuffle=False)
         if test_loader is not None:
             eval_params = (
-                jax.device_put_replicated(final_params_host, jax.local_devices())
+                replicate_to_local_devices(final_params_host)
                 if multi_device
                 else final_params_host
             )
