@@ -27,7 +27,7 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.logger import ensure_output_dir, init_logger
 
 from .jax_optimizer import (
@@ -478,38 +478,29 @@ def train(args):
     r_max = float(bundle.config.get('r_max', 0.0))
     if r_max <= 0.0:
         raise RuntimeError('Model configuration must define a positive `r_max`.')
-
-    reduce_cells = getattr(args, 'niggli_reduce', False)
-    train_graphs = atoms_to_graphs(
-        args.train_file, r_max, z_table, niggli_reduce=reduce_cells
-    )
-    valid_graphs = atoms_to_graphs(
-        args.valid_file, r_max, z_table, niggli_reduce=reduce_cells
-    )
-
-    if not train_graphs:
-        raise RuntimeError('Training dataset is empty.')
-
+    reduce_cells = bool(getattr(args, 'niggli_reduce', False))
     train_seed = getattr(args, 'seed', None)
 
-    train_loader = build_loader(
-        train_graphs,
-        batch_size=args.batch_size,
-        shuffle=args.shuffle,
-        max_nodes=args.batch_max_nodes,
-        max_edges=args.batch_max_edges,
-        drop=getattr(args, 'batch_drop', False),
-        seed=train_seed,
-    )
-    valid_loader = build_loader(
-        valid_graphs,
-        batch_size=args.batch_size,
-        shuffle=False,
-        max_nodes=args.batch_max_nodes,
-        max_edges=args.batch_max_edges,
-        drop=getattr(args, 'batch_drop', False),
-        seed=train_seed,
-    )
+    def _build_streaming_loader(path: str | None, shuffle: bool):
+        if path in (None, 'None'):
+            return None
+        return get_dataloader(
+            data_file=path,
+            atomic_numbers=z_table,
+            r_max=r_max,
+            batch_size=args.batch_size,
+            shuffle=shuffle,
+            max_nodes=args.batch_max_nodes,
+            max_edges=args.batch_max_edges,
+            drop=getattr(args, 'batch_drop', False),
+            seed=train_seed if shuffle else None,
+            niggli_reduce=reduce_cells,
+        )
+
+    train_loader = _build_streaming_loader(args.train_file, shuffle=args.shuffle)
+    valid_loader = _build_streaming_loader(args.valid_file, shuffle=False)
+    if train_loader is None:
+        raise RuntimeError('Training dataset is empty.')
 
     wrapper = JaxMaceWrapper(
         module=bundle.module,
@@ -769,17 +760,7 @@ def train(args):
 
     test_metrics = None
     if getattr(args, 'test_file', None):
-        test_graphs = atoms_to_graphs(
-            args.test_file, r_max, z_table, niggli_reduce=reduce_cells
-        )
-        test_loader = build_loader(
-            test_graphs,
-            batch_size=args.batch_size,
-            shuffle=False,
-            max_nodes=args.batch_max_nodes,
-            max_edges=args.batch_max_edges,
-            seed=train_seed,
-        )
+        test_loader = _build_streaming_loader(args.test_file, shuffle=False)
         if test_loader is not None:
             eval_params = (
                 jax.device_put_replicated(final_params_host, jax.local_devices())

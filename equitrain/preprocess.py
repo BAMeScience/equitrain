@@ -211,7 +211,7 @@ def _preprocess(args):
                 )
 
         if getattr(args, 'backend', 'torch') == 'jax':
-            from equitrain.data.backend_jax import atoms_to_graphs, build_loader
+            from equitrain.data.backend_jax import get_dataloader
             from equitrain.data.backend_jax import statistics as jax_statistics
 
             if statistics.r_max is None:
@@ -220,21 +220,15 @@ def _preprocess(args):
                 )
 
             jax_z_table = AtomicNumberTable(list(statistics.atomic_numbers))
-            jax_graphs = atoms_to_graphs(
-                filename_train,
-                statistics.r_max,
-                jax_z_table,
-                niggli_reduce=args.niggli_reduce,
-            )
-            if not jax_graphs:
-                raise RuntimeError('Training dataset is empty.')
-
-            jax_loader = build_loader(
-                jax_graphs,
+            jax_loader = get_dataloader(
+                data_file=filename_train,
                 batch_size=args.batch_size,
                 shuffle=False,
                 max_nodes=args.batch_max_nodes,
                 max_edges=args.batch_max_edges,
+                atomic_numbers=jax_z_table,
+                r_max=statistics.r_max,
+                niggli_reduce=args.niggli_reduce,
             )
 
             statistics.avg_num_neighbors, statistics.mean, statistics.std = (

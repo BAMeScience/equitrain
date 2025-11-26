@@ -8,7 +8,7 @@ from accelerate import Accelerator
 from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
 from equitrain.logger import FileLogger
 
-from .loaders_dynamic import DynamicGraphLoader
+from .loaders_impl import DynamicGraphLoader
 
 
 def _should_pin_memory(requested: bool, accelerator: Accelerator | None) -> bool:

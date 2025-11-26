@@ -23,12 +23,11 @@ def test_jax_predict_basic(monkeypatch):
 
     monkeypatch.setattr(jax_predict, '_load_bundle', fake_load_model_bundle)
 
-    def fake_atoms_to_graphs(path, r_max, z_table, **kwargs):
-        records['atoms_args'] = (path, r_max, z_table, kwargs)
+    def fake_get_dataloader(*args, **kwargs):
+        records['loader_kwargs'] = kwargs
         return ['g1', 'g2']
 
-    monkeypatch.setattr(jax_predict, 'atoms_to_graphs', fake_atoms_to_graphs)
-    monkeypatch.setattr(jax_predict, 'build_loader', lambda graphs, **_: graphs)
+    monkeypatch.setattr(jax_predict, 'get_dataloader', fake_get_dataloader)
     monkeypatch.setattr(jax_predict, '_prepare_single_batch', lambda graph: graph)
     monkeypatch.setattr(jax_predict, '_is_multi_device', lambda: False)
 
@@ -73,5 +72,5 @@ def test_jax_predict_basic(monkeypatch):
     assert forces.shape[0] == 2
     assert stress is None
     assert records['bundle_path'] == 'model.bundle'
-    assert records['atoms_args'][3]['niggli_reduce'] is True
+    assert records['loader_kwargs']['niggli_reduce'] is True
     assert records['bundle_wrapper'] == getattr(args, 'model_wrapper', None)

@@ -15,7 +15,7 @@ from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import load_model_bundle
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.logger import init_logger
 
 ensure_multiprocessing_spawn()
@@ -48,14 +48,25 @@ def evaluate(args):
     if r_max <= 0.0:
         raise RuntimeError('Model configuration must define a positive `r_max`.')
 
-    test_graphs = atoms_to_graphs(
-        args.test_file,
-        r_max,
-        z_table,
+    test_file = args.test_file
+    if not (
+        test_file.lower().endswith('.h5') or test_file.lower().endswith('hdf5')
+    ):
+        raise ValueError(
+            'JAX evaluation requires datasets stored in HDF5 format. '
+            f'Received: {test_file}'
+        )
+    test_loader = get_dataloader(
+        data_file=test_file,
+        atomic_numbers=z_table,
+        r_max=r_max,
+        batch_size=args.batch_size,
+        shuffle=False,
+        max_nodes=args.batch_max_nodes,
+        max_edges=args.batch_max_edges,
+        drop=getattr(args, 'batch_drop', False),
         niggli_reduce=getattr(args, 'niggli_reduce', False),
     )
-    if not test_graphs:
-        raise RuntimeError('Test dataset is empty.')
 
     multi_device = _is_multi_device()
     if multi_device:
@@ -70,14 +81,8 @@ def evaluate(args):
                 'the number of local devices.'
             )
 
-    test_loader = build_loader(
-        test_graphs,
-        batch_size=args.batch_size,
-        shuffle=False,
-        max_nodes=args.batch_max_nodes,
-        max_edges=args.batch_max_edges,
-        drop=getattr(args, 'batch_drop', False),
-    )
+    if test_loader is None:
+        raise RuntimeError('Test dataset is empty.')
 
     wrapper = JaxMaceWrapper(
         module=bundle.module,

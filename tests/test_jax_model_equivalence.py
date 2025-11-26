@@ -11,7 +11,6 @@ pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
 pytest.importorskip('jax', reason='JAX runtime is required for these tests.')
 
 import jax  # noqa: E402
-from flax import serialization  # noqa: E402
 from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402

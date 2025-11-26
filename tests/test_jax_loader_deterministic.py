@@ -1,58 +1,68 @@
-import jax.numpy as jnp
-import jraph
+from __future__ import annotations
+
+from pathlib import Path
+
 import numpy as np
 
-from equitrain.data.backend_jax.loaders import GraphDataLoader, build_loader
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_jax.loaders import get_dataloader
+from equitrain.data.format_hdf5 import HDF5Dataset
 
 
-def _make_graph(graph_id: int) -> jraph.GraphsTuple:
-    node_feat = jnp.array([[float(graph_id)]], dtype=jnp.float32)
-    return jraph.GraphsTuple(
-        nodes=node_feat,
-        edges=jnp.zeros((0, 1), dtype=jnp.float32),
-        senders=jnp.array([], dtype=np.int32),
-        receivers=jnp.array([], dtype=np.int32),
-        n_node=jnp.array([1], dtype=np.int32),
-        n_edge=jnp.array([0], dtype=np.int32),
-        globals=jnp.array([float(graph_id)], dtype=jnp.float32),
-    )
+def _dataset_metadata(path: Path) -> tuple[AtomicNumberTable, int]:
+    z_set: set[int] = set()
+    max_nodes = 1
+    with HDF5Dataset(path, mode='r') as dataset:
+        for idx in range(len(dataset)):
+            atoms = dataset[idx]
+            z_set.update(int(z) for z in atoms.get_atomic_numbers())
+            max_nodes = max(max_nodes, len(atoms))
+    return AtomicNumberTable(sorted(z_set)), max_nodes
 
 
-def _collect_sequence(loader: GraphDataLoader) -> list[float]:
+def _collect_sequence(loader) -> list[float]:
     sequence: list[float] = []
     for batch in loader:
         graphs = batch if isinstance(batch, list) else (batch,)
         for graph in graphs:
-            globals_array = np.asarray(graph.globals)
-            sequence.append(float(globals_array.reshape(-1)[0]))
+            energy = np.asarray(graph.globals['energy']).reshape(-1)[0]
+            sequence.append(float(energy))
     return sequence
 
 
 def test_graph_data_loader_deterministic_shuffle():
-    graphs = [_make_graph(i) for i in range(6)]
+    data_file = Path(__file__).with_name('data') / 'train.h5'
+    z_table, max_nodes = _dataset_metadata(data_file)
+    max_edges = max_nodes * max_nodes
 
-    loader_a = build_loader(
-        graphs,
+    loader_a = get_dataloader(
+        data_file=data_file,
+        atomic_numbers=z_table,
+        r_max=3.0,
         batch_size=1,
         shuffle=True,
-        max_nodes=None,
-        max_edges=None,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
         seed=2025,
     )
-    loader_b = build_loader(
-        graphs,
+    loader_b = get_dataloader(
+        data_file=data_file,
+        atomic_numbers=z_table,
+        r_max=3.0,
         batch_size=1,
         shuffle=True,
-        max_nodes=None,
-        max_edges=None,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
         seed=2025,
     )
-    loader_c = build_loader(
-        graphs,
+    loader_c = get_dataloader(
+        data_file=data_file,
+        atomic_numbers=z_table,
+        r_max=3.0,
         batch_size=1,
         shuffle=True,
-        max_nodes=None,
-        max_edges=None,
+        max_nodes=max_nodes,
+        max_edges=max_edges,
         seed=1337,
     )
 

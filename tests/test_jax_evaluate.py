@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -33,10 +34,11 @@ class _DummyLoader:
 def _default_args() -> SimpleNamespace:
     args = get_args_parser_evaluate().parse_args([])
     args.model = 'dummy-model'
-    args.test_file = 'dummy-data'
+    data_dir = Path(__file__).with_name('data')
+    args.test_file = str(data_dir / 'train.h5')
     args.batch_size = 4
-    args.batch_max_nodes = None
-    args.batch_max_edges = None
+    args.batch_max_nodes = 1024
+    args.batch_max_edges = 4096
     args.forces_weight = 0.0
     args.stress_weight = 0.0
     return args
@@ -64,13 +66,9 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
 
         return loss_fn
 
-    def fake_build_loader(graphs, **_):
-        return _DummyLoader(graphs)
-
-    def fake_atoms_to_graphs(path, *_args, **kwargs):
-        captured['atoms_to_graphs_path'] = path
-        captured['atoms_niggli'] = kwargs.get('niggli_reduce', False)
-        return ['g0', 'g1', 'g2', 'g3']
+    def fake_get_dataloader(*args, **kwargs):
+        captured['loader_kwargs'] = kwargs
+        return _DummyLoader(['g0', 'g1', 'g2', 'g3'])
 
     def fake_make_apply_fn(wrapper, num_species):
         captured['apply_fn_species'] = num_species
@@ -110,8 +108,7 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     monkeypatch.setattr(jax_evaluate, 'validate_evaluate_args', lambda *a, **k: None)
     monkeypatch.setattr(jax_evaluate, 'init_logger', lambda *a, **k: DummyLogger())
     monkeypatch.setattr(jax_evaluate, 'load_model_bundle', lambda *a, **k: bundle)
-    monkeypatch.setattr(jax_evaluate, 'atoms_to_graphs', fake_atoms_to_graphs)
-    monkeypatch.setattr(jax_evaluate, 'build_loader', fake_build_loader)
+    monkeypatch.setattr(jax_evaluate, 'get_dataloader', fake_get_dataloader)
     monkeypatch.setattr(jax_evaluate, 'make_apply_fn', fake_make_apply_fn)
     monkeypatch.setattr(jax_evaluate, 'JaxMaceWrapper', fake_jax_wrapper)
     monkeypatch.setattr(jax_evaluate, 'build_eval_loss', fake_build_eval_loss)
@@ -130,6 +127,7 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     assert captured['multi_device_in_eval_step'] is True
     assert captured['run_eval_loop_multi_device'] is True
     assert captured['run_eval_loop_loader'] == ['g0', 'g1', 'g2', 'g3']
+    assert captured['loader_kwargs']['niggli_reduce'] is False
     assert captured['run_eval_loop_params'] == ({'weights': 1.0}, {'weights': 1.0})
     assert captured['device_put_replicated_devices'] == ('d0', 'd1')
     assert captured['wrapper_kwargs']['compute_force'] is False
@@ -148,7 +146,6 @@ def test_jax_evaluate_batch_size_check(monkeypatch):
 
     monkeypatch.setattr(jax_evaluate, 'validate_evaluate_args', lambda *a, **k: None)
     monkeypatch.setattr(jax_evaluate, 'load_model_bundle', lambda *a, **k: bundle)
-    monkeypatch.setattr(jax_evaluate, 'atoms_to_graphs', lambda *a, **k: ['g0'])
     monkeypatch.setattr(jax_evaluate, '_is_multi_device', lambda: True)
     monkeypatch.setattr(jax_evaluate.jax, 'local_device_count', lambda: 2)
 

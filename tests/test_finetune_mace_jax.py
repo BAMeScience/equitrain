@@ -46,8 +46,7 @@ from equitrain.backends.torch_checkpoint import (
 )
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import (
-    atoms_to_graphs,
-    build_loader,
+    get_dataloader,
     graph_from_configuration,
     graph_to_data,
     make_apply_fn,
@@ -169,6 +168,7 @@ def _build_jax_args(
     args.opt = 'momentum'
     args.freeze_params = [r'params\.base\..*']
     args.unfreeze_params = [r'params\.delta\..*']
+
     return args
 
 
@@ -194,22 +194,6 @@ def _predict_jax_energy(bundle, data_dict, *, params=None) -> np.ndarray:
         compute_stress=False,
     )
     return np.asarray(outputs['energy'])
-
-
-def _copy_dataset_subset(src: Path, dst: Path, limit: int) -> Path:
-    if dst.exists():
-        return dst
-
-    src_dataset = HDF5Dataset(src, mode='r')
-    dst_dataset = HDF5Dataset(dst, mode='w')
-    try:
-        for index in range(min(limit, len(src_dataset))):
-            dst_dataset[index] = src_dataset[index]
-    finally:
-        src_dataset.close()
-        dst_dataset.close()
-
-    return dst
 
 
 @contextmanager
@@ -519,9 +503,10 @@ def test_finetune_gradient_parity(tmp_path):
     with _patch_jax_loader_for_deltas():
         bundle = load_model_bundle(str(jax_model_dir), dtype='float32')
         z_table = AtomicNumberTable(list(bundle.config['atomic_numbers']))
-        graphs = atoms_to_graphs(str(train_subset), bundle.config['r_max'], z_table)
-        loader = build_loader(
-            graphs,
+        loader = get_dataloader(
+            data_file=str(train_subset),
+            atomic_numbers=z_table,
+            r_max=bundle.config['r_max'],
             batch_size=1,
             shuffle=False,
             max_nodes=None,

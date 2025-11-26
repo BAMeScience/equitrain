@@ -9,7 +9,7 @@ import torch_geometric
 pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
 
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader
+from equitrain.data.backend_jax import AtomsToGraphs
 from equitrain.data.backend_jax.statistics import (
     compute_statistics as compute_statistics_jax,
 )
@@ -43,16 +43,14 @@ def test_backend_jax_statistics_matches_torch():
         )
 
     jax_z_table = AtomicNumberTable(list(stats.atomic_numbers))
-    graphs = atoms_to_graphs(train_file, stats.r_max, jax_z_table)
-    jax_loader = build_loader(
-        graphs,
-        batch_size=2,
-        shuffle=False,
-        max_nodes=None,
-        max_edges=None,
+    converter = AtomsToGraphs(
+        atomic_numbers=jax_z_table,
+        r_max=stats.r_max,
+        niggli_reduce=False,
     )
+    graphs = converter.convert_file(train_file)
     jax_avg, jax_mean, jax_rms = compute_statistics_jax(
-        jax_loader,
+        graphs,
         stats.atomic_energies,
         stats.atomic_numbers,
     )

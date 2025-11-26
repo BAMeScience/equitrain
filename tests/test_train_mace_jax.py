@@ -345,7 +345,6 @@ def test_train_torch_and_jax_match(tmp_path):
         args_jax.gradient_clipping = 5e-4
         args_jax.ema = True
         args_jax.ema_decay = 0.5
-
         jax_training_summary = equitrain_train(args_jax)
         cleanup_paths.append(Path(args_jax.output_dir))
         assert jax_training_summary is not None, (

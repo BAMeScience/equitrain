@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import jraph
 import numpy as np
+from ase import Atoms
 from jax import tree_util as jtu
 
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.configuration import (
-    Configuration as EqConfiguration,
-)
-from equitrain.data.configuration import (
-    niggli_reduce_inplace,
-)
+from equitrain.data.configuration import Configuration, niggli_reduce_inplace
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
 from equitrain.data.neighborhood import get_neighborhood
 
@@ -47,43 +43,62 @@ def _attrdict_unflatten(keys, values):
 jtu.register_pytree_node(_AttrDict, _attrdict_flatten, _attrdict_unflatten)
 
 
-def atoms_to_graphs(
-    data_path: Path | str,
-    r_max: float,
-    z_table: AtomicNumberTable | Sequence[int],
-    *,
-    niggli_reduce: bool = False,
-) -> list[jraph.GraphsTuple]:
-    if data_path is None:
-        return []
+class AtomsToGraphs:
+    """Convert ASE ``Atoms`` objects into ``jraph.GraphsTuple`` objects."""
 
-    if z_table is None:
-        raise ValueError('An atomic number table is required to build graphs.')
-    if not hasattr(z_table, 'z_to_index'):
-        z_table = AtomicNumberTable(list(z_table))
+    def __init__(
+        self,
+        atomic_numbers: AtomicNumberTable | Sequence[int],
+        r_max: float,
+        *,
+        niggli_reduce: bool = False,
+    ) -> None:
+        if atomic_numbers is None:
+            raise ValueError('An atomic number table is required to build graphs.')
+        if not hasattr(atomic_numbers, 'z_to_index'):
+            atomic_numbers = AtomicNumberTable(list(atomic_numbers))
+        self._z_table = atomic_numbers
+        cutoff = float(r_max or 0.0)
+        if cutoff <= 0.0:
+            raise ValueError('A positive cutoff radius is required to build graphs.')
+        self._cutoff = cutoff
+        self._niggli = bool(niggli_reduce)
 
-    cutoff = float(r_max or 0.0)
-    if cutoff <= 0.0:
-        raise ValueError('A positive cutoff radius is required to build graphs.')
+    def _to_configuration(self, atoms: Atoms) -> Configuration:
+        if self._niggli:
+            atoms = atoms.copy()
+            niggli_reduce_inplace(atoms)
+        return Configuration.from_atoms(atoms)
 
-    dataset = HDF5Dataset(data_path, mode='r')
-    graphs: list[jraph.GraphsTuple] = []
-    try:
+    def convert(self, atoms: Atoms | Configuration) -> jraph.GraphsTuple:
+        config = (
+            atoms if isinstance(atoms, Configuration) else self._to_configuration(atoms)
+        )
+        return graph_from_configuration(
+            config,
+            cutoff=self._cutoff,
+            z_table=self._z_table,
+        )
+
+    def convert_dataset(self, dataset: HDF5Dataset) -> Iterable[jraph.GraphsTuple]:
         for idx in range(len(dataset)):
             atoms = dataset[idx]
-            if niggli_reduce:
-                atoms = atoms.copy()
-                niggli_reduce_inplace(atoms)
-            eq_conf = EqConfiguration.from_atoms(atoms)
-            graph = graph_from_configuration(eq_conf, cutoff=cutoff, z_table=z_table)
-            graphs.append(graph)
-    finally:
-        dataset.close()
-    return graphs
+            yield self.convert(atoms)
+
+    def convert_file(self, data_path: Path | str) -> list[jraph.GraphsTuple]:
+        if data_path is None:
+            return []
+        dataset = HDF5Dataset(data_path, mode='r')
+        graphs: list[jraph.GraphsTuple] = []
+        try:
+            graphs.extend(self.convert_dataset(dataset))
+        finally:
+            dataset.close()
+        return graphs
 
 
 def graph_from_configuration(
-    config: EqConfiguration,
+    config: Configuration,
     *,
     cutoff: float,
     z_table: AtomicNumberTable,

@@ -7,7 +7,7 @@ from jax import tree_util as jtu
 
 from equitrain.argparser import check_args_complete
 from equitrain.data.atomic import AtomicNumberTable
-from equitrain.data.backend_jax import atoms_to_graphs, build_loader, make_apply_fn
+from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 
 
 def _is_multi_device() -> bool:
@@ -69,19 +69,24 @@ def predict(args):
             'Model configuration must define a positive `r_max`, or override via --r-max.'
         )
 
-    graphs = atoms_to_graphs(
-        args.predict_file,
-        r_max,
-        z_table,
-        niggli_reduce=getattr(args, 'niggli_reduce', False),
-    )
-    loader = build_loader(
-        graphs,
+    predict_path = args.predict_file
+    if not (
+        predict_path.lower().endswith('.h5') or predict_path.lower().endswith('hdf5')
+    ):
+        raise ValueError(
+            'JAX prediction requires datasets stored in HDF5 format. '
+            f'Received: {predict_path}'
+        )
+    loader = get_dataloader(
+        data_file=predict_path,
+        atomic_numbers=z_table,
+        r_max=r_max,
         batch_size=args.batch_size,
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
+        niggli_reduce=getattr(args, 'niggli_reduce', False),
     )
     if loader is None:
         raise RuntimeError('Prediction dataset is empty.')
