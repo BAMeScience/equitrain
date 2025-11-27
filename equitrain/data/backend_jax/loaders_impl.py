@@ -32,6 +32,8 @@ class GraphDataLoader:
         seed: int | None = None,
         niggli_reduce: bool = False,
         prefetch_batches: int | None = None,
+        num_workers: int | None = None,
+        graph_multiple: int | None = None,
     ) -> None:
         """
         h5_sources: list of HDF5Dataset instances or HDF5 file paths to stream.
@@ -47,6 +49,8 @@ class GraphDataLoader:
         self._seed = seed
         self._niggli_reduce = bool(niggli_reduce)
         self._prefetch_batches = int(prefetch_batches or 0)
+        self._num_workers = max(int(num_workers or 0), 0)
+        self._graph_multiple = max(int(graph_multiple or 1), 1)
         self._pack_info: dict | None = None
 
         self._datasets = list(datasets)
@@ -98,6 +102,7 @@ class GraphDataLoader:
             max_edges_per_batch=self._n_edge,
             max_nodes_per_batch=self._n_node,
             batch_size_limit=self._n_graph,
+            graph_multiple=self._graph_multiple,
         )
         self._pack_info = info
         return batches, info
@@ -145,6 +150,7 @@ def pack_graphs_greedy(
     max_edges_per_batch: int,
     max_nodes_per_batch: int | None = None,
     batch_size_limit: int | None = None,
+    graph_multiple: int = 1,
 ) -> tuple[Iterable[jraph.GraphsTuple], dict]:
     """
     Greedily pack graphs into batches limited by edge/node totals.
@@ -223,6 +229,48 @@ def pack_graphs_greedy(
         max_single_edges,
     ) = _scan()
 
+    graph_multiple = max(int(graph_multiple or 1), 1)
+    if graph_multiple > 1:
+        pad_graphs = ((pad_graphs + graph_multiple - 1) // graph_multiple) * graph_multiple
+
+    def _empty_graph_like(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
+        def _zero_nodes(arr):
+            shape = (0,) + arr.shape[1:]
+            return np.zeros(shape, dtype=arr.dtype)
+
+        nodes = graph.nodes.__class__()
+        for key, value in graph.nodes.items():
+            nodes[key] = _zero_nodes(value)
+
+        edges = graph.edges.__class__()
+        for key, value in graph.edges.items():
+            edges[key] = _zero_nodes(value)
+
+        globals_dict = graph.globals.__class__()
+        for key, value in graph.globals.items():
+            globals_dict[key] = np.zeros_like(value)
+
+        return jraph.GraphsTuple(
+            nodes=nodes,
+            edges=edges,
+            senders=np.zeros((0,), dtype=graph.senders.dtype),
+            receivers=np.zeros((0,), dtype=graph.receivers.dtype),
+            globals=globals_dict,
+            n_node=np.asarray([0], dtype=np.int32),
+            n_edge=np.asarray([0], dtype=np.int32),
+        )
+
+    def _pad_graph_list(graphs: list[jraph.GraphsTuple]):
+        if graph_multiple <= 1 or not graphs:
+            return
+        remainder = len(graphs) % graph_multiple
+        if remainder == 0:
+            return
+        template = graphs[0]
+        dummy = _empty_graph_like(template)
+        for _ in range(graph_multiple - remainder):
+            graphs.append(dummy)
+
     def _iter():
         current: list[jraph.GraphsTuple] = []
         edge_sum = node_sum = 0
@@ -243,6 +291,7 @@ def pack_graphs_greedy(
                 )
                 or (batch_size_limit is not None and len(current) >= batch_size_limit)
             ):
+                _pad_graph_list(current)
                 batched = jraph.batch_np(current)
                 yield jraph.pad_with_graphs(
                     batched,
@@ -256,6 +305,7 @@ def pack_graphs_greedy(
             edge_sum += g_edges
             node_sum += g_nodes
         if current:
+            _pad_graph_list(current)
             batched = jraph.batch_np(current)
             yield jraph.pad_with_graphs(
                 batched,

@@ -22,6 +22,8 @@ def get_dataloader(
     niggli_reduce: bool = False,
     max_batches: int | None = None,
     prefetch_batches: int | None = None,
+    num_workers: int | None = None,
+    graph_multiple: int | None = None,
 ):
     del drop  # UNUSED: legacy option from torch backend
     if data_file is None:
@@ -45,11 +47,14 @@ def get_dataloader(
         niggli_reduce=niggli_reduce,
         max_batches=max_batches,
         prefetch_batches=prefetch_batches,
+        num_workers=num_workers,
+        graph_multiple=graph_multiple,
     )
 
 
 def get_dataloaders(args, atomic_numbers, r_max):
     prefetch = getattr(args, 'prefetch_batches', None)
+    workers = getattr(args, 'workers', 0)
     train_loader = get_dataloader(
         data_file=args.train_file,
         atomic_numbers=atomic_numbers,
@@ -59,6 +64,8 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
+        num_workers=workers,
+        graph_multiple=None,
     )
     valid_loader = get_dataloader(
         data_file=args.valid_file,
@@ -69,6 +76,8 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
+        num_workers=workers,
+        graph_multiple=None,
     )
     test_loader = get_dataloader(
         data_file=args.test_file,
@@ -79,5 +88,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
+        num_workers=workers,
+        graph_multiple=None,
     )
     return train_loader, valid_loader, test_loader

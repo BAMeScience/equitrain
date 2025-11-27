@@ -151,17 +151,52 @@ def prepare_single_batch(graph):
     return jtu.tree_map(_to_device_array, graph, is_leaf=_none_leaf)
 
 
-def split_graphs_for_devices(graph, num_devices: int) -> list[list[jraph.GraphsTuple]]:
-    graphs = (
-        list(jraph.unbatch(graph)) if isinstance(graph, jraph.GraphsTuple) else [graph]
-    )
-    total = len(graphs)
-    if total % num_devices != 0:
+def split_graphs_for_devices(graph, num_devices: int) -> list[jraph.GraphsTuple]:
+    def _pad_graphs_to_multiple(graph, multiple):
+        if multiple <= 1:
+            return graph
+        total = int(graph.n_node.shape[0])
+        remainder = total % multiple
+        if remainder == 0:
+            return graph
+        pad_graphs = multiple - remainder
+        pad_n_node = np.concatenate(
+            [np.asarray(graph.n_node), np.zeros(pad_graphs, dtype=np.int32)]
+        )
+        pad_n_edge = np.concatenate(
+            [np.asarray(graph.n_edge), np.zeros(pad_graphs, dtype=np.int32)]
+        )
+
+        globals_attr = graph.globals
+        if globals_attr is None:
+            globals_dict = None
+        elif hasattr(globals_attr, 'items'):
+            globals_dict = globals_attr.__class__()
+            for key, value in globals_attr.items():
+                pad_shape = (pad_graphs,) + value.shape[1:]
+                pad_vals = np.zeros(pad_shape, dtype=value.dtype)
+                globals_dict[key] = np.concatenate([value, pad_vals], axis=0)
+        else:
+            pad_shape = (pad_graphs,) + globals_attr.shape[1:]
+            pad_vals = np.zeros(pad_shape, dtype=globals_attr.dtype)
+            globals_dict = np.concatenate([globals_attr, pad_vals], axis=0)
+
+        return graph._replace(
+            globals=globals_dict,
+            n_node=pad_n_node,
+            n_edge=pad_n_edge,
+        )
+
+    graph = _pad_graphs_to_multiple(graph, num_devices)
+    total_graphs = int(graph.n_node.shape[0])
+    if total_graphs % num_devices != 0:
         raise ValueError(
             'For JAX multi-device execution, batch size must be divisible by the number of devices.'
         )
-    per_device = total // num_devices
-    return [graphs[i * per_device : (i + 1) * per_device] for i in range(num_devices)]
+    per_device = total_graphs // num_devices
+    return [
+        _slice_graph(graph, i * per_device, per_device) for i in range(num_devices)
+    ]
 
 
 def prepare_sharded_batch(graph, num_devices: int):
@@ -169,7 +204,10 @@ def prepare_sharded_batch(graph, num_devices: int):
     chunks = split_graphs_for_devices(graph, num_devices)
     device_batches = []
     for chunk in chunks:
-        graphs_tuple = chunk[0] if len(chunk) == 1 else jraph.batch_np(chunk)
+        if isinstance(chunk, jraph.GraphsTuple):
+            graphs_tuple = chunk
+        else:
+            graphs_tuple = chunk[0] if len(chunk) == 1 else jraph.batch_np(chunk)
         device_batches.append(prepare_single_batch(graphs_tuple))
 
     def _stack_or_none(*values):
@@ -192,3 +230,47 @@ __all__ = [
     'prepare_sharded_batch',
     'split_graphs_for_devices',
 ]
+def _slice_graph(graph: jraph.GraphsTuple, start_graph: int, count: int):
+    start_graph = int(start_graph)
+    count = int(count)
+    n_node = np.asarray(graph.n_node)
+    n_edge = np.asarray(graph.n_edge)
+
+    graph_slice = slice(start_graph, start_graph + count)
+    node_start = int(n_node[:start_graph].sum())
+    node_end = int(node_start + n_node[graph_slice].sum())
+    edge_start = int(n_edge[:start_graph].sum())
+    edge_end = int(edge_start + n_edge[graph_slice].sum())
+
+    nodes = graph.nodes.__class__()
+    for key, value in graph.nodes.items():
+        nodes[key] = value[node_start:node_end]
+
+    edges = graph.edges.__class__()
+    for key, value in graph.edges.items():
+        edges[key] = value[edge_start:edge_end]
+
+    senders = graph.senders[edge_start:edge_end] - node_start
+    receivers = graph.receivers[edge_start:edge_end] - node_start
+
+    globals_attr = graph.globals
+    if globals_attr is None:
+        globals_dict = None
+    elif hasattr(globals_attr, 'items'):
+        globals_dict = globals_attr.__class__()
+        for key, value in globals_attr.items():
+            globals_dict[key] = value[graph_slice]
+    else:
+        globals_dict = globals_attr[graph_slice]
+    n_node_slice = graph.n_node[graph_slice]
+    n_edge_slice = graph.n_edge[graph_slice]
+
+    return jraph.GraphsTuple(
+        nodes=nodes,
+        edges=edges,
+        senders=senders,
+        receivers=receivers,
+        globals=globals_dict,
+        n_node=n_node_slice,
+        n_edge=n_edge_slice,
+    )
