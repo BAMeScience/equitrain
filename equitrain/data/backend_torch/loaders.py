@@ -39,7 +39,7 @@ def dataloader_update_errors(
     logger: FileLogger = None,
 ):
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
-    num_workers = _resolve_num_workers(args.workers, accelerator)
+    num_workers = _resolve_num_workers(args.num_workers, accelerator)
 
     if accelerator is not None and getattr(accelerator.device, 'type', '') == 'cuda':
         generator = torch.Generator(device=accelerator.device)
@@ -89,7 +89,7 @@ def get_dataloader(
     )
 
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
-    num_workers = _resolve_num_workers(args.workers, accelerator)
+    num_workers = _resolve_num_workers(args.num_workers, accelerator)
 
     data_loader = DynamicGraphLoader(
         dataset=data_set,

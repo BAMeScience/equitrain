@@ -54,7 +54,7 @@ def get_dataloader(
 
 def get_dataloaders(args, atomic_numbers, r_max):
     prefetch = getattr(args, 'prefetch_batches', None)
-    workers = getattr(args, 'workers', 0)
+    num_workers = getattr(args, 'num_workers', 0)
     train_loader = get_dataloader(
         data_file=args.train_file,
         atomic_numbers=atomic_numbers,
@@ -64,7 +64,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
-        num_workers=workers,
+        num_workers=num_workers,
         graph_multiple=None,
     )
     valid_loader = get_dataloader(
@@ -76,7 +76,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
-        num_workers=workers,
+        num_workers=num_workers,
         graph_multiple=None,
     )
     test_loader = get_dataloader(
@@ -88,7 +88,7 @@ def get_dataloaders(args, atomic_numbers, r_max):
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         prefetch_batches=prefetch,
-        num_workers=workers,
+        num_workers=num_workers,
         graph_multiple=None,
     )
     return train_loader, valid_loader, test_loader

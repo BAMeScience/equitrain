@@ -263,7 +263,7 @@ def test_train_torch_and_jax_match(tmp_path):
         args_torch.scheduler = 'step'
         args_torch.gamma = 1.0
         args_torch.step_size = 1
-        args_torch.workers = 0
+        args_torch.num_workers = 0
         args_torch.pin_memory = False
         args_torch.tqdm = False
         args_torch.verbose = 0
@@ -336,7 +336,7 @@ def test_train_torch_and_jax_match(tmp_path):
         args_jax.stress_weight = 0.0
         args_jax.scheduler = 'constant'
         args_jax.shuffle = False
-        args_jax.workers = 0
+        args_jax.num_workers = 0
         args_jax.pin_memory = False
         args_jax.tqdm = False
         args_jax.verbose = 0

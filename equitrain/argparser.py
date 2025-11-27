@@ -85,7 +85,11 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default='float64',
     )
     parser.add_argument(
-        '--workers', help='Number of data loading workers', type=int, default=4
+        '--num-workers',
+        dest='num_workers',
+        help='Number of data loading workers',
+        type=int,
+        default=4,
     )
     parser.add_argument(
         '--pin-memory',

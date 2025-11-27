@@ -54,7 +54,7 @@ def test_predict_ani_atoms():
 
     args = get_args_parser_predict().parse_args([])
     args.model_wrapper = 'ani'
-    args.workers = 0
+    args.num_workers = 0
     args.model = AniWrapper(args)
 
     atoms_list = _create_test_atoms()

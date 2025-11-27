@@ -106,7 +106,7 @@ def _init_common_args(
     args.weight_decay = 0.0
     args.momentum = 0.0
     args.shuffle = False
-    args.workers = 0
+    args.num_workers = 0
     args.pin_memory = False
     args.tqdm = False
     args.verbose = 0

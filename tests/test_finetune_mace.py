@@ -53,7 +53,7 @@ def test_finetune_mace(tmp_path):
     args.lr = 5e-4
     args.train_max_steps = 1
     args.valid_max_steps = 1
-    args.workers = 0
+    args.num_workers = 0
     args.pin_memory = False
     args.verbose = 0
     args.tqdm = False
