@@ -148,9 +148,7 @@ def predict(args):
 
     def _graph_real_counts(graph):
         try:
-            pad_mask = np.asarray(
-                jraph.get_graph_padding_mask(graph), dtype=bool
-            )
+            pad_mask = np.asarray(jraph.get_graph_padding_mask(graph), dtype=bool)
             n_node = np.asarray(graph.n_node)
 
             # Loader may append zero-node graphs to satisfy multi-device padding.
