@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 
 import jax
+import jraph
 import numpy as np
 
 from equitrain.argparser import check_args_complete

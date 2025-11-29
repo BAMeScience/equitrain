@@ -25,7 +25,26 @@ def test_jax_predict_basic(monkeypatch):
 
     def fake_get_dataloader(*args, **kwargs):
         records['loader_kwargs'] = kwargs
-        return ['g1', 'g2']
+        # Use simple GraphsTuple-like objects rather than raw strings so
+        # padding-aware helpers (e.g. jraph.get_graph_padding_mask) work.
+        return [
+            SimpleNamespace(
+                n_node=np.array([1], dtype=np.int32),
+                nodes=SimpleNamespace(positions=np.zeros((1, 3))),
+                edges=SimpleNamespace(shifts=np.zeros((0, 3))),
+                senders=np.zeros((0,), dtype=np.int32),
+                receivers=np.zeros((0,), dtype=np.int32),
+                globals=SimpleNamespace(cell=np.zeros((3, 3))),
+            ),
+            SimpleNamespace(
+                n_node=np.array([1], dtype=np.int32),
+                nodes=SimpleNamespace(positions=np.zeros((1, 3))),
+                edges=SimpleNamespace(shifts=np.zeros((0, 3))),
+                senders=np.zeros((0,), dtype=np.int32),
+                receivers=np.zeros((0,), dtype=np.int32),
+                globals=SimpleNamespace(cell=np.zeros((3, 3))),
+            ),
+        ]
 
     monkeypatch.setattr(jax_predict, 'get_dataloader', fake_get_dataloader)
     monkeypatch.setattr(jax_predict, '_prepare_single_batch', lambda graph: graph)
