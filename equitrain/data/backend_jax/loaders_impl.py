@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import threading
 from collections.abc import Iterable
 from pathlib import Path
@@ -7,7 +8,6 @@ from queue import Queue
 
 import jraph
 import numpy as np
-import multiprocessing as mp
 
 from equitrain.data.backend_jax.atoms_to_graphs import (
     AtomsToGraphs,
@@ -15,7 +15,6 @@ from equitrain.data.backend_jax.atoms_to_graphs import (
 )
 from equitrain.data.configuration import Configuration, niggli_reduce_inplace
 from equitrain.data.format_hdf5.dataset import HDF5Dataset
-
 
 _RESULT_DATA = 'data'
 _RESULT_DONE = 'done'
@@ -235,9 +234,7 @@ class GraphDataLoader:
                     stop_event.set()
                     for proc in processes:
                         proc.join(timeout=1)
-                    raise RuntimeError(
-                        f'Graph worker {payload_a} failed: {payload_b}'
-                    )
+                    raise RuntimeError(f'Graph worker {payload_a} failed: {payload_b}')
                 seq_id = payload_a
                 graph = payload_b
                 if seq_id == next_seq:
@@ -383,7 +380,9 @@ def pack_graphs_greedy(
 
     graph_multiple = max(int(graph_multiple or 1), 1)
     if graph_multiple > 1:
-        pad_graphs = ((pad_graphs + graph_multiple - 1) // graph_multiple) * graph_multiple
+        pad_graphs = (
+            (pad_graphs + graph_multiple - 1) // graph_multiple
+        ) * graph_multiple
 
     def _empty_graph_like(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
         def _zero_nodes(arr):
