@@ -11,6 +11,7 @@ from equitrain.backends.jax_utils import (
     batched_iterator,
     iter_micro_batches,
     replicate_to_local_devices,
+    set_jax_platform,
     split_device_outputs,
     stack_or_none,
     supports_multiprocessing_workers,
@@ -39,6 +40,8 @@ def predict(args):
         raise ValueError('--predict-file is a required argument for JAX prediction.')
     if getattr(args, 'model', None) is None:
         raise ValueError('--model is a required argument for JAX prediction.')
+
+    set_jax_platform(getattr(args, 'jax_platform', None))
 
     bundle = _load_bundle(
         args.model,

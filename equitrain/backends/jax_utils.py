@@ -41,6 +41,19 @@ def set_jax_dtype(dtype: str) -> None:
         raise ArgumentError(f'Unsupported dtype for JAX backend: {dtype}')
 
 
+def set_jax_platform(platform: str | None) -> None:
+    if not platform:
+        return
+    normalized = platform.strip().lower()
+    if normalized in {'auto', 'default', ''}:
+        return
+    if normalized not in {'cpu', 'gpu', 'tpu'}:
+        raise ArgumentError(
+            f'Unsupported JAX platform "{platform}". Expected one of cpu/gpu/tpu.'
+        )
+    jax.config.update('jax_platform_name', normalized)
+
+
 def resolve_model_paths(model_arg: str) -> tuple[Path, Path]:
     path = Path(model_arg).expanduser().resolve()
 
@@ -325,6 +338,7 @@ def batched_iterator(
 __all__ = [
     'ModelBundle',
     'set_jax_dtype',
+    'set_jax_platform',
     'resolve_model_paths',
     'load_model_bundle',
     'is_multi_device',
