@@ -146,10 +146,24 @@ def predict(args):
 
     apply_fn = pmap_apply if use_pmap and pmap_apply is not None else jit_apply
 
+    def _graph_real_counts(graph):
+        try:
+            pad_mask = np.asarray(jraph.get_graph_padding_mask(graph))
+            real_graphs = int(np.sum(pad_mask))
+            if real_graphs == 0:
+                real_graphs = int(graph.n_node.shape[0])
+            n_node = np.asarray(graph.n_node)
+            real_nodes = int(np.sum(n_node[:real_graphs]))
+            return real_graphs, real_nodes
+        except (AttributeError, TypeError):
+            return None, None
+
     for chunk in _chunk_iterator():
         graphs = [g for g in chunk if g is not None]
         if not graphs:
             continue
+
+        mask_info = [_graph_real_counts(graph) for graph in graphs]
 
         if use_pmap and pmap_apply is not None:
             if len(graphs) < device_count:
@@ -166,14 +180,22 @@ def predict(args):
             outputs = apply_fn(params_for_apply, prepared)
             device_outputs = [jax.device_get(outputs)]
 
-        for result in device_outputs:
-            energy_pred = np.asarray(result['energy'])
-            energies.append(energy_pred.reshape(-1))
+        for result, (real_graphs, real_nodes) in zip(device_outputs, mask_info):
+            energy_pred = np.asarray(result['energy']).reshape(-1)
+            if real_graphs is not None:
+                energy_pred = energy_pred[:real_graphs]
+            energies.append(energy_pred)
 
             if result.get('forces') is not None:
-                forces.append(np.asarray(result['forces']))
+                forces_arr = np.asarray(result['forces'])
+                if real_nodes is not None:
+                    forces_arr = forces_arr[:real_nodes]
+                forces.append(forces_arr)
             if result.get('stress') is not None:
-                stresses.append(np.asarray(result['stress']))
+                stress_arr = np.asarray(result['stress'])
+                if real_graphs is not None:
+                    stress_arr = stress_arr[:real_graphs]
+                stresses.append(stress_arr)
 
     return stack_or_none(energies), stack_or_none(forces), stack_or_none(stresses)
 

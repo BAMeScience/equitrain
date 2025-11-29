@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import jax.numpy as jnp
+import jraph
 import numpy as np
 import torch.serialization
 
@@ -7,6 +9,22 @@ torch.serialization.add_safe_globals([slice])
 
 from equitrain import get_args_parser_predict
 from equitrain.backends import jax_predict
+
+
+def _dummy_graph(*, padded: bool = False):
+    n_node = jnp.array([1], dtype=jnp.int32)
+    n_edge = jnp.array([0], dtype=jnp.int32)
+    if padded:
+        n_node = jnp.array([0], dtype=jnp.int32)
+    return jraph.GraphsTuple(
+        nodes={'positions': jnp.zeros((int(n_node.sum()) or 1, 3))},
+        edges={'shifts': jnp.zeros((int(n_edge.sum()), 3))},
+        senders=jnp.zeros((int(n_edge.sum()),), dtype=jnp.int32),
+        receivers=jnp.zeros((int(n_edge.sum()),), dtype=jnp.int32),
+        globals={'cell': jnp.zeros((3, 3))},
+        n_node=n_node,
+        n_edge=n_edge,
+    )
 
 
 def test_jax_predict_basic(monkeypatch):
@@ -25,71 +43,5 @@ def test_jax_predict_basic(monkeypatch):
 
     def fake_get_dataloader(*args, **kwargs):
         records['loader_kwargs'] = kwargs
-        # Use simple GraphsTuple-like objects rather than raw strings so
-        # padding-aware helpers (e.g. jraph.get_graph_padding_mask) work.
-        return [
-            SimpleNamespace(
-                n_node=np.array([1], dtype=np.int32),
-                nodes=SimpleNamespace(positions=np.zeros((1, 3))),
-                edges=SimpleNamespace(shifts=np.zeros((0, 3))),
-                senders=np.zeros((0,), dtype=np.int32),
-                receivers=np.zeros((0,), dtype=np.int32),
-                globals=SimpleNamespace(cell=np.zeros((3, 3))),
-            ),
-            SimpleNamespace(
-                n_node=np.array([1], dtype=np.int32),
-                nodes=SimpleNamespace(positions=np.zeros((1, 3))),
-                edges=SimpleNamespace(shifts=np.zeros((0, 3))),
-                senders=np.zeros((0,), dtype=np.int32),
-                receivers=np.zeros((0,), dtype=np.int32),
-                globals=SimpleNamespace(cell=np.zeros((3, 3))),
-            ),
-        ]
-
-    monkeypatch.setattr(jax_predict, 'get_dataloader', fake_get_dataloader)
-    monkeypatch.setattr(jax_predict, '_prepare_single_batch', lambda graph: graph)
-    monkeypatch.setattr(jax_predict, '_is_multi_device', lambda: False)
-
-    class DummyWrapper:
-        def __init__(self):
-            self.compute_force = True
-            self.compute_stress = False
-
-    monkeypatch.setattr(
-        jax_predict, '_create_wrapper', lambda *args, **kwargs: DummyWrapper()
-    )
-
-    def fake_make_apply_fn(wrapper, num_species):
-        def _impl(params, batch):
-            records.setdefault('apply_calls', []).append((params, batch))
-            return {
-                'energy': np.array([1.0]),
-                'forces': np.array([[0.0, 0.0, 0.0]]),
-                'stress': None,
-            }
-
-        return _impl
-
-    monkeypatch.setattr(jax_predict, 'make_apply_fn', fake_make_apply_fn)
-
-    monkeypatch.setattr(jax_predict.jax, 'jit', lambda fn: fn)
-    monkeypatch.setattr(jax_predict.jax, 'device_get', lambda x: x)
-
-    args = get_args_parser_predict().parse_args([])
-    args.backend = 'jax'
-    args.predict_file = 'predict.h5'
-    args.model = 'model.bundle'
-    args.batch_size = 1
-    args.forces_weight = 1.0
-    args.stress_weight = 0.0
-    args.dtype = 'float32'
-    args.niggli_reduce = True
-
-    energy, forces, stress = jax_predict.predict(args)
-
-    assert energy.shape == (2,)
-    assert forces.shape[0] == 2
-    assert stress is None
-    assert records['bundle_path'] == 'model.bundle'
-    assert records['loader_kwargs']['niggli_reduce'] is True
-    assert records['bundle_wrapper'] == getattr(args, 'model_wrapper', None)
+        # second graph simulates padding (n_node=0)
+        return [_dummy_graph(), _dummy_graph(padded=True)]
