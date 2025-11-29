@@ -148,12 +148,23 @@ def predict(args):
 
     def _graph_real_counts(graph):
         try:
-            pad_mask = np.asarray(jraph.get_graph_padding_mask(graph))
-            real_graphs = int(np.sum(pad_mask))
-            if real_graphs == 0:
-                real_graphs = int(graph.n_node.shape[0])
+            pad_mask = np.asarray(
+                jraph.get_graph_padding_mask(graph), dtype=bool
+            )
             n_node = np.asarray(graph.n_node)
-            real_nodes = int(np.sum(n_node[:real_graphs]))
+
+            # Loader may append zero-node graphs to satisfy multi-device padding.
+            valid_mask = pad_mask & (n_node > 0)
+            real_graphs = int(np.sum(valid_mask))
+            if real_graphs == 0:
+                if np.any(pad_mask):
+                    valid_mask = pad_mask
+                    real_graphs = int(np.sum(pad_mask))
+                else:
+                    valid_mask = np.ones_like(n_node, dtype=bool)
+                    real_graphs = int(valid_mask.sum())
+
+            real_nodes = int(np.sum(n_node[valid_mask]))
             return real_graphs, real_nodes
         except (AttributeError, TypeError):
             return None, None
