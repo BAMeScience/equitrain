@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+import multiprocessing as mp
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -94,6 +97,11 @@ def load_model_bundle(
     variables = flax_core.freeze(variables)
 
     return ModelBundle(config=config, params=variables, module=jax_module)
+
+
+def is_multi_device() -> bool:
+    """Return ``True`` if more than one local JAX device is available."""
+    return jax.local_device_count() > 1
 
 
 def _none_leaf(value):
@@ -194,21 +202,33 @@ def split_graphs_for_devices(graph, num_devices: int) -> list[jraph.GraphsTuple]
             'For JAX multi-device execution, batch size must be divisible by the number of devices.'
         )
     per_device = total_graphs // num_devices
-    return [
-        _slice_graph(graph, i * per_device, per_device) for i in range(num_devices)
-    ]
+    return [_slice_graph(graph, i * per_device, per_device) for i in range(num_devices)]
 
 
 def prepare_sharded_batch(graph, num_devices: int):
     """Prepare a micro-batch for ``jax.pmap`` execution."""
-    chunks = split_graphs_for_devices(graph, num_devices)
+
+    def _ensure_graphs_tuple(item):
+        if isinstance(item, jraph.GraphsTuple):
+            return item
+        if isinstance(item, Sequence) and not isinstance(item, (bytes, str)):
+            return item[0] if len(item) == 1 else jraph.batch_np(item)
+        raise TypeError('Expected a GraphsTuple or sequence of GraphsTuples.')
+
     device_batches = []
-    for chunk in chunks:
-        if isinstance(chunk, jraph.GraphsTuple):
-            graphs_tuple = chunk
-        else:
-            graphs_tuple = chunk[0] if len(chunk) == 1 else jraph.batch_np(chunk)
-        device_batches.append(prepare_single_batch(graphs_tuple))
+    if isinstance(graph, Sequence) and not isinstance(graph, jraph.GraphsTuple):
+        filtered = [g for g in graph if g is not None]
+        if len(filtered) != num_devices:
+            raise ValueError(
+                f'Expected {num_devices} micro-batches for multi-device execution, '
+                f'got {len(filtered)}.'
+            )
+        for item in filtered:
+            device_batches.append(prepare_single_batch(_ensure_graphs_tuple(item)))
+    else:
+        chunks = split_graphs_for_devices(graph, num_devices)
+        for chunk in chunks:
+            device_batches.append(prepare_single_batch(_ensure_graphs_tuple(chunk)))
 
     def _stack_or_none(*values):
         first = values[0]
@@ -219,17 +239,109 @@ def prepare_sharded_batch(graph, num_devices: int):
     return jtu.tree_map(_stack_or_none, *device_batches, is_leaf=_none_leaf)
 
 
+_MP_WORKERS_SUPPORTED: bool | None = None
+
+
+def supports_multiprocessing_workers() -> bool:
+    """Return True if this environment can create ``multiprocessing`` locks."""
+    global _MP_WORKERS_SUPPORTED
+    if _MP_WORKERS_SUPPORTED is not None:
+        return _MP_WORKERS_SUPPORTED
+
+    try:
+        ctx = mp.get_context('spawn')
+        lock = ctx.Lock()
+        lock.acquire()
+        lock.release()
+    except (OSError, PermissionError):
+        _MP_WORKERS_SUPPORTED = False
+    else:
+        _MP_WORKERS_SUPPORTED = True
+    return _MP_WORKERS_SUPPORTED
+
+
+def stack_or_none(chunks):
+    """Concatenate numpy arrays unless the list is empty."""
+    if not chunks:
+        return None
+    return np.concatenate(chunks, axis=0)
+
+
+def split_device_outputs(tree, num_devices: int):
+    """Slice a replicated pytree into per-device host arrays."""
+    host_tree = jtu.tree_map(
+        lambda x: None if x is None else np.asarray(x),
+        tree,
+        is_leaf=lambda leaf: leaf is None,
+    )
+    slices = []
+    for idx in range(num_devices):
+        slices.append(
+            jtu.tree_map(
+                lambda x: None if x is None else x[idx],
+                host_tree,
+                is_leaf=lambda leaf: leaf is None,
+            )
+        )
+    return slices
+
+
+def iter_micro_batches(loader):
+    """Flatten a loader that may emit lists of micro-batches."""
+    for item in loader:
+        if item is None:
+            continue
+        if isinstance(item, list):
+            for sub in item:
+                if sub is not None:
+                    yield sub
+        else:
+            yield item
+
+
+def take_chunk(iterator, size: int):
+    """Collect up to ``size`` items from an iterator."""
+    return list(itertools.islice(iterator, size))
+
+
+def batched_iterator(
+    iterator,
+    size: int,
+    *,
+    remainder_action: callable | None = None,
+):
+    """Yield fixed-size chunks from ``iterator``, dropping incomplete tails."""
+    if size <= 0:
+        raise ValueError('Chunk size must be positive.')
+    while True:
+        chunk = take_chunk(iterator, size)
+        if len(chunk) < size:
+            if chunk and remainder_action is not None:
+                remainder_action(len(chunk), size)
+            break
+        yield chunk
+
+
 __all__ = [
     'ModelBundle',
     'set_jax_dtype',
     'resolve_model_paths',
     'load_model_bundle',
+    'is_multi_device',
     'replicate_to_local_devices',
     'unreplicate_from_local_devices',
     'prepare_single_batch',
     'prepare_sharded_batch',
     'split_graphs_for_devices',
+    'stack_or_none',
+    'split_device_outputs',
+    'iter_micro_batches',
+    'take_chunk',
+    'batched_iterator',
+    'supports_multiprocessing_workers',
 ]
+
+
 def _slice_graph(graph: jraph.GraphsTuple, start_graph: int, count: int):
     start_graph = int(start_graph)
     count = int(count)

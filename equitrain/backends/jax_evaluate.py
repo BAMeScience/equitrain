@@ -6,15 +6,18 @@ import jax.numpy as jnp
 from equitrain.argparser import ArgsFormatter, validate_evaluate_args
 from equitrain.backends.jax_backend import (
     _build_eval_step,
-    _is_multi_device,
     _run_eval_loop,
 )
 from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
 from equitrain.backends.jax_loss_metrics import LossMetrics
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
+    is_multi_device as _is_multi_device,
+)
+from equitrain.backends.jax_utils import (
     load_model_bundle,
     replicate_to_local_devices,
+    supports_multiprocessing_workers,
 )
 from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
 from equitrain.data.atomic import AtomicNumberTable
@@ -57,31 +60,47 @@ def evaluate(args):
             'JAX evaluation requires datasets stored in HDF5 format. '
             f'Received: {test_file}'
         )
+    multi_device = _is_multi_device()
+    device_count = jax.local_device_count() if multi_device else 1
+    if getattr(args, 'batch_size', None) is None or args.batch_size <= 0:
+        raise ValueError('JAX evaluation requires a positive --batch-size.')
+    total_batch_size = int(args.batch_size)
+    per_device_batch = total_batch_size
+    if multi_device and device_count > 1:
+        if total_batch_size % device_count != 0:
+            raise ValueError(
+                'For JAX multi-device evaluation, --batch-size must be divisible by '
+                'the number of local devices.'
+            )
+        per_device_batch = total_batch_size // device_count
+
+    base_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)
+    if base_workers > 0 and supports_multiprocessing_workers():
+        effective_workers = base_workers
+        if multi_device and device_count > 1:
+            effective_workers *= device_count
+    else:
+        effective_workers = 0
+    prefetch_requested = getattr(args, 'prefetch_batches', None)
+    if prefetch_requested is None:
+        prefetch_batches = effective_workers
+    else:
+        prefetch_batches = max(int(prefetch_requested or 0), 0)
+
     test_loader = get_dataloader(
         data_file=test_file,
         atomic_numbers=z_table,
         r_max=r_max,
-        batch_size=args.batch_size,
+        batch_size=per_device_batch,
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
         niggli_reduce=getattr(args, 'niggli_reduce', False),
-        prefetch_batches=args.prefetch_batches,
+        prefetch_batches=prefetch_batches,
+        num_workers=effective_workers,
+        graph_multiple=1,
     )
-
-    multi_device = _is_multi_device()
-    if multi_device:
-        device_count = jax.local_device_count()
-        if device_count <= 0:
-            raise RuntimeError(
-                'JAX reports multi-device mode but no local devices are available.'
-            )
-        if args.batch_size % device_count != 0:
-            raise ValueError(
-                'For JAX multi-device evaluation, --batch-size must be divisible by '
-                'the number of local devices.'
-            )
 
     if test_loader is None:
         raise RuntimeError('Test dataset is empty.')
@@ -106,6 +125,7 @@ def evaluate(args):
         eval_step_fn,
         max_steps=None,
         multi_device=multi_device,
+        logger=logger,
     )
 
     metric = LossMetrics(

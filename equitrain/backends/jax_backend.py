@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import time
 from pathlib import Path
 
@@ -22,10 +23,15 @@ from equitrain.backends.jax_loss_metrics import LossMetrics
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
     ModelBundle,
+    batched_iterator,
+    iter_micro_batches,
     load_model_bundle,
     replicate_to_local_devices,
+    supports_multiprocessing_workers,
+    take_chunk,
     unreplicate_from_local_devices,
 )
+from equitrain.backends.jax_utils import is_multi_device as _is_multi_device
 from equitrain.backends.jax_utils import (
     prepare_sharded_batch as _prepare_sharded_batch,
 )
@@ -82,16 +88,39 @@ def _sanitize_grads(grads, clip_value: float | None):
     return jtu.tree_map(_sanitize, grads)
 
 
-def _is_multi_device() -> bool:
-    return jax.local_device_count() > 1
-
-
 def _replicate_state(state: TrainState) -> TrainState:
     return replicate_to_local_devices(state)
 
 
 def _unreplicate(tree):
     return unreplicate_from_local_devices(tree)
+
+
+def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logger):
+    """Group per-device micro-batches to feed into ``jax.pmap`` calls."""
+    micro_iter = iter_micro_batches(loader)
+    first_chunk = take_chunk(micro_iter, device_count)
+    if len(first_chunk) < device_count:
+        raise RuntimeError(
+            f'[{phase}] Need at least {device_count} micro-batches to utilize all '
+            'available devices. Reduce --batch-size or the device count.'
+        )
+
+    def _warn(count, expected):
+        message = (
+            f'[{phase}] Dropping incomplete multi-device chunk ({count}/{expected}).'
+        )
+        if logger is not None:
+            logger.log(1, message)
+        else:
+            print(message)
+
+    remainder = batched_iterator(
+        micro_iter,
+        device_count,
+        remainder_action=_warn,
+    )
+    return itertools.chain([first_chunk], remainder)
 
 
 def _build_train_functions(
@@ -206,9 +235,14 @@ def _run_train_epoch(
     loss_collection = JaxLossCollection()
     ema_count = ema_count_start
     device_count = jax.local_device_count() if multi_device else 1
+    use_chunked_multi = multi_device and device_count > 1
     total_steps = None
     if hasattr(train_loader, '__len__'):
-        total_steps = len(train_loader)
+        approx_batches = len(train_loader)
+        if use_chunked_multi and approx_batches is not None:
+            total_steps = approx_batches // device_count
+        else:
+            total_steps = approx_batches
     if max_steps is not None:
         if total_steps is not None:
             total_steps = min(total_steps, max_steps)
@@ -220,7 +254,13 @@ def _run_train_epoch(
         mask_tree = jtu.tree_map(lambda v: jnp.asarray(v, dtype=jnp.bool_), mask)
 
     use_tqdm = bool(getattr(args, 'tqdm', False) and tqdm is not None)
-    iterator = enumerate(train_loader)
+    if use_chunked_multi:
+        chunk_iter = _multi_device_chunk_iterator(
+            train_loader, device_count, phase='Training', logger=logger
+        )
+        iterator = enumerate(chunk_iter)
+    else:
+        iterator = enumerate(train_loader)
     progress = None
     if use_tqdm:
         progress = tqdm(
@@ -235,16 +275,16 @@ def _run_train_epoch(
         if max_steps is not None and step_index >= max_steps:
             break
 
-        if isinstance(graph, list):
-            micro_batches = [g for g in graph if g is not None]
+        if use_chunked_multi:
+            micro_batches = graph
         else:
-            micro_batches = [graph]
+            if isinstance(graph, list):
+                micro_batches = [g for g in graph if g is not None]
+            else:
+                micro_batches = [graph]
 
         if not micro_batches:
             continue
-
-        micro_count = len(micro_batches)
-        inv_micro = 1.0 / float(micro_count)
 
         step_start = time.perf_counter()
 
@@ -257,25 +297,26 @@ def _run_train_epoch(
             warmup_decay = (1.0 + ema_count) / (10.0 + ema_count)
             ema_factor = float(min(float(ema_decay), warmup_decay))
 
-        accum_grads = jtu.tree_map(lambda x: jnp.zeros_like(x), state.params)
         macro_collection = JaxLossCollection()
 
-        for micro_batch in micro_batches:
-            if multi_device:
-                prepared_batch = _prepare_sharded_batch(micro_batch, device_count)
-                _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
-                grads = jtu.tree_map(lambda g: g * inv_micro, grads)
-                accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
-                aux_host = _unreplicate(aux_dev)
-            else:
+        if use_chunked_multi:
+            prepared_batch = _prepare_sharded_batch(micro_batches, device_count)
+            _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
+            accum_grads = grads
+            aux_host = _unreplicate(aux_dev)
+            update_collection_from_aux(loss_collection, aux_host)
+            update_collection_from_aux(macro_collection, aux_host)
+        else:
+            inv_micro = 1.0 / float(len(micro_batches))
+            accum_grads = jtu.tree_map(lambda x: jnp.zeros_like(x), state.params)
+            for micro_batch in micro_batches:
                 prepared_batch = _prepare_single_batch(micro_batch)
                 _, aux_val, grads = grad_step_fn(state.params, prepared_batch)
                 grads = jtu.tree_map(lambda g: g * inv_micro, grads)
                 accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
                 aux_host = jax.device_get(aux_val)
-
-            update_collection_from_aux(loss_collection, aux_host)
-            update_collection_from_aux(macro_collection, aux_host)
+                update_collection_from_aux(loss_collection, aux_host)
+                update_collection_from_aux(macro_collection, aux_host)
 
         state = apply_updates_fn(state, accum_grads, ema_factor)
 
@@ -357,6 +398,7 @@ def _run_eval_loop(
     *,
     max_steps,
     multi_device: bool,
+    logger=None,
 ):
     if loader is None:
         return None, JaxLossCollection()
@@ -365,27 +407,38 @@ def _run_eval_loop(
     device_count = jax.local_device_count() if multi_device else 1
     mean_loss = None
 
-    for step_index, graph in enumerate(loader):
+    if multi_device and device_count > 1:
+        data_iter = _multi_device_chunk_iterator(
+            loader, device_count, phase='Eval', logger=logger
+        )
+    else:
+        data_iter = loader
+
+    for step_index, graph in enumerate(data_iter):
         if max_steps is not None and step_index >= max_steps:
             break
-        if isinstance(graph, list):
-            micro_batches = [g for g in graph if g is not None]
-        else:
-            micro_batches = [graph]
-        if not micro_batches:
-            continue
-
-        for micro_batch in micro_batches:
-            if multi_device:
-                batch = _prepare_sharded_batch(micro_batch, device_count)
-            else:
-                batch = _prepare_single_batch(micro_batch)
-
+        if multi_device and device_count > 1:
+            micro_batches = graph
+            batch = _prepare_sharded_batch(micro_batches, device_count)
             loss, aux = eval_step_fn(params, batch)
-            loss = _unreplicate(loss) if multi_device else jax.device_get(loss)
-            aux = _unreplicate(aux) if multi_device else jax.device_get(aux)
+            loss = _unreplicate(loss)
+            aux = _unreplicate(aux)
             update_collection_from_aux(loss_collection, aux)
             mean_loss = float(loss)
+        else:
+            if isinstance(graph, list):
+                micro_batches = [g for g in graph if g is not None]
+            else:
+                micro_batches = [graph]
+            if not micro_batches:
+                continue
+            for micro_batch in micro_batches:
+                batch = _prepare_single_batch(micro_batch)
+                loss, aux = eval_step_fn(params, batch)
+                loss = jax.device_get(loss)
+                aux = jax.device_get(aux)
+                update_collection_from_aux(loss_collection, aux)
+                mean_loss = float(loss)
 
     if loss_collection.components['total'].count:
         mean_loss = loss_collection.components['total'].value
@@ -445,6 +498,34 @@ def train(args):
     reduce_cells = bool(getattr(args, 'niggli_reduce', False))
     train_seed = getattr(args, 'seed', None)
 
+    multi_device = _is_multi_device()
+    device_count = jax.local_device_count() if multi_device else 1
+
+    if getattr(args, 'batch_size', None) is None or args.batch_size <= 0:
+        raise ValueError('JAX backend requires a positive --batch-size.')
+    total_batch_size = int(args.batch_size)
+    per_device_batch = total_batch_size
+    if multi_device and device_count > 1:
+        if total_batch_size % device_count != 0:
+            raise ValueError(
+                'For JAX multi-device training, --batch-size must be divisible by '
+                'the number of local devices.'
+            )
+        per_device_batch = total_batch_size // device_count
+
+    base_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)
+    if base_workers > 0 and supports_multiprocessing_workers():
+        effective_workers = base_workers
+        if multi_device and device_count > 1:
+            effective_workers *= device_count
+    else:
+        effective_workers = 0
+    prefetch_requested = getattr(args, 'prefetch_batches', None)
+    if prefetch_requested is None:
+        prefetch_batches = effective_workers
+    else:
+        prefetch_batches = max(int(prefetch_requested or 0), 0)
+
     def _build_streaming_loader(path: str | None, shuffle: bool):
         if path in (None, 'None'):
             return None
@@ -452,14 +533,16 @@ def train(args):
             data_file=path,
             atomic_numbers=z_table,
             r_max=r_max,
-            batch_size=args.batch_size,
+            batch_size=per_device_batch,
             shuffle=shuffle,
             max_nodes=args.batch_max_nodes,
             max_edges=args.batch_max_edges,
             drop=getattr(args, 'batch_drop', False),
             seed=train_seed if shuffle else None,
             niggli_reduce=reduce_cells,
-            prefetch_batches=args.prefetch_batches,
+            prefetch_batches=prefetch_batches,
+            num_workers=effective_workers,
+            graph_multiple=1,
         )
 
     train_loader = _build_streaming_loader(args.train_file, shuffle=args.shuffle)
@@ -475,12 +558,6 @@ def train(args):
     )
 
     num_species = len(z_table)
-    multi_device = _is_multi_device()
-    device_count = jax.local_device_count() if multi_device else 1
-    if multi_device and device_count > 0 and (args.batch_size % device_count != 0):
-        raise ValueError(
-            'For JAX multi-device training, --batch-size must be divisible by the number of local devices.'
-        )
 
     apply_fn = make_apply_fn(wrapper, num_species=num_species)
     loss_settings = LossSettings.from_args(args)
@@ -553,6 +630,7 @@ def train(args):
         eval_step_fn,
         max_steps=valid_max_steps,
         multi_device=multi_device,
+        logger=logger,
     )
 
     current_params_host = _host(train_state.params)
@@ -630,6 +708,7 @@ def train(args):
             eval_step_fn,
             max_steps=valid_max_steps,
             multi_device=multi_device,
+            logger=logger,
         )
 
         train_metric = LossMetrics(**metric_settings)
@@ -738,6 +817,7 @@ def train(args):
                 eval_step_fn,
                 max_steps=None,
                 multi_device=multi_device,
+                logger=logger,
             )
             test_metrics = LossMetrics(
                 include_energy=loss_settings.energy_weight > 0.0,

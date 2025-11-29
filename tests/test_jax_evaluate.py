@@ -92,7 +92,9 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
 
         return step
 
-    def fake_run_eval_loop(params, loader, eval_step_fn, *, max_steps, multi_device):
+    def fake_run_eval_loop(
+        params, loader, eval_step_fn, *, max_steps, multi_device, logger=None
+    ):
         captured['run_eval_loop_multi_device'] = multi_device
         captured['run_eval_loop_max_steps'] = max_steps
         captured['run_eval_loop_params'] = params
