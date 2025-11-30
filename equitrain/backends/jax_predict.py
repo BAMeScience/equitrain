@@ -171,10 +171,19 @@ def predict(args):
         except (AttributeError, TypeError):
             return None, None
 
+    total_batches = len(loader)
+    if total_batches and use_pmap and device_count > 1:
+        total_batches = total_batches // device_count
+
     iterator = _chunk_iterator()
     progress = None
     if getattr(args, 'tqdm', False) and tqdm is not None:
-        iterator = tqdm(iterator, desc='JAX predict', leave=True)
+        iterator = tqdm(
+            iterator,
+            desc='JAX predict',
+            leave=True,
+            total=total_batches,
+        )
         progress = iterator
 
     for chunk in iterator:
