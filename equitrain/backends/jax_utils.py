@@ -224,7 +224,7 @@ def prepare_sharded_batch(graph, num_devices: int):
     def _ensure_graphs_tuple(item):
         if isinstance(item, jraph.GraphsTuple):
             return item
-        if isinstance(item, Sequence) and not isinstance(item, (bytes, str)):
+        if isinstance(item, Sequence) and not isinstance(item, bytes | str):
             return item[0] if len(item) == 1 else jraph.batch_np(item)
         raise TypeError('Expected a GraphsTuple or sequence of GraphsTuples.')
 
