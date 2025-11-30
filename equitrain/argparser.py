@@ -551,6 +551,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_model_args(parser)
         add_loss_weights_args(parser)
         parser.add_argument(
+            '--tqdm', help='Show TQDM status bar', action='store_true', default=False
+        )
+        parser.add_argument(
             '--niggli-reduce',
             help='Apply Niggli reduction before graph construction at inference time',
             action='store_true',

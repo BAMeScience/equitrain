@@ -5,6 +5,7 @@ import itertools
 import jax
 import jraph
 import numpy as np
+from tqdm import tqdm
 
 from equitrain.argparser import check_args_complete
 from equitrain.backends.jax_utils import (
@@ -170,7 +171,13 @@ def predict(args):
         except (AttributeError, TypeError):
             return None, None
 
-    for chunk in _chunk_iterator():
+    iterator = _chunk_iterator()
+    progress = None
+    if getattr(args, 'tqdm', False) and tqdm is not None:
+        iterator = tqdm(iterator, desc='JAX predict', leave=True)
+        progress = iterator
+
+    for chunk in iterator:
         graphs = [g for g in chunk if g is not None]
         if not graphs:
             continue
@@ -208,6 +215,9 @@ def predict(args):
                 if real_graphs is not None:
                     stress_arr = stress_arr[:real_graphs]
                 stresses.append(stress_arr)
+
+    if progress is not None:
+        progress.close()
 
     return stack_or_none(energies), stack_or_none(forces), stack_or_none(stresses)
 

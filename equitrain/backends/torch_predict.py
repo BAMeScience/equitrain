@@ -5,6 +5,7 @@ import torch
 import torch_geometric
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
+from tqdm.auto import tqdm
 
 from equitrain.backends.torch_model import get_model
 from equitrain.backends.torch_utils import set_dtype
@@ -14,6 +15,19 @@ from equitrain.data.backend_torch.loaders import get_dataloader
 from equitrain.data.configuration import niggli_reduce_inplace
 
 
+def _iterate_with_progress(iterable, enable: bool, *, desc: str):
+    if enable and tqdm is not None:
+        bar = tqdm(iterable, desc=desc, leave=True)
+        try:
+            for item in bar:
+                yield item
+        finally:
+            bar.close()
+    else:
+        for item in iterable:
+            yield item
+
+
 def predict_graphs(
     model: torch.nn.Module,
     graph_list: list[torch_geometric.data.data.Data],
@@ -21,6 +35,7 @@ def predict_graphs(
     pin_memory=False,
     batch_size=12,
     device=None,
+    show_progress: bool = False,
 ) -> list[torch.Tensor]:
     data_loader = torch_geometric.loader.DataLoader(
         dataset=graph_list,
@@ -35,7 +50,9 @@ def predict_graphs(
     r_force = torch.empty((0, 3), device=device)
     r_stress = torch.empty((0, 3, 3), device=device)
 
-    for data in data_loader:
+    for data in _iterate_with_progress(
+        data_loader, show_progress, desc='Torch predict (graphs)'
+    ):
         y_pred = model(data)
         r_energy = torch.cat((r_energy, y_pred['energy']), dim=0)
         if y_pred['forces'] is not None:
@@ -61,6 +78,7 @@ def predict_atoms(
     batch_size=12,
     device=None,
     niggli_reduce: bool = False,
+    show_progress: bool = False,
 ) -> list[torch.Tensor]:
     atoms_to_graphs = AtomsToGraphs(
         z_table,
@@ -88,6 +106,7 @@ def predict_atoms(
         pin_memory=pin_memory,
         batch_size=batch_size,
         device=device,
+        show_progress=show_progress,
     )
 
 
@@ -101,6 +120,7 @@ def predict_structures(
     batch_size=12,
     device=None,
     niggli_reduce: bool = False,
+    show_progress: bool = False,
 ) -> list[torch.Tensor]:
     atoms_list = [AseAtomsAdaptor.get_atoms(structure) for structure in structure_list]
     return predict_atoms(
@@ -113,6 +133,7 @@ def predict_structures(
         batch_size=batch_size,
         device=device,
         niggli_reduce=niggli_reduce,
+        show_progress=show_progress,
     )
 
 
@@ -136,8 +157,11 @@ def _predict(args, device=None):
     data_loader = get_dataloader(
         args, args.predict_file, model.atomic_numbers, model.r_max
     )
+    use_progress = bool(getattr(args, 'tqdm', False))
 
-    for data_list in data_loader:
+    for data_list in _iterate_with_progress(
+        data_loader, use_progress, desc='Torch predict'
+    ):
         for data in data_list:
             if hasattr(data, 'to'):
                 data = data.to(device)
