@@ -27,6 +27,7 @@ from equitrain.backends.jax_utils import (
     iter_micro_batches,
     load_model_bundle,
     replicate_to_local_devices,
+    set_jax_platform,
     supports_multiprocessing_workers,
     take_chunk,
     unreplicate_from_local_devices,
@@ -450,6 +451,7 @@ def _run_eval_loop(
 
 def train(args):
     validate_training_args(args, 'jax')
+    set_jax_platform(getattr(args, 'jax_platform', None))
 
     if getattr(args, 'weighted_sampler', False):
         raise ValueError('The JAX backend does not support weighted data sampling.')

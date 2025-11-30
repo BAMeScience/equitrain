@@ -119,6 +119,12 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         type=float,
         default=None,
     )
+    parser.add_argument(
+        '--jax-platform',
+        help='Preferred JAX platform (auto/cpu/gpu/tpu).',
+        type=str,
+        default='auto',
+    )
     return parser
 
 
