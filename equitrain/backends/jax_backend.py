@@ -143,7 +143,7 @@ def _build_train_functions(
             grads = _sanitize_grads(grads, clip_value)
             grads = jax.lax.pmean(grads, axis_name='device')
             loss = jax.lax.pmean(loss, axis_name='device')
-            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
+            aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
             return loss, aux, grads
 
         grad_step_fn = jax.pmap(grad_step, axis_name='device', in_axes=(0, 0))
@@ -207,7 +207,7 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
         def step(params, batch):
             loss, aux = loss_fn(params, batch)
             loss = jax.lax.pmean(loss, axis_name='device')
-            aux = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
+            aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
             return loss, aux
 
         return jax.pmap(step, axis_name='device', in_axes=(0, 0))
