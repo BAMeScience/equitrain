@@ -278,15 +278,16 @@ def _run_train_epoch(
             break
 
         if use_chunked_multi:
-            micro_batches = graph
+            micro_batches = [g for g in graph if g is not None]
+            if not micro_batches:
+                continue
         else:
             if isinstance(graph, list):
-                micro_batches = [g for g in graph if g is not None]
+                batch_graph = next((g for g in graph if g is not None), None)
             else:
-                micro_batches = [graph]
-
-        if not micro_batches:
-            continue
+                batch_graph = graph
+            if batch_graph is None:
+                continue
 
         step_start = time.perf_counter()
 
@@ -312,19 +313,14 @@ def _run_train_epoch(
             update_collection_from_aux(loss_collection, aux_host)
             update_collection_from_aux(macro_collection, aux_host)
         else:
-            inv_micro = 1.0 / float(len(micro_batches))
-            accum_grads = jtu.tree_map(lambda x: jnp.zeros_like(x), state.params)
-            for micro_batch in micro_batches:
-                prepared_batch = _prepare_single_batch(micro_batch)
-                try:
-                    _, aux_val, grads = grad_step_fn(state.params, prepared_batch)
-                except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
-                    _raise_memory_hint(exc, args, phase='training')
-                grads = jtu.tree_map(lambda g: g * inv_micro, grads)
-                accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
-                aux_host = jax.device_get(aux_val)
-                update_collection_from_aux(loss_collection, aux_host)
-                update_collection_from_aux(macro_collection, aux_host)
+            prepared_batch = _prepare_single_batch(batch_graph)
+            try:
+                _, aux_val, accum_grads = grad_step_fn(state.params, prepared_batch)
+            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+                _raise_memory_hint(exc, args, phase='training')
+            aux_host = jax.device_get(aux_val)
+            update_collection_from_aux(loss_collection, aux_host)
+            update_collection_from_aux(macro_collection, aux_host)
 
         try:
             state = apply_updates_fn(state, accum_grads, ema_factor)
