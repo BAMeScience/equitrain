@@ -208,11 +208,17 @@ def predict(args):
                 )
                 continue
             prepared = _prepare_sharded_batch(graphs, device_count)
-            outputs = apply_fn(params_for_apply, prepared)
+            try:
+                outputs = apply_fn(params_for_apply, prepared)
+            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+                _raise_memory_hint(exc, args, phase='prediction')
             device_outputs = split_device_outputs(jax.device_get(outputs), device_count)
         else:
             prepared = _prepare_single_batch(graphs[0])
-            outputs = apply_fn(params_for_apply, prepared)
+            try:
+                outputs = apply_fn(params_for_apply, prepared)
+            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+                _raise_memory_hint(exc, args, phase='prediction')
             device_outputs = [jax.device_get(outputs)]
 
         for result, (real_graphs, real_nodes) in zip(device_outputs, mask_info):
@@ -256,3 +262,18 @@ def _create_wrapper(bundle, *, compute_force: bool, compute_stress: bool):
 
 
 __all__ = ['predict']
+
+
+def _raise_memory_hint(exc, args, *, phase: str):
+    message = str(exc)
+    if 'RESOURCE_EXHAUSTED' not in message:
+        raise exc
+    edges = getattr(args, 'batch_max_edges', None)
+    nodes = getattr(args, 'batch_max_nodes', None)
+    hint = (
+        f'JAX {phase} ran out of device memory. '
+        'Try lowering --batch-max-edges/--batch-max-nodes '
+        f'(currently {edges or "unset"}/{nodes or "unset"}), '
+        'reducing --prefetch-batches, or disabling --multi-gpu.'
+    )
+    raise RuntimeError(f'{hint}\nOriginal error: {message}') from exc

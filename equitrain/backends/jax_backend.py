@@ -303,7 +303,10 @@ def _run_train_epoch(
 
         if use_chunked_multi:
             prepared_batch = _prepare_sharded_batch(micro_batches, device_count)
-            _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
+            try:
+                _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
+            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+                _raise_memory_hint(exc, args, phase='training')
             accum_grads = grads
             aux_host = _unreplicate(aux_dev)
             update_collection_from_aux(loss_collection, aux_host)
@@ -313,14 +316,20 @@ def _run_train_epoch(
             accum_grads = jtu.tree_map(lambda x: jnp.zeros_like(x), state.params)
             for micro_batch in micro_batches:
                 prepared_batch = _prepare_single_batch(micro_batch)
-                _, aux_val, grads = grad_step_fn(state.params, prepared_batch)
+                try:
+                    _, aux_val, grads = grad_step_fn(state.params, prepared_batch)
+                except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+                    _raise_memory_hint(exc, args, phase='training')
                 grads = jtu.tree_map(lambda g: g * inv_micro, grads)
                 accum_grads = jtu.tree_map(lambda acc, g: acc + g, accum_grads, grads)
                 aux_host = jax.device_get(aux_val)
                 update_collection_from_aux(loss_collection, aux_host)
                 update_collection_from_aux(macro_collection, aux_host)
 
-        state = apply_updates_fn(state, accum_grads, ema_factor)
+        try:
+            state = apply_updates_fn(state, accum_grads, ema_factor)
+        except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
+            _raise_memory_hint(exc, args, phase='training')
 
         if mask_tree is not None:
             restored_params = jtu.tree_map(
@@ -856,6 +865,21 @@ def train(args):
         'lr_history': lr_history,
         'best_epoch': best_epoch,
     }
+
+
+def _raise_memory_hint(exc, args, *, phase: str):
+    message = str(exc)
+    if 'RESOURCE_EXHAUSTED' not in message:
+        raise exc
+    edges = getattr(args, 'batch_max_edges', None)
+    nodes = getattr(args, 'batch_max_nodes', None)
+    hint = (
+        f'JAX {phase} ran out of device memory. '
+        'Try lowering --batch-max-edges/--batch-max-nodes '
+        f'(currently {edges or "unset"}/{nodes or "unset"}), '
+        'reducing --prefetch-batches, or disabling --multi-gpu.'
+    )
+    raise RuntimeError(f'{hint}\nOriginal error: {message}') from exc
 
 
 def _save_parameters(output_dir: Path, variables) -> None:
