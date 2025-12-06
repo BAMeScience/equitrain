@@ -70,7 +70,6 @@ class GraphDataLoader:
         r_max: float | None = None,
         n_node: int | None,
         n_edge: int | None,
-        n_graph: int | None,
         max_batches: int | None = None,
         shuffle: bool = False,
         seed: int | None = None,
@@ -87,7 +86,6 @@ class GraphDataLoader:
         if z_table is None or r_max is None:
             raise ValueError('z_table and r_max required when streaming from HDF5.')
 
-        self._n_graph = None if n_graph is None else max(int(n_graph), 1)
         self._max_batches = max_batches
         self._shuffle = shuffle
         self._seed = seed
@@ -98,12 +96,16 @@ class GraphDataLoader:
         self._pack_info: dict | None = None
 
         self._datasets = list(datasets)
+        est_nodes = est_edges = None
         if n_node is None or n_edge is None:
             est_nodes, est_edges = _estimate_caps(self._datasets, z_table, r_max)
-            if n_node is None:
+        if n_node is None:
+            if n_edge is not None:
+                n_node = int(n_edge)
+            else:
                 n_node = est_nodes
-            if n_edge is None:
-                n_edge = est_edges
+        if n_edge is None:
+            n_edge = est_edges
 
         self._n_node = int(max(n_node or 0, 1))
         self._n_edge = int(max(n_edge or 0, 1))
@@ -124,16 +126,10 @@ class GraphDataLoader:
             graph_iter_fn=self._graph_iter_fn,
             max_edges_per_batch=self._n_edge,
             max_nodes_per_batch=self._n_node,
-            batch_size_limit=self._n_graph,
             graph_multiple=self._graph_multiple,
         )
         self._pack_info = info
         return batches, info
-
-    def _target_graphs(self):
-        if self._max_batches is None or self._n_graph is None:
-            return None
-        return self._max_batches * self._n_graph
 
     def _convert_atoms_to_graph(self, atoms):
         if self._niggli_reduce:
@@ -146,7 +142,6 @@ class GraphDataLoader:
 
     def _task_iterator(self):
         rng = np.random.default_rng(self._seed)
-        target = self._target_graphs()
         emitted = 0
         dataset_indices = list(range(len(self._datasets)))
         if self._shuffle and len(dataset_indices) > 1:
@@ -160,13 +155,9 @@ class GraphDataLoader:
                 seq_id = emitted
                 emitted += 1
                 yield (seq_id, ds_idx, int(idx))
-                if target is not None and emitted >= target:
-                    return
 
     def _iter_graphs_single(self):
         rng = np.random.default_rng(self._seed)
-        target = self._target_graphs()
-        emitted = 0
         sources = list(self._datasets)
         if self._shuffle and len(sources) > 1:
             rng.shuffle(sources)
@@ -178,9 +169,6 @@ class GraphDataLoader:
                 atoms = ds[idx]
                 graph = self._convert_atoms_to_graph(atoms)
                 yield graph
-                emitted += 1
-                if target is not None and emitted >= target:
-                    return
 
     def _iter_graphs_parallel(self):
         worker_count = max(self._num_workers, 1)
@@ -258,13 +246,25 @@ class GraphDataLoader:
 
     def __iter__(self):
         batches, _ = self._pack()
+
+        def _limited(iterable):
+            if self._max_batches is None:
+                yield from iterable
+                return
+            produced = 0
+            for item in iterable:
+                yield item
+                produced += 1
+                if produced >= self._max_batches:
+                    break
+
         if self._prefetch_batches > 0:
             queue: Queue = Queue(maxsize=self._prefetch_batches)
             sentinel = object()
 
             def _producer():
                 try:
-                    for item in batches:
+                    for item in _limited(batches):
                         queue.put(item)
                 finally:
                     queue.put(sentinel)
@@ -277,13 +277,19 @@ class GraphDataLoader:
                     break
                 yield item
         else:
-            yield from batches
+            yield from _limited(batches)
 
     def __len__(self):
         if self._pack_info and self._pack_info.get('total_batches') is not None:
-            return int(self._pack_info['total_batches'])
+            total = int(self._pack_info['total_batches'])
+            if self._max_batches is not None:
+                return min(total, int(self._max_batches))
+            return total
         _, info = self._pack()
-        return int(info.get('total_batches', 0))
+        total = int(info.get('total_batches', 0))
+        if self._max_batches is not None:
+            return min(total, int(self._max_batches))
+        return total
 
     def pack_info(self) -> dict:
         """Return metadata from the most recent packing run."""
@@ -298,7 +304,6 @@ def pack_graphs_greedy(
     graph_iter_fn: callable,
     max_edges_per_batch: int,
     max_nodes_per_batch: int | None = None,
-    batch_size_limit: int | None = None,
     graph_multiple: int = 1,
 ) -> tuple[Iterable[jraph.GraphsTuple], dict]:
     """
@@ -339,7 +344,6 @@ def pack_graphs_greedy(
                     max_nodes_per_batch is not None
                     and would_nodes > max_nodes_per_batch
                 )
-                or (batch_size_limit is not None and current_len >= batch_size_limit)
             ):
                 max_graphs = max(max_graphs, current_len)
                 max_total_nodes = max(max_total_nodes, node_sum)
@@ -440,7 +444,6 @@ def pack_graphs_greedy(
                     max_nodes_per_batch is not None
                     and would_nodes > max_nodes_per_batch
                 )
-                or (batch_size_limit is not None and len(current) >= batch_size_limit)
             ):
                 _pad_graph_list(current)
                 batched = jraph.batch_np(current)

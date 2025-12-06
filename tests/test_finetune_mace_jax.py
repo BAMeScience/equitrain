@@ -102,6 +102,8 @@ def _init_common_args(
     args.train_max_steps = max_steps
     args.valid_max_steps = max_steps
     args.batch_size = 1
+    args.batch_max_nodes = 2048
+    args.batch_max_edges = 8192
     args.lr = lr
     args.weight_decay = 0.0
     args.momentum = 0.0
@@ -507,7 +509,6 @@ def test_finetune_gradient_parity(tmp_path):
             data_file=str(train_subset),
             atomic_numbers=z_table,
             r_max=bundle.config['r_max'],
-            batch_size=1,
             shuffle=False,
             max_nodes=None,
             max_edges=None,

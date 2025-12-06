@@ -36,7 +36,6 @@ def _default_args() -> SimpleNamespace:
     args.model = 'dummy-model'
     data_dir = Path(__file__).with_name('data')
     args.test_file = str(data_dir / 'train.h5')
-    args.batch_size = 4
     args.batch_max_nodes = 1024
     args.batch_max_edges = 4096
     args.forces_weight = 0.0
@@ -134,9 +133,10 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     assert captured['wrapper_kwargs']['compute_stress'] is False
 
 
-def test_jax_evaluate_batch_size_check(monkeypatch):
+def test_jax_evaluate_requires_pack_limits(monkeypatch):
     args = _default_args()
-    args.batch_size = 3
+    args.batch_max_nodes = None
+    args.batch_max_edges = None
 
     bundle = ModelBundle(
         config={'atomic_numbers': [1], 'r_max': 3.0},
@@ -146,8 +146,6 @@ def test_jax_evaluate_batch_size_check(monkeypatch):
 
     monkeypatch.setattr(jax_evaluate, 'validate_evaluate_args', lambda *a, **k: None)
     monkeypatch.setattr(jax_evaluate, 'load_model_bundle', lambda *a, **k: bundle)
-    monkeypatch.setattr(jax_evaluate, '_is_multi_device', lambda: True)
-    monkeypatch.setattr(jax_evaluate.jax, 'local_device_count', lambda: 2)
 
-    with pytest.raises(ValueError, match='--batch-size must be divisible'):
+    with pytest.raises(ValueError, match='requires --batch-max-edges or --batch-max-nodes'):
         jax_evaluate.evaluate(args)

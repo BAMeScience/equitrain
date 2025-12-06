@@ -86,6 +86,12 @@ def _write_dataset(path: Path, structures: list[Atoms]) -> None:
         dataset.close()
 
 
+def _set_jax_batch_limits(args, nodes=2048, edges=8192):
+    args.batch_max_nodes = nodes
+    args.batch_max_edges = edges
+    return args
+
+
 def _create_jax_bundle(tmp_path: Path) -> Path:
     args = get_args_parser_train().parse_args([])
     mace_model_path = get_mace_model_path()
@@ -329,6 +335,7 @@ def test_train_torch_and_jax_match(tmp_path):
         args_jax.train_max_steps = 2
         args_jax.valid_max_steps = 1
         args_jax.batch_size = 1
+        _set_jax_batch_limits(args_jax)
         args_jax.lr = 5e-3
         args_jax.weight_decay = 0.0
         args_jax.energy_weight = 1.0
@@ -436,6 +443,7 @@ def test_jax_weighted_sampler_not_supported(tmp_path):
     args.output_dir = str(tmp_path / 'out_weighted_sampler')
     args.epochs = 1
     args.batch_size = 1
+    _set_jax_batch_limits(args)
     args.lr = 1e-3
     args.weighted_sampler = True
 
@@ -458,6 +466,7 @@ def test_jax_step_scheduler_updates_learning_rate(tmp_path):
     args.output_dir = str(tmp_path / 'out_step_scheduler')
     args.epochs = 2
     args.batch_size = 1
+    _set_jax_batch_limits(args)
     args.lr = 1e-3
     args.scheduler = 'step'
     args.gamma = 0.5
@@ -489,6 +498,7 @@ def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path):
     args.output_dir = str(tmp_path / 'out_plateau_scheduler')
     args.epochs = 2
     args.batch_size = 1
+    _set_jax_batch_limits(args)
     args.lr = 1e-3
     args.scheduler = 'plateau'
     args.plateau_factor = 0.5

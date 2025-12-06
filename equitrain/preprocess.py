@@ -222,7 +222,6 @@ def _preprocess(args):
             jax_z_table = AtomicNumberTable(list(statistics.atomic_numbers))
             jax_loader = get_dataloader(
                 data_file=filename_train,
-                batch_size=args.batch_size,
                 shuffle=False,
                 max_nodes=args.batch_max_nodes,
                 max_edges=args.batch_max_edges,

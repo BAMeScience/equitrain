@@ -62,17 +62,14 @@ def evaluate(args):
         )
     multi_device = _is_multi_device()
     device_count = jax.local_device_count() if multi_device else 1
-    if getattr(args, 'batch_size', None) is None or args.batch_size <= 0:
-        raise ValueError('JAX evaluation requires a positive --batch-size.')
-    total_batch_size = int(args.batch_size)
-    per_device_batch = total_batch_size
-    if multi_device and device_count > 1:
-        if total_batch_size % device_count != 0:
-            raise ValueError(
-                'For JAX multi-device evaluation, --batch-size must be divisible by '
-                'the number of local devices.'
-            )
-        per_device_batch = total_batch_size // device_count
+    args.batch_size = None
+    if getattr(args, 'batch_max_edges', None) is None and getattr(
+        args, 'batch_max_nodes', None
+    ) is None:
+        raise ValueError(
+            'JAX evaluation requires --batch-max-edges or --batch-max-nodes to limit '
+            'greedy graph packing.'
+        )
 
     base_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)
     if base_workers > 0 and supports_multiprocessing_workers():
@@ -91,7 +88,6 @@ def evaluate(args):
         data_file=test_file,
         atomic_numbers=z_table,
         r_max=r_max,
-        batch_size=per_device_batch,
         shuffle=False,
         max_nodes=args.batch_max_nodes,
         max_edges=args.batch_max_edges,
@@ -99,7 +95,7 @@ def evaluate(args):
         niggli_reduce=getattr(args, 'niggli_reduce', False),
         prefetch_batches=prefetch_batches,
         num_workers=effective_workers,
-        graph_multiple=1,
+        graph_multiple=device_count if multi_device else 1,
     )
 
     if test_loader is None:

@@ -104,7 +104,8 @@ def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logge
     if len(first_chunk) < device_count:
         raise RuntimeError(
             f'[{phase}] Need at least {device_count} micro-batches to utilize all '
-            'available devices. Reduce --batch-size or the device count.'
+            'available devices. Increase --batch-max-edges/--batch-max-nodes or '
+            'reduce the device count.'
         )
 
     def _warn(count, expected):
@@ -503,17 +504,14 @@ def train(args):
     multi_device = _is_multi_device()
     device_count = jax.local_device_count() if multi_device else 1
 
-    if getattr(args, 'batch_size', None) is None or args.batch_size <= 0:
-        raise ValueError('JAX backend requires a positive --batch-size.')
-    total_batch_size = int(args.batch_size)
-    per_device_batch = total_batch_size
-    if multi_device and device_count > 1:
-        if total_batch_size % device_count != 0:
-            raise ValueError(
-                'For JAX multi-device training, --batch-size must be divisible by '
-                'the number of local devices.'
-            )
-        per_device_batch = total_batch_size // device_count
+    args.batch_size = None
+    if getattr(args, 'batch_max_edges', None) is None and getattr(
+        args, 'batch_max_nodes', None
+    ) is None:
+        raise ValueError(
+            'JAX backend requires --batch-max-edges or --batch-max-nodes to limit '
+            'greedy graph packing.'
+        )
 
     base_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)
     if base_workers > 0 and supports_multiprocessing_workers():
@@ -535,7 +533,6 @@ def train(args):
             data_file=path,
             atomic_numbers=z_table,
             r_max=r_max,
-            batch_size=per_device_batch,
             shuffle=shuffle,
             max_nodes=args.batch_max_nodes,
             max_edges=args.batch_max_edges,
@@ -544,7 +541,7 @@ def train(args):
             niggli_reduce=reduce_cells,
             prefetch_batches=prefetch_batches,
             num_workers=effective_workers,
-            graph_multiple=1,
+            graph_multiple=device_count if multi_device else 1,
         )
 
     train_loader = _build_streaming_loader(args.train_file, shuffle=args.shuffle)
