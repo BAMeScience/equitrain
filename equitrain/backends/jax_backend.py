@@ -564,9 +564,10 @@ def train(args):
     device_count = jax.local_device_count() if multi_device else 1
 
     args.batch_size = None
-    if getattr(args, 'batch_max_edges', None) is None and getattr(
-        args, 'batch_max_nodes', None
-    ) is None:
+    if (
+        getattr(args, 'batch_max_edges', None) is None
+        and getattr(args, 'batch_max_nodes', None) is None
+    ):
         raise ValueError(
             'JAX backend requires --batch-max-edges or --batch-max-nodes to limit '
             'greedy graph packing.'
