@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import itertools
+import math
 import time
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
@@ -110,19 +112,71 @@ def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logge
 
     def _warn(count, expected):
         message = (
-            f'[{phase}] Dropping incomplete multi-device chunk ({count}/{expected}).'
+            f'[{phase}] Padding incomplete multi-device chunk ({count}/{expected}).'
         )
         if logger is not None:
             logger.log(1, message)
         else:
             print(message)
 
+    def _empty_graph_like(graph):
+        nodes = graph.nodes.__class__()
+        for key, value in graph.nodes.items():
+            nodes[key] = np.zeros_like(value)
+
+        edges = graph.edges.__class__()
+        for key, value in graph.edges.items():
+            edges[key] = np.zeros_like(value)
+
+        globals_attr = graph.globals
+        if globals_attr is None:
+            globals_dict = None
+        elif hasattr(globals_attr, 'items'):
+            globals_dict = globals_attr.__class__()
+            for key, value in globals_attr.items():
+                globals_dict[key] = np.zeros_like(value)
+        else:
+            globals_dict = np.zeros_like(globals_attr)
+
+        return graph._replace(
+            nodes=nodes,
+            edges=edges,
+            senders=np.zeros_like(graph.senders),
+            receivers=np.zeros_like(graph.receivers),
+            globals=globals_dict,
+            n_node=np.zeros_like(graph.n_node),
+            n_edge=np.zeros_like(graph.n_edge),
+        )
+
+    template_graph = next((g for g in first_chunk if g is not None), None)
+
+    def _pad_chunk(chunk):
+        filtered = [g for g in chunk if g is not None]
+        if len(filtered) >= device_count:
+            return filtered
+        if not filtered:
+            return filtered
+        _warn(len(filtered), device_count)
+        if template_graph is None:
+            raise RuntimeError(
+                f'[{phase}] Unable to build padding graphs without a template batch.'
+            )
+        padded = list(filtered)
+        for _ in range(device_count - len(filtered)):
+            padded.append(_empty_graph_like(template_graph))
+        return padded
+
+    first_chunk = _pad_chunk(first_chunk)
+
     remainder = batched_iterator(
         micro_iter,
         device_count,
-        remainder_action=_warn,
+        remainder_action=None,
+        drop_remainder=False,
     )
-    return itertools.chain([first_chunk], remainder)
+    return itertools.chain(
+        [first_chunk], (_pad_chunk(chunk) for chunk in remainder if chunk)
+    )
 
 
 def _build_train_functions(
@@ -242,7 +296,7 @@ def _run_train_epoch(
     if hasattr(train_loader, '__len__'):
         approx_batches = len(train_loader)
         if use_chunked_multi and approx_batches is not None:
-            total_steps = approx_batches // device_count
+            total_steps = (approx_batches + device_count - 1) // device_count
         else:
             total_steps = approx_batches
     if max_steps is not None:

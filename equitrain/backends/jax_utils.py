@@ -322,8 +322,13 @@ def batched_iterator(
     size: int,
     *,
     remainder_action: callable | None = None,
+    drop_remainder: bool = True,
 ):
-    """Yield fixed-size chunks from ``iterator``, dropping incomplete tails."""
+    """Yield fixed-size chunks from ``iterator``.
+
+    If ``drop_remainder`` is False, the final partial chunk (if any) is yielded
+    after ``remainder_action`` is invoked.
+    """
     if size <= 0:
         raise ValueError('Chunk size must be positive.')
     while True:
@@ -331,6 +336,8 @@ def batched_iterator(
         if len(chunk) < size:
             if chunk and remainder_action is not None:
                 remainder_action(len(chunk), size)
+            if chunk and not drop_remainder:
+                yield chunk
             break
         yield chunk
 
