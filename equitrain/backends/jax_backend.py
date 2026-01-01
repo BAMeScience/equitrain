@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import itertools
-import math
 import time
 from pathlib import Path
 
@@ -566,8 +565,7 @@ def train(args):
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
-            'JAX backend requires --batch-max-edges to limit '
-            'greedy graph packing.'
+            'JAX backend requires --batch-max-edges to limit greedy graph packing.'
         )
     args.batch_max_nodes = None
 

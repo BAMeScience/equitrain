@@ -78,8 +78,7 @@ def predict(args):
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
-            'JAX prediction requires --batch-max-edges to limit '
-            'greedy graph packing.'
+            'JAX prediction requires --batch-max-edges to limit greedy graph packing.'
         )
     args.batch_max_nodes = None
     requested_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)

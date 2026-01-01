@@ -65,8 +65,7 @@ def evaluate(args):
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
-            'JAX evaluation requires --batch-max-edges to limit '
-            'greedy graph packing.'
+            'JAX evaluation requires --batch-max-edges to limit greedy graph packing.'
         )
     args.batch_max_nodes = None
 
