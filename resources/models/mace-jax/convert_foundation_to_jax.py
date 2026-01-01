@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from flax import serialization
 from mace.tools.scripts_utils import extract_config_mace_model
-from mace_jax.cli import mace_torch2jax
+from mace_jax.cli import mace_jax_from_torch
 
 # Torch 2.6 tightened the default pickling policy. The foundation checkpoints
 # use a ``slice`` object, so we allowlist it explicitly.
@@ -91,14 +91,14 @@ def convert_foundation_model(
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    torch_model = mace_torch2jax._load_torch_model_from_foundations(source, model)
+    torch_model = mace_jax_from_torch._load_torch_model_from_foundations(source, model)
     torch_model = torch_model.float().eval()
 
     config = extract_config_mace_model(torch_model)
     config['model_wrapper'] = 'mace'
     config['torch_model_class'] = torch_model.__class__.__name__
 
-    _, jax_params, _ = mace_torch2jax.convert_model(torch_model, config)
+    _, jax_params, _ = mace_jax_from_torch.convert_model(torch_model, config)
 
     params_path = output_dir / 'params.msgpack'
     params_path.write_bytes(serialization.to_bytes(jax_params))

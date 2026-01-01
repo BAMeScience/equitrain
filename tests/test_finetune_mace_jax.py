@@ -28,7 +28,7 @@ from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
-from mace_jax.cli import mace_torch2jax  # noqa: E402
+from mace_jax.cli import mace_jax_from_torch  # noqa: E402
 from torch.serialization import add_safe_globals  # noqa: E402
 
 from equitrain import get_args_parser_train
@@ -211,9 +211,9 @@ def _patch_jax_loader_for_deltas():
 
         jax_utils_module.set_jax_dtype(dtype)
 
-        base_module = mace_torch2jax._build_jax_model(config_for_build)
+        base_module = mace_jax_from_torch._build_jax_model(config_for_build)
         wrapped_module = wrap_with_deltas(base_module)
-        template = mace_torch2jax._prepare_template_data(config_for_build)
+        template = mace_jax_from_torch._prepare_template_data(config_for_build)
         params_bytes = Path(params_path).read_bytes()
 
         variables_template = wrapped_module.init(jax.random.PRNGKey(0), template)
@@ -361,7 +361,7 @@ def _export_jax_model(
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / DEFAULT_CONFIG_NAME).write_text(json.dumps(_sanitize_config(config)))
 
-    jax_module, jax_params, _ = mace_torch2jax.convert_model(torch_model, config)
+    jax_module, jax_params, _ = mace_jax_from_torch.convert_model(torch_model, config)
     (target_dir / DEFAULT_PARAMS_NAME).write_bytes(serialization.to_bytes(jax_params))
     return jax_module, jax_params
 
@@ -376,7 +376,7 @@ def _convert_torch_model_to_jax_params(
         float(x) for x in torch_model.atomic_energies_fn.atomic_energies.detach().cpu()
     ]
     config['r_max'] = float(torch_model.r_max.item())
-    _, params, _ = mace_torch2jax.convert_model(torch_model, config)
+    _, params, _ = mace_jax_from_torch.convert_model(torch_model, config)
     params_tree = flax_core.unfreeze(params.get('params', {}))
 
     if base_params is not None:

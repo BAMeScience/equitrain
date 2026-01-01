@@ -76,14 +76,12 @@ def predict(args):
     multi_device = _is_multi_device()
     device_count = jax.local_device_count() if multi_device else 1
     args.batch_size = None
-    if (
-        getattr(args, 'batch_max_edges', None) is None
-        and getattr(args, 'batch_max_nodes', None) is None
-    ):
+    if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
-            'JAX prediction requires --batch-max-edges or --batch-max-nodes to limit '
+            'JAX prediction requires --batch-max-edges to limit '
             'greedy graph packing.'
         )
+    args.batch_max_nodes = None
     requested_workers = max(int(getattr(args, 'num_workers', 0) or 0), 0)
     if requested_workers > 0 and supports_multiprocessing_workers():
         effective_workers = requested_workers
@@ -102,7 +100,7 @@ def predict(args):
         atomic_numbers=z_table,
         r_max=r_max,
         shuffle=False,
-        max_nodes=args.batch_max_nodes,
+        max_nodes=None,
         max_edges=args.batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
         niggli_reduce=getattr(args, 'niggli_reduce', False),

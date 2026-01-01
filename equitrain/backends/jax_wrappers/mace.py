@@ -85,12 +85,12 @@ class MaceWrapper:
     def r_max(self, value: float):
         self.config['r_max'] = float(value)
         try:
-            from mace_jax.cli import mace_torch2jax
+            from mace_jax.cli import mace_jax_from_torch
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
                 'mace_jax is required to modify the cutoff radius for JAX models.'
             ) from exc
-        self.module = mace_torch2jax._build_jax_model(self.config)
+        self.module = mace_jax_from_torch._build_jax_model(self.config)
 
     def with_compute_flags(
         self, *, force: bool | None = None, stress: bool | None = None
@@ -111,14 +111,14 @@ def build_module(config: dict[str, Any]):
     """
 
     try:
-        from mace_jax.cli import mace_torch2jax
+        from mace_jax.cli import mace_jax_from_torch
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError(
             'mace_jax is required to load MACE models for the JAX backend.'
         ) from exc
 
-    module = mace_torch2jax._build_jax_model(config)
-    template = mace_torch2jax._prepare_template_data(config)
+    module = mace_jax_from_torch._build_jax_model(config)
+    template = mace_jax_from_torch._prepare_template_data(config)
     return module, template
 
 

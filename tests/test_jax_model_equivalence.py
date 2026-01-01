@@ -15,7 +15,7 @@ from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
-from mace_jax.cli import mace_torch2jax  # noqa: E402
+from mace_jax.cli import mace_jax_from_torch  # noqa: E402
 
 from equitrain.utility_test.mace_support import (  # noqa: E402
     build_statistics,
@@ -93,7 +93,7 @@ def test_small_mace_conversion_matches():
     config['atomic_energies'] = statistics['atomic_energies']
     config['atomic_numbers'] = statistics['atomic_numbers'].zs
 
-    jax_model, jax_variables, _ = mace_torch2jax.convert_model(torch_model, config)
+    jax_model, jax_variables, _ = mace_jax_from_torch.convert_model(torch_model, config)
     batch_jax = _batch_to_jax(batch)
     jax_output = jax_model.apply(jax_variables, batch_jax, compute_stress=True)
 

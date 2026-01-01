@@ -1,54 +1,195 @@
+"""Streaming HDF5 data loader for Equitrain datasets.
+
+This loader is designed for JAX/XLA training where the model is compiled per
+input shape. We therefore prefer fixed-size (padded) batches so that the model
+compiles once and is reused across epochs, avoiding recompilation stalls and
+shape-driven performance regressions. The streaming pipeline scans datasets,
+packs graphs into batches that respect `n_node`/`n_edge` caps, and pads each
+batch to consistent sizes to keep shapes stable.
+"""
+
 from __future__ import annotations
 
+import logging
 import multiprocessing as mp
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
-from queue import Queue
+from queue import Empty
 
 import jraph
 import numpy as np
 
-from equitrain.data.backend_jax.atoms_to_graphs import (
-    AtomsToGraphs,
-    graph_from_configuration,
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_jax.atoms_to_graphs import AtomsToGraphs
+from equitrain.data.configuration import niggli_reduce_inplace
+from equitrain.data.format_hdf5 import HDF5Dataset
+
+from .loaders_impl_cache import (
+    load_cached_streaming_stats,
+    spec_fingerprint,
+    stats_payload_from_parts,
+    stats_payload_to_parts,
+    store_cached_streaming_stats,
 )
-from equitrain.data.configuration import Configuration, niggli_reduce_inplace
-from equitrain.data.format_hdf5.dataset import HDF5Dataset
 
 _RESULT_DATA = 'data'
 _RESULT_DONE = 'done'
 _RESULT_ERROR = 'error'
+_RESULT_SKIP = 'skip'
+_TASK_BATCH = 'batch'
+_CONVERTER_CACHE: dict[tuple[float, tuple[int, ...]], AtomsToGraphs] = {}
+
+
+class BatchIteratorWrapper:
+    """Wrap an iterator and expose a total_batches_hint attribute."""
+
+    def __init__(self, iterator, total_batches_hint: int):
+        """Initialize the wrapper with a source iterator and batch hint."""
+        self._iterator = iterator
+        self.total_batches_hint = int(total_batches_hint or 0)
+
+    def __iter__(self):
+        """Return self as an iterator."""
+        return self
+
+    def __next__(self):
+        """Yield the next batch from the wrapped iterator."""
+        return next(self._iterator)
+
+
+@dataclass(frozen=True)
+class StreamingDatasetSpec:
+    """Configuration describing one HDF5 dataset stream."""
+
+    path: Path
+    energy_key: str = 'energy'
+    forces_key: str = 'forces'
+    stress_key: str = 'stress'
+    virials_key: str = 'virials'
+    dipole_key: str = 'dipole'
+    charges_key: str = 'charges'
+
+
+@dataclass(frozen=True)
+class _StreamingStats:
+    """Cached batch assignment summary for a single HDF5 dataset."""
+
+    batch_assignments: list[list[int]]
+    n_nodes: int
+    n_edges: int
+    n_graphs: int
+
+
+def _niggli_reduce_inplace(atoms):
+    """Apply Niggli reduction to ASE atoms if periodic and available.
+
+    Args:
+        atoms: ASE Atoms-like object.
+
+    Returns:
+        The same atoms instance (possibly modified in-place).
+    """
+    try:
+        niggli_reduce_inplace(atoms)
+    except Exception:  # pragma: no cover - best-effort helper
+        return atoms
+    return atoms
 
 
 def _graph_worker_main(
     worker_id: int,
     dataset_paths: list[Path],
+    dataset_specs: list[StreamingDatasetSpec],
     cutoff: float,
-    z_table,
+    z_table: AtomicNumberTable,
     niggli_reduce: bool,
     task_queue,
     result_queue,
     stop_event,
 ):
-    """Process worker fetching HDF5 structures and converting to graphs."""
+    """Worker process entry point to convert dataset samples into graphs."""
     local_datasets: dict[int, HDF5Dataset] = {}
     try:
         while not stop_event.is_set():
             task = task_queue.get()
             if task is None:
                 break
-            seq_id, ds_idx, sample_idx = task
+            filter_weight = True
+            if isinstance(task, tuple) and task and task[0] == _TASK_BATCH:
+                (
+                    _,
+                    seq_id,
+                    ds_idx,
+                    batch_indices,
+                    filter_weight,
+                    pad_graphs,
+                    n_node,
+                    n_edge,
+                ) = task
+                dataset = local_datasets.get(ds_idx)
+                if dataset is None:
+                    dataset = HDF5Dataset(dataset_paths[ds_idx], mode='r')
+                    local_datasets[ds_idx] = dataset
+                spec = dataset_specs[ds_idx]
+                graphs: list[jraph.GraphsTuple] = []
+                for sample_idx in batch_indices:
+                    atoms = dataset[int(sample_idx)]
+                    graph = _atoms_to_graph(
+                        atoms=atoms,
+                        spec=spec,
+                        cutoff=cutoff,
+                        z_table=z_table,
+                        niggli_reduce=niggli_reduce,
+                    )
+                    if filter_weight and not _has_positive_weight(graph):
+                        continue
+                    graphs.append(graph)
+                if not graphs:
+                    result_queue.put((_RESULT_SKIP, seq_id, None))
+                    continue
+                graph_count = len(graphs)
+                local_pad_graphs = pad_graphs
+                if local_pad_graphs is None:
+                    local_pad_graphs = max(len(graphs) + 1, 2)
+                batched = jraph.batch_np(graphs)
+                result_queue.put(
+                    (
+                        _RESULT_DATA,
+                        seq_id,
+                        (
+                            jraph.pad_with_graphs(
+                                batched,
+                                n_node=int(n_node),
+                                n_edge=int(n_edge),
+                                n_graph=int(local_pad_graphs),
+                            ),
+                            graph_count,
+                        ),
+                    )
+                )
+                continue
+            if isinstance(task, tuple) and len(task) == 4:
+                seq_id, ds_idx, sample_idx, filter_weight = task
+            else:
+                seq_id, ds_idx, sample_idx = task
             dataset = local_datasets.get(ds_idx)
             if dataset is None:
                 dataset = HDF5Dataset(dataset_paths[ds_idx], mode='r')
                 local_datasets[ds_idx] = dataset
+            spec = dataset_specs[ds_idx]
             atoms = dataset[sample_idx]
-            if niggli_reduce:
-                atoms = atoms.copy()
-                niggli_reduce_inplace(atoms)
-            conf = Configuration.from_atoms(atoms)
-            graph = graph_from_configuration(conf, cutoff=cutoff, z_table=z_table)
+            graph = _atoms_to_graph(
+                atoms=atoms,
+                spec=spec,
+                cutoff=cutoff,
+                z_table=z_table,
+                niggli_reduce=niggli_reduce,
+            )
+            if filter_weight and not _has_positive_weight(graph):
+                result_queue.put((_RESULT_SKIP, seq_id, None))
+                continue
             result_queue.put((_RESULT_DATA, seq_id, graph))
     except Exception as exc:  # pragma: no cover - worker crashes are unexpected
         stop_event.set()
@@ -59,442 +200,1109 @@ def _graph_worker_main(
         result_queue.put((_RESULT_DONE, worker_id, None))
 
 
-class GraphDataLoader:
-    """Streaming graph data loader compatible with JAX/Flax training loops."""
+def _atoms_to_graph(
+    *,
+    atoms,
+    spec: StreamingDatasetSpec,
+    cutoff: float,
+    z_table: AtomicNumberTable,
+    niggli_reduce: bool,
+):
+    """Convert an ASE atoms object into a jraph GraphsTuple.
+
+    Args:
+        atoms: ASE atoms to convert.
+        spec: Dataset-specific configuration and weighting.
+        cutoff: Interaction cutoff radius.
+        z_table: Atomic number table for encoding species.
+        niggli_reduce: Whether to apply Niggli reduction before conversion.
+
+    Returns:
+        GraphsTuple representation of the configuration.
+    """
+    cache_key = (float(cutoff), tuple(int(z) for z in z_table))
+    converter = _CONVERTER_CACHE.get(cache_key)
+    if converter is None:
+        converter = AtomsToGraphs(
+            atomic_numbers=list(z_table),
+            r_max=float(cutoff),
+            niggli_reduce=False,
+        )
+        _CONVERTER_CACHE[cache_key] = converter
+    if niggli_reduce:
+        atoms = atoms.copy()
+        _niggli_reduce_inplace(atoms)
+    return converter.convert(atoms)
+
+
+def _has_positive_weight(graph: jraph.GraphsTuple) -> bool:
+    """Return True if graph weight is positive or missing."""
+    return True
+
+
+def _estimate_caps_from_assignments(
+    *,
+    datasets: Sequence[HDF5Dataset],
+    dataset_specs: Sequence[StreamingDatasetSpec],
+    z_table: AtomicNumberTable,
+    r_max: float,
+    niggli_reduce: bool,
+    batch_assignments: Sequence[Sequence[Sequence[int]]],
+) -> tuple[int, int, int]:
+    """Estimate padding caps by scanning graphs referenced by assignments."""
+    max_nodes_per_batch = 1
+    max_edges_per_batch = 0
+    max_graphs_per_batch = 1
+    for ds_idx, ds_batches in enumerate(batch_assignments):
+        if not ds_batches:
+            continue
+        max_graphs_per_batch = max(
+            max_graphs_per_batch, *(len(batch) for batch in ds_batches)
+        )
+        indices = {int(idx) for batch in ds_batches for idx in batch}
+        if not indices:
+            continue
+        dataset = datasets[ds_idx]
+        spec = dataset_specs[ds_idx]
+        sizes: dict[int, tuple[int, int]] = {}
+        for idx in indices:
+            atoms = dataset[idx]
+            graph = _atoms_to_graph(
+                atoms=atoms,
+                spec=spec,
+                cutoff=r_max,
+                z_table=z_table,
+                niggli_reduce=niggli_reduce,
+            )
+            sizes[idx] = (int(graph.n_node.sum()), int(graph.n_edge.sum()))
+        for batch in ds_batches:
+            if not batch:
+                continue
+            nodes_sum = 0
+            edges_sum = 0
+            for idx in batch:
+                nodes, edges = sizes[int(idx)]
+                nodes_sum += nodes
+                edges_sum += edges
+            max_nodes_per_batch = max(max_nodes_per_batch, nodes_sum)
+            max_edges_per_batch = max(max_edges_per_batch, edges_sum)
+    n_nodes = max(max_nodes_per_batch + 1, 2)
+    n_edges = max(max_edges_per_batch, 1)
+    n_graphs = max(max_graphs_per_batch + 1, 2)
+    return n_nodes, n_edges, n_graphs
+
+
+def _pack_streaming_batches(
+    graph_sizes: list[tuple[int, int, int]],
+    edge_cap: int,
+    node_cap: int | None = None,
+) -> list[list[int]]:
+    """Pack graphs into batches under an edge (and optional node) budget."""
+    if not graph_sizes:
+        return []
+    order = sorted(graph_sizes, key=lambda item: item[2], reverse=True)
+    batches: list[dict[str, object]] = []
+    for graph_idx, nodes, edges in order:
+        placed = False
+        for batch in batches:
+            edge_sum = batch['edge_sum']
+            node_sum = batch['node_sum']
+            if edge_sum + edges <= edge_cap and (
+                node_cap is None or node_sum + nodes <= node_cap
+            ):
+                batch['edge_sum'] = edge_sum + edges
+                batch['node_sum'] = node_sum + nodes
+                batch['graphs'].append(graph_idx)
+                placed = True
+                break
+        if not placed:
+            batches.append(
+                {
+                    'edge_sum': edges,
+                    'node_sum': nodes,
+                    'graphs': [graph_idx],
+                }
+            )
+    return [batch['graphs'] for batch in batches]
+
+
+def _compute_streaming_stats(
+    dataset_path: Path,
+    *,
+    spec: StreamingDatasetSpec,
+    z_table: AtomicNumberTable,
+    r_max: float,
+    edge_cap: int | None,
+    niggli_reduce: bool,
+) -> _StreamingStats:
+    """Scan a dataset to compute batch assignments and padding caps."""
+    dataset = HDF5Dataset(dataset_path, mode='r')
+    graph_sizes: list[tuple[int, int, int]] = []
+    max_graph_edges = 0
+    max_graph_nodes = 0
+    try:
+        for idx in range(len(dataset)):
+            graph = _atoms_to_graph(
+                atoms=dataset[idx],
+                spec=spec,
+                cutoff=r_max,
+                z_table=z_table,
+                niggli_reduce=niggli_reduce,
+            )
+            if not _has_positive_weight(graph):
+                continue
+            g_nodes = int(graph.n_node.sum())
+            g_edges = int(graph.n_edge.sum())
+            max_graph_edges = max(max_graph_edges, g_edges)
+            max_graph_nodes = max(max_graph_nodes, g_nodes)
+            graph_sizes.append((idx, g_nodes, g_edges))
+    finally:
+        dataset.close()
+
+    if not graph_sizes:
+        raise ValueError(f"No graphs found in '{dataset_path}'.")
+
+    if edge_cap is None or edge_cap <= 0:
+        edge_cap = max_graph_edges
+    if max_graph_edges > edge_cap:
+        logging.warning(
+            'Requested max edges per batch (%s) is below the largest graph (%s) '
+            'in %s. Raising the limit to fit.',
+            edge_cap,
+            max_graph_edges,
+            dataset_path.name,
+        )
+        edge_cap = max_graph_edges
+
+    batch_assignments = _pack_streaming_batches(graph_sizes, edge_cap)
+    nodes_by_index = {idx: nodes for idx, nodes, _ in graph_sizes}
+    node_sums = [sum(nodes_by_index[i] for i in batch) for batch in batch_assignments]
+    if node_sums:
+        node_target = int(np.ceil(np.percentile(node_sums, 80)))
+    else:
+        node_target = max_graph_nodes
+    if node_target < max_graph_nodes:
+        logging.warning(
+            'Typical node target (%s) is below the largest graph (%s) in %s. '
+            'Raising to fit.',
+            node_target,
+            max_graph_nodes,
+            dataset_path.name,
+        )
+        node_target = max_graph_nodes
+    if node_sums:
+        max_nodes_per_batch = max(node_sums)
+        if node_target < max_nodes_per_batch:
+            batch_assignments = _pack_streaming_batches(
+                graph_sizes, edge_cap, node_target
+            )
+
+    max_nodes_per_batch = 0
+    max_graphs_per_batch = 0
+    for batch in batch_assignments:
+        nodes_sum = sum(nodes_by_index[i] for i in batch)
+        max_nodes_per_batch = max(max_nodes_per_batch, nodes_sum)
+        max_graphs_per_batch = max(max_graphs_per_batch, len(batch))
+    n_nodes = max(max_nodes_per_batch + 1, 2)
+    n_graphs = max(max_graphs_per_batch + 1, 2)
+    return _StreamingStats(
+        batch_assignments=batch_assignments,
+        n_nodes=n_nodes,
+        n_edges=int(edge_cap),
+        n_graphs=n_graphs,
+    )
+
+
+def _load_or_compute_streaming_stats(
+    spec: StreamingDatasetSpec,
+    *,
+    r_max: float,
+    z_table: AtomicNumberTable,
+    edge_cap: int | None,
+    niggli_reduce: bool,
+) -> _StreamingStats:
+    """Fetch streaming stats from cache or compute them if missing."""
+    dataset_path = Path(spec.path)
+    fingerprint = spec_fingerprint(
+        spec,
+        r_max=r_max,
+        atomic_numbers=list(z_table),
+        edge_cap=edge_cap,
+    )
+    cached_payload = load_cached_streaming_stats(dataset_path, fingerprint)
+    if cached_payload is not None:
+        batch_assignments, n_nodes, n_edges, n_graphs = stats_payload_to_parts(
+            cached_payload
+        )
+        return _StreamingStats(
+            batch_assignments=batch_assignments,
+            n_nodes=n_nodes,
+            n_edges=n_edges,
+            n_graphs=n_graphs,
+        )
+    stats = _compute_streaming_stats(
+        dataset_path,
+        spec=spec,
+        z_table=z_table,
+        r_max=r_max,
+        edge_cap=edge_cap,
+        niggli_reduce=niggli_reduce,
+    )
+    store_cached_streaming_stats(
+        dataset_path,
+        fingerprint,
+        stats_payload_from_parts(
+            stats.batch_assignments,
+            stats.n_nodes,
+            stats.n_edges,
+            stats.n_graphs,
+        ),
+    )
+    return stats
+
+
+class StreamingGraphDataLoader:
+    """Stream HDF5-backed graphs with precomputed assignments and prefetch hints.
+
+    The key goal is stable batch shapes: JAX compiles the model per input shape,
+    so changing `n_node`/`n_edge`/`n_graph` across batches can trigger repeated
+    recompilations. This loader precomputes or enforces padding caps so that
+    batches are uniform in shape, letting compilation happen once and keeping
+    throughput stable. It also supports multiprocessing conversion and optional
+    precomputed batch assignments to preserve order or enable batch-level
+    shuffling without re-packing every epoch.
+    """
 
     def __init__(
         self,
         *,
-        datasets: list[HDF5Dataset],
-        z_table=None,
-        r_max: float | None = None,
+        datasets: Sequence[HDF5Dataset],
+        dataset_specs: Sequence[StreamingDatasetSpec] | None = None,
+        z_table: AtomicNumberTable,
+        r_max: float,
         n_node: int | None,
         n_edge: int | None,
-        max_batches: int | None = None,
         shuffle: bool = False,
         seed: int | None = None,
         niggli_reduce: bool = False,
+        max_batches: int | None = None,
         prefetch_batches: int | None = None,
         num_workers: int | None = None,
+        batch_assignments: Sequence[Sequence[Sequence[int]]] | None = None,
+        pad_graphs: int | None = None,
         graph_multiple: int | None = None,
-    ) -> None:
-        """
-        h5_sources: list of HDF5Dataset instances or HDF5 file paths to stream.
+    ):
+        """Initialize the streaming loader.
+
+        Args:
+            datasets: Open HDF5Dataset objects to stream from.
+            dataset_specs: Per-dataset configuration overrides.
+            z_table: Atomic number table to map species to indices.
+            r_max: Cutoff radius used for graph construction.
+            n_node: Node padding cap (None triggers a scan).
+            n_edge: Edge padding cap (None triggers a scan).
+            shuffle: Whether to shuffle graphs or batches each epoch.
+            seed: Seed for reproducible shuffling.
+            niggli_reduce: Whether to apply Niggli reduction to periodic cells.
+            max_batches: Optional cap on batches yielded per epoch.
+            prefetch_batches: Prefetch depth hint for downstream training/eval loops.
+            num_workers: Number of multiprocessing workers to use for conversion.
+            batch_assignments: Optional precomputed batch index assignments.
+            pad_graphs: Optional fixed number of graphs per padded batch.
+            graph_multiple: Optional multiple to pad graph counts up to.
+
+        The loader uses precomputed batch assignments (from streaming stats)
+        and pads to fixed caps so downstream JAX compilation sees stable tensor
+        shapes.
         """
         if not datasets:
-            raise ValueError('At least one HDF5 dataset must be provided.')
-        if z_table is None or r_max is None:
-            raise ValueError('z_table and r_max required when streaming from HDF5.')
-
-        self._max_batches = max_batches
-        self._shuffle = shuffle
-        self._seed = seed
-        self._niggli_reduce = bool(niggli_reduce)
-        self._prefetch_batches = int(prefetch_batches or 0)
-        self._num_workers = max(int(num_workers or 0), 0)
-        self._graph_multiple = max(int(graph_multiple or 1), 1)
-        self._pack_info: dict | None = None
-
+            raise ValueError('Expected at least one dataset.')
         self._datasets = list(datasets)
-        est_nodes = est_edges = None
-        if n_node is None or n_edge is None:
-            est_nodes, est_edges = _estimate_caps(self._datasets, z_table, r_max)
-        if n_node is None:
-            if n_edge is not None:
-                n_node = int(n_edge)
-            else:
-                n_node = est_nodes
-        if n_edge is None:
-            n_edge = est_edges
-
-        self._n_node = int(max(n_node or 0, 1))
-        self._n_edge = int(max(n_edge or 0, 1))
-        self._cutoff = float(r_max)
-        self._z_table = z_table
-        self._dataset_paths: list[Path] = []
+        base_paths: list[Path] = []
         for ds in self._datasets:
             ds_path = getattr(ds, '_filename', getattr(ds, 'filename', None))
             if ds_path is None:
                 raise ValueError('Unable to determine dataset path for worker loading.')
-            self._dataset_paths.append(Path(ds_path))
+            base_paths.append(Path(ds_path))
+        if dataset_specs is None:
+            dataset_specs = [StreamingDatasetSpec(path=path) for path in base_paths]
+        if len(dataset_specs) != len(self._datasets):
+            raise ValueError(
+                'dataset_specs must match datasets length '
+                f'({len(dataset_specs)} vs {len(self._datasets)}).'
+            )
+        normalized_specs: list[StreamingDatasetSpec] = []
+        for spec in dataset_specs:
+            if isinstance(spec.path, Path):
+                normalized_specs.append(spec)
+            else:
+                normalized_specs.append(replace(spec, path=Path(spec.path)))
+        self._dataset_specs = normalized_specs
+        self._dataset_paths = [Path(spec.path) for spec in self._dataset_specs]
+        self._z_table = z_table
+        self._cutoff = float(r_max)
+        self._shuffle = bool(shuffle)
+        self._seed = None if seed is None else int(seed)
+        self._epoch = 0
+        self._niggli_reduce = bool(niggli_reduce)
+        self._max_batches = max_batches
+        prefetched = prefetch_batches
+        worker_count = int(num_workers or 0)
+        if prefetched is None:
+            prefetched = 2 * worker_count
+        self._prefetch_batches = max(int(prefetched or 0), 0)
+        self._num_workers = max(worker_count, 0)
+        self._graph_multiple = max(int(graph_multiple or 1), 1)
+        self._pack_info: dict | None = None
+        self._history: list[tuple[int, int]] = []
+        self._fixed_pad_nodes: int | None = None
+        self._fixed_pad_edges: int | None = None
+        self._fixed_pad_graphs: int | None = None
+        self._batch_assignments: list[list[list[int]]] | None = None
+        self._worker_ctx = None
+        self._worker_task_queue = None
+        self._worker_result_queue = None
+        self._worker_stop_event = None
+        self._worker_procs: list[mp.Process] | None = None
+        self._worker_lock = threading.Lock()
+        computed_stats: list[_StreamingStats] | None = None
+        if batch_assignments is not None:
+            self._batch_assignments = [
+                [list(batch) for batch in batches] for batches in batch_assignments
+            ]
+        else:
+            computed_stats = [
+                _load_or_compute_streaming_stats(
+                    spec,
+                    r_max=self._cutoff,
+                    z_table=self._z_table,
+                    edge_cap=n_edge,
+                    niggli_reduce=self._niggli_reduce,
+                )
+                for spec in self._dataset_specs
+            ]
+            self._batch_assignments = [
+                stats.batch_assignments for stats in computed_stats
+            ]
+        if pad_graphs is not None:
+            self._fixed_pad_graphs = int(pad_graphs)
+        # Attach optional metadata for downstream consumers.
+        self.graphs = getattr(self, 'graphs', None)
+        self.streaming = True
+        self.total_graphs = getattr(self, 'total_graphs', None)
+        self.total_nodes = getattr(self, 'total_nodes', None)
+        self.total_edges = getattr(self, 'total_edges', None)
 
-        self._graph_iter_fn = self._graph_iterator
-        self._pending_info: dict | None = None
+        if computed_stats is not None:
+            stats_n_nodes = max(int(stats.n_nodes) for stats in computed_stats)
+            stats_n_edges = max(int(stats.n_edges) for stats in computed_stats)
+            stats_n_graphs = max(int(stats.n_graphs) for stats in computed_stats)
+            if n_node is None:
+                n_node = stats_n_nodes
+            else:
+                n_node = max(int(n_node), stats_n_nodes)
+            if n_edge is None:
+                n_edge = stats_n_edges
+            else:
+                n_edge = max(int(n_edge), stats_n_edges)
+            if self._fixed_pad_graphs is None:
+                self._fixed_pad_graphs = stats_n_graphs
+            self._fixed_pad_nodes = int(n_node)
+            self._fixed_pad_edges = int(n_edge)
+        elif self._batch_assignments is not None and (
+            n_node is None or n_edge is None or self._fixed_pad_graphs is None
+        ):
+            est_nodes, est_edges, est_graphs = _estimate_caps_from_assignments(
+                datasets=self._datasets,
+                dataset_specs=self._dataset_specs,
+                z_table=self._z_table,
+                r_max=self._cutoff,
+                niggli_reduce=self._niggli_reduce,
+                batch_assignments=self._batch_assignments,
+            )
+            if n_node is None:
+                n_node = est_nodes
+            else:
+                n_node = max(int(n_node), est_nodes)
+            if n_edge is None:
+                n_edge = est_edges
+            else:
+                n_edge = max(int(n_edge), est_edges)
+            if self._fixed_pad_graphs is None:
+                self._fixed_pad_graphs = est_graphs
+            self._fixed_pad_nodes = int(n_node)
+            self._fixed_pad_edges = int(n_edge)
+        if self._fixed_pad_graphs is not None and self._graph_multiple > 1:
+            self._fixed_pad_graphs = int(
+                (
+                    (self._fixed_pad_graphs + self._graph_multiple - 1)
+                    // self._graph_multiple
+                )
+                * self._graph_multiple
+            )
+        if n_node is None or n_edge is None:
+            raise ValueError('Failed to determine n_node and n_edge limits.')
+        self._n_node = int(max(n_node, 1))
+        self._n_edge = int(max(n_edge, 1))
+        if self._batch_assignments is not None:
+            total_batches = sum(len(batches) for batches in self._batch_assignments)
+            self._pack_info = {'total_batches': total_batches}
 
-    def _pack(self):
-        batches, info = pack_graphs_greedy(
-            graph_iter_fn=self._graph_iter_fn,
-            max_edges_per_batch=self._n_edge,
-            max_nodes_per_batch=self._n_node,
-            graph_multiple=self._graph_multiple,
+    @property
+    def epoch_history(self) -> list[tuple[int, int]]:
+        """List of (graphs, batches) pairs recorded per epoch."""
+        return list(self._history)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Set the current epoch for deterministic shuffling."""
+        self._epoch = int(epoch)
+
+    def _effective_seed(self, override: int | None) -> int | None:
+        """Compute the epoch-specific seed using optional overrides."""
+        base = self._seed if override is None else override
+        if base is None:
+            return None
+        return int(base) + int(self._epoch)
+
+    def _convert_atoms_to_graph(self, atoms, spec: StreamingDatasetSpec):
+        """Convert a raw atoms object into a graph using dataset spec settings."""
+        return _atoms_to_graph(
+            atoms=atoms,
+            spec=spec,
+            cutoff=self._cutoff,
+            z_table=self._z_table,
+            niggli_reduce=self._niggli_reduce,
         )
-        self._pack_info = info
-        return batches, info
 
-    def _convert_atoms_to_graph(self, atoms):
-        if self._niggli_reduce:
-            atoms = atoms.copy()
-            niggli_reduce_inplace(atoms)
-        conf = Configuration.from_atoms(atoms)
-        return graph_from_configuration(
-            conf, cutoff=self._cutoff, z_table=self._z_table
+    def _iter_graphs_single_from_tasks(self, task_iter: Iterator[tuple]):
+        """Yield graphs for a provided task iterator (single-process)."""
+        for task in task_iter:
+            if len(task) == 4:
+                _, ds_idx, sample_idx, filter_weight = task
+            else:
+                _, ds_idx, sample_idx = task
+                filter_weight = True
+            atoms = self._datasets[ds_idx][sample_idx]
+            spec = self._dataset_specs[ds_idx]
+            graph = self._convert_atoms_to_graph(atoms, spec)
+            if filter_weight and not _has_positive_weight(graph):
+                continue
+            yield graph
+
+    def _iter_graphs_parallel_from_tasks(self, task_iter: Iterator[tuple]):
+        """Yield graphs from tasks using multiprocessing workers."""
+        return self._run_task_stream(
+            task_iter,
+            ordered=True,
+            allow_skip=False,
+            expect_all=True,
         )
 
-    def _task_iterator(self):
-        rng = np.random.default_rng(self._seed)
-        emitted = 0
-        dataset_indices = list(range(len(self._datasets)))
-        if self._shuffle and len(dataset_indices) > 1:
-            rng.shuffle(dataset_indices)
-        for ds_idx in dataset_indices:
-            ds = self._datasets[ds_idx]
-            indices = np.arange(len(ds))
-            if self._shuffle and len(indices) > 1:
-                rng.shuffle(indices)
-            for idx in indices:
-                seq_id = emitted
-                emitted += 1
-                yield (seq_id, ds_idx, int(idx))
-
-    def _iter_graphs_single(self):
-        rng = np.random.default_rng(self._seed)
-        sources = list(self._datasets)
-        if self._shuffle and len(sources) > 1:
-            rng.shuffle(sources)
-        for ds in sources:
-            indices = np.arange(len(ds))
-            if self._shuffle and len(indices) > 1:
-                rng.shuffle(indices)
-            for idx in indices:
-                atoms = ds[idx]
-                graph = self._convert_atoms_to_graph(atoms)
-                yield graph
-
-    def _iter_graphs_parallel(self):
+    def _ensure_worker_pool(self) -> None:
+        """Create worker processes and queues if needed."""
+        if self._num_workers <= 0 or self._worker_procs is not None:
+            return
         worker_count = max(self._num_workers, 1)
         ctx = mp.get_context('spawn')
-        task_queue = ctx.Queue(max(worker_count * 4, 1))
-        result_queue = ctx.Queue(max(worker_count * 4, 1))
-        stop_event = ctx.Event()
-
-        def _task_producer():
-            try:
-                for task in self._task_iterator():
-                    if stop_event.is_set():
-                        break
-                    task_queue.put(task)
-            finally:
-                for _ in range(worker_count):
-                    task_queue.put(None)
-
-        producer = threading.Thread(target=_task_producer, daemon=True)
-        producer.start()
-
-        processes = []
+        self._worker_ctx = ctx
+        self._worker_task_queue = ctx.Queue(max(worker_count * 4, 1))
+        self._worker_result_queue = ctx.Queue(max(worker_count * 4, 1))
+        self._worker_stop_event = ctx.Event()
+        processes: list[mp.Process] = []
         for worker_idx in range(worker_count):
             proc = ctx.Process(
                 target=_graph_worker_main,
                 args=(
                     worker_idx,
                     self._dataset_paths,
+                    self._dataset_specs,
                     self._cutoff,
                     self._z_table,
                     self._niggli_reduce,
-                    task_queue,
-                    result_queue,
-                    stop_event,
+                    self._worker_task_queue,
+                    self._worker_result_queue,
+                    self._worker_stop_event,
                 ),
             )
             proc.daemon = True
             proc.start()
             processes.append(proc)
+        self._worker_procs = processes
 
-        finished_workers = 0
-        next_seq = 0
-        pending: dict[int, jraph.GraphsTuple] = {}
-        try:
-            while finished_workers < worker_count:
-                tag, payload_a, payload_b = result_queue.get()
-                if tag == _RESULT_DONE:
-                    finished_workers += 1
-                    continue
-                if tag == _RESULT_ERROR:
-                    stop_event.set()
-                    for proc in processes:
-                        proc.join(timeout=1)
-                    raise RuntimeError(f'Graph worker {payload_a} failed: {payload_b}')
-                seq_id = payload_a
-                graph = payload_b
-                if seq_id == next_seq:
-                    yield graph
-                    next_seq += 1
-                    while next_seq in pending:
-                        yield pending.pop(next_seq)
-                        next_seq += 1
-                else:
-                    pending[seq_id] = graph
-        finally:
-            stop_event.set()
-            producer.join(timeout=1)
-            for proc in processes:
-                proc.join()
+    def _shutdown_workers(self) -> None:
+        """Terminate worker processes and release shared resources."""
+        if self._worker_procs is None:
+            return
+        worker_count = len(self._worker_procs)
+        if self._worker_stop_event is not None:
+            self._worker_stop_event.set()
+        if self._worker_task_queue is not None:
+            for _ in range(worker_count):
+                self._worker_task_queue.put(None)
+        for proc in self._worker_procs:
+            proc.join(timeout=1)
+        self._worker_ctx = None
+        self._worker_task_queue = None
+        self._worker_result_queue = None
+        self._worker_stop_event = None
+        self._worker_procs = None
 
-    def _graph_iterator(self):
-        if self._num_workers <= 1:
-            return self._iter_graphs_single()
-        return self._iter_graphs_parallel()
+    def _run_task_stream(
+        self,
+        task_iter: Iterator[tuple[int, int, int]],
+        *,
+        ordered: bool,
+        allow_skip: bool,
+        expect_all: bool,
+    ):
+        """Stream graphs from a task iterator, optionally in parallel.
 
-    def __iter__(self):
-        batches, _ = self._pack()
+        Args:
+            task_iter: Iterator yielding (seq_id, dataset_idx, sample_idx) tuples.
+            ordered: Whether to preserve task ordering in output graphs.
+            allow_skip: Whether workers may skip graphs (e.g., zero-weight).
+            expect_all: Whether to warn if fewer graphs than tasks are produced.
 
-        def _limited(iterable):
-            if self._max_batches is None:
-                yield from iterable
-                return
-            produced = 0
-            for item in iterable:
-                yield item
-                produced += 1
-                if produced >= self._max_batches:
-                    break
+        Returns:
+            Iterator over `jraph.GraphsTuple` items.
+        """
+        if self._num_workers <= 0:
+            return self._iter_graphs_single_from_tasks(task_iter)
+        self._ensure_worker_pool()
 
-        if self._prefetch_batches > 0:
-            queue: Queue = Queue(maxsize=self._prefetch_batches)
-            sentinel = object()
+        def _iter():
+            """Drive producer/consumer queues and yield graphs to callers."""
+            self._worker_lock.acquire()
+            worker_count = len(self._worker_procs or [])
+            task_queue = self._worker_task_queue
+            result_queue = self._worker_result_queue
+            stop_event = self._worker_stop_event
+            total_tasks = {'value': 0}
+            producer_done = threading.Event()
+            producer_exc: dict[str, Exception | None] = {'value': None}
 
             def _producer():
+                """Feed tasks into the worker queue."""
                 try:
-                    for item in _limited(batches):
-                        queue.put(item)
+                    for task in task_iter:
+                        if stop_event is not None and stop_event.is_set():
+                            break
+                        task_queue.put(task)
+                        total_tasks['value'] += 1
+                except Exception as exc:
+                    producer_exc['value'] = exc
+                    if stop_event is not None:
+                        stop_event.set()
                 finally:
-                    queue.put(sentinel)
+                    producer_done.set()
 
-            threading.Thread(target=_producer, daemon=True).start()
+            producer = threading.Thread(target=_producer, daemon=True)
+            producer.start()
 
-            while True:
-                item = queue.get()
-                if item is sentinel:
-                    break
-                yield item
-        else:
-            yield from _limited(batches)
+            finished_workers = 0
+            processed = 0
+            produced = 0
+            next_seq = 0
+            pending: dict[int, jraph.GraphsTuple] = {}
+            skipped: set[int] | None = set() if allow_skip and ordered else None
+
+            def _advance_pending():
+                """Emit buffered graphs in sequence order when available."""
+                nonlocal next_seq
+                while True:
+                    if skipped is not None and next_seq in skipped:
+                        skipped.remove(next_seq)
+                        next_seq += 1
+                        continue
+                    graph = pending.pop(next_seq, None)
+                    if graph is None:
+                        break
+                    yield graph
+                    next_seq += 1
+
+            def _check_worker_health():
+                """Detect and surface worker process failures."""
+                if self._worker_procs is None:
+                    return
+                for idx, proc in enumerate(self._worker_procs):
+                    if proc.is_alive():
+                        continue
+                    exit_code = proc.exitcode
+                    if exit_code is None:
+                        continue
+                    if stop_event is not None:
+                        stop_event.set()
+                    self._shutdown_workers()
+                    raise RuntimeError(
+                        f'Graph worker {idx} exited unexpectedly with code {exit_code}.'
+                    )
+
+            try:
+                while True:
+                    if producer_done.is_set() and processed >= total_tasks['value']:
+                        break
+                    if finished_workers >= worker_count:
+                        break
+                    try:
+                        tag, payload_a, payload_b = result_queue.get(timeout=1.0)
+                    except Empty:
+                        if producer_done.is_set() and processed >= total_tasks['value']:
+                            break
+                        if producer_exc['value'] is not None and producer_done.is_set():
+                            break
+                        _check_worker_health()
+                        continue
+                    if tag == _RESULT_DONE:
+                        finished_workers += 1
+                        continue
+                    if tag == _RESULT_ERROR:
+                        if stop_event is not None:
+                            stop_event.set()
+                        self._shutdown_workers()
+                        raise RuntimeError(
+                            f'Graph worker {payload_a} failed: {payload_b}'
+                        )
+                    seq_id = payload_a
+                    if tag == _RESULT_SKIP:
+                        if not allow_skip:
+                            raise RuntimeError(
+                                'Graph worker skipped a graph unexpectedly.'
+                            )
+                        processed += 1
+                        if not ordered:
+                            continue
+                        if seq_id == next_seq:
+                            next_seq += 1
+                            for graph in _advance_pending():
+                                yield graph
+                        else:
+                            if skipped is not None:
+                                skipped.add(seq_id)
+                        continue
+                    graph = payload_b
+                    processed += 1
+                    produced += 1
+                    if not ordered:
+                        yield graph
+                        continue
+                    if seq_id == next_seq:
+                        yield graph
+                        next_seq += 1
+                        yield from _advance_pending()
+                    else:
+                        pending[seq_id] = graph
+                if producer_exc['value'] is not None:
+                    raise RuntimeError('Task iterator failed.') from producer_exc[
+                        'value'
+                    ]
+                if expect_all and producer_done.is_set():
+                    expected = total_tasks['value']
+                    if produced < expected:
+                        logging.warning(
+                            'Assignment stream produced fewer graphs than expected '
+                            '(%s/%s).',
+                            produced,
+                            expected,
+                        )
+                if ordered and producer_done.is_set():
+                    final_total = total_tasks['value']
+                    while next_seq < final_total:
+                        if skipped is not None and next_seq in skipped:
+                            skipped.remove(next_seq)
+                            next_seq += 1
+                            continue
+                        graph = pending.pop(next_seq, None)
+                        if graph is None:
+                            break
+                        yield graph
+                        next_seq += 1
+                    if pending:
+                        for seq_id in sorted(pending):
+                            if seq_id >= next_seq:
+                                yield pending[seq_id]
+            finally:
+                producer.join(timeout=1)
+                if not producer_done.is_set() or processed < total_tasks['value']:
+                    if stop_event is not None:
+                        stop_event.set()
+                    if self._worker_procs is not None:
+                        self._shutdown_workers()
+                self._worker_lock.release()
+
+        return _iter()
+
+    def _graph_iterator_from_tasks(self, task_iter: Iterator[tuple[int, int, int]]):
+        """Select the appropriate task iterator backend (single vs parallel)."""
+        if self._num_workers <= 0:
+            return self._iter_graphs_single_from_tasks(task_iter)
+        return self._iter_graphs_parallel_from_tasks(task_iter)
+
+    def _ordered_batches(self, *, seed_override: int | None):
+        """Return ordered batch plans derived from precomputed assignments."""
+        if self._batch_assignments is None:
+            return None
+        seed = self._effective_seed(seed_override)
+        batches: list[tuple[int, list[int]]] = []
+        if self._shuffle:
+            for ds_idx, ds_batches in enumerate(self._batch_assignments):
+                for batch in ds_batches:
+                    batches.append((ds_idx, list(batch)))
+            if len(batches) > 1:
+                rng = np.random.default_rng(seed)
+                rng.shuffle(batches)
+            return batches
+
+        for ds_idx, ds_batches in enumerate(self._batch_assignments):
+            if not ds_batches:
+                continue
+            graph_to_batch: dict[int, int] = {}
+            for batch_id, batch in enumerate(ds_batches):
+                for graph_idx in batch:
+                    graph_to_batch[graph_idx] = batch_id
+            if not graph_to_batch:
+                continue
+            current_batch_id = None
+            current_graphs: list[int] = []
+            for graph_idx in sorted(graph_to_batch):
+                batch_id = graph_to_batch[graph_idx]
+                if current_batch_id is None:
+                    current_batch_id = batch_id
+                if batch_id != current_batch_id:
+                    if current_graphs:
+                        batches.append((ds_idx, current_graphs))
+                    current_batch_id = batch_id
+                    current_graphs = []
+                current_graphs.append(graph_idx)
+            if current_graphs:
+                batches.append((ds_idx, current_graphs))
+        return batches
+
+    def _task_iterator_from_batches(
+        self, batches: Sequence[tuple[int, Sequence[int]]]
+    ) -> Iterator[tuple[int, int, int]]:
+        """Yield task tuples for explicit graph index batches."""
+        seq = 0
+        for ds_idx, graph_indices in batches:
+            for graph_idx in graph_indices:
+                yield seq, ds_idx, int(graph_idx), False
+                seq += 1
+
+    def _batch_task_iterator_from_batches(
+        self,
+        batches: Sequence[tuple[int, Sequence[int]]],
+        *,
+        pad_graphs: int | None,
+        filter_weight: bool,
+    ) -> Iterator[tuple]:
+        """Yield batch tasks to offload batching/padding into workers."""
+        seq = 0
+        for ds_idx, graph_indices in batches:
+            if not graph_indices:
+                continue
+            yield (
+                _TASK_BATCH,
+                seq,
+                ds_idx,
+                graph_indices,
+                filter_weight,
+                pad_graphs,
+                self._n_node,
+                self._n_edge,
+            )
+            seq += 1
+
+    def _iter_batches_from_assignments(
+        self,
+        *,
+        seed_override: int | None = None,
+        include_counts: bool = False,
+        batch_plan: Sequence[tuple[int, Sequence[int]]] | None = None,
+    ):
+        """Iterate batches based on precomputed graph assignments."""
+        if batch_plan is None:
+            batch_plan = self._ordered_batches(seed_override=seed_override)
+        if not batch_plan:
+            return iter(())
+        pad_graphs = self._fixed_pad_graphs
+        if self._num_workers >= 1:
+            task_iter = self._batch_task_iterator_from_batches(
+                batch_plan,
+                pad_graphs=pad_graphs,
+                filter_weight=False,
+            )
+            graph_iter = self._run_task_stream(
+                task_iter,
+                ordered=True,
+                allow_skip=False,
+                expect_all=True,
+            )
+            if include_counts:
+                return graph_iter
+
+            def _iter():
+                for item in graph_iter:
+                    if (
+                        isinstance(item, tuple)
+                        and len(item) == 2
+                        and isinstance(item[0], jraph.GraphsTuple)
+                    ):
+                        yield item[0]
+                    else:
+                        yield item
+
+            return _iter()
+        task_iter = self._task_iterator_from_batches(batch_plan)
+        graph_iter = self._graph_iterator_from_tasks(task_iter)
+
+        def _iter():
+            """Yield padded batches following the assignment plan."""
+            for _, graph_indices in batch_plan:
+                graphs: list[jraph.GraphsTuple] = []
+                for _ in range(len(graph_indices)):
+                    try:
+                        graphs.append(next(graph_iter))
+                    except StopIteration:
+                        if graphs:
+                            logging.warning(
+                                'Assignment stream ended early; yielding partial batch '
+                                '(%s/%s graphs).',
+                                len(graphs),
+                                len(graph_indices),
+                            )
+                            local_pad_graphs = pad_graphs
+                            if local_pad_graphs is None:
+                                local_pad_graphs = max(len(graphs) + 1, 2)
+                            batched = jraph.batch_np(graphs)
+                            batch = jraph.pad_with_graphs(
+                                batched,
+                                n_node=self._n_node,
+                                n_edge=self._n_edge,
+                                n_graph=local_pad_graphs,
+                            )
+                            if include_counts:
+                                yield batch, len(graphs)
+                            else:
+                                yield batch
+                        return
+                if not graphs:
+                    continue
+                local_pad_graphs = pad_graphs
+                if local_pad_graphs is None:
+                    local_pad_graphs = max(len(graphs) + 1, 2)
+                batched = jraph.batch_np(graphs)
+                batch = jraph.pad_with_graphs(
+                    batched,
+                    n_node=self._n_node,
+                    n_edge=self._n_edge,
+                    n_graph=local_pad_graphs,
+                )
+                if include_counts:
+                    yield batch, len(graphs)
+                else:
+                    yield batch
+
+        return _iter()
+
+    def _limit_batches(self, iterable: Iterable[jraph.GraphsTuple]):
+        """Yield at most `max_batches` items from an iterable."""
+        if self._max_batches is None:
+            yield from iterable
+            return
+        produced = 0
+        for item in iterable:
+            if produced >= self._max_batches:
+                break
+            yield item
+            produced += 1
+
+    def __iter__(self):
+        """Iterate over batches for the current epoch."""
+        if self._batch_assignments is None:
+            raise RuntimeError('Streaming loader requires precomputed assignments.')
+        batches = self._iter_batches_from_assignments(seed_override=None)
+        limited_iter = self._limit_batches(batches)
+        yield from limited_iter
+
+    def iter_batches(
+        self,
+        *,
+        epoch: int,
+        seed: int | None,
+        process_count: int,
+        process_index: int,
+    ) -> Iterator[jraph.GraphsTuple]:
+        """Yield batches for the given epoch and process shard.
+
+        Args:
+            epoch: Epoch index to seed shuffling.
+            seed: Optional override seed.
+            process_count: Total number of data-parallel processes.
+            process_index: Index of the current process.
+
+        Returns:
+            Iterator over padded graph batches.
+        """
+        self.set_epoch(epoch)
+        if self._batch_assignments is None:
+            raise RuntimeError('Streaming loader requires precomputed assignments.')
+        batch_plan = self._ordered_batches(seed_override=seed) or []
+        if self._max_batches is not None:
+            batch_plan = batch_plan[: int(self._max_batches)]
+        if process_count > 1:
+            batch_plan = [
+                batch
+                for idx, batch in enumerate(batch_plan)
+                if idx % process_count == process_index
+            ]
+        batches_iter = self._iter_batches_from_assignments(
+            seed_override=None,
+            include_counts=True,
+            batch_plan=batch_plan,
+        )
+
+        def _counted():
+            """Yield batches while tracking graph/batch counts."""
+            graphs_count = 0
+            batches_count = 0
+            try:
+                for item in batches_iter:
+                    if (
+                        isinstance(item, tuple)
+                        and len(item) == 2
+                        and isinstance(item[0], jraph.GraphsTuple)
+                    ):
+                        batch, graph_count = item
+                        graphs_count += int(graph_count)
+                    else:
+                        batch = item
+                        graphs_count += int(
+                            np.asarray(jraph.get_graph_padding_mask(batch)).sum()
+                        )
+                    batches_count += 1
+                    yield batch
+            finally:
+                self._history.append((graphs_count, batches_count))
+
+        iterator = _counted()
+        total_batches_hint = len(batch_plan)
+        return BatchIteratorWrapper(iterator, total_batches_hint)
 
     def __len__(self):
+        """Return the number of batches for the current packing configuration."""
         if self._pack_info and self._pack_info.get('total_batches') is not None:
             total = int(self._pack_info['total_batches'])
             if self._max_batches is not None:
                 return min(total, int(self._max_batches))
             return total
-        _, info = self._pack()
-        total = int(info.get('total_batches', 0))
+        if self._batch_assignments is None:
+            raise RuntimeError('Streaming loader requires precomputed assignments.')
+        total = len(self._ordered_batches(seed_override=None) or [])
         if self._max_batches is not None:
             return min(total, int(self._max_batches))
         return total
 
     def pack_info(self) -> dict:
-        """Return metadata from the most recent packing run."""
+        """Return cached packing metadata."""
         if not self._pack_info:
-            _, info = self._pack()
-            return dict(info)
+            if self._batch_assignments is None:
+                return {}
+            return {
+                'total_batches': sum(
+                    len(batches) for batches in self._batch_assignments
+                )
+            }
         return dict(self._pack_info)
 
+    def close(self) -> None:
+        """Close datasets and terminate worker processes."""
+        for dataset in self._datasets:
+            dataset.close()
+        self._shutdown_workers()
 
-def pack_graphs_greedy(
+    def approx_length(self) -> int:
+        """Estimate number of batches without forcing a prepass."""
+        if self._pack_info and self._pack_info.get('total_batches') is not None:
+            total = int(self._pack_info['total_batches'])
+            if self._max_batches is not None:
+                return max(1, min(total, int(self._max_batches)))
+            return max(1, total)
+        if self._batch_assignments is None:
+            raise RuntimeError('Streaming loader requires precomputed assignments.')
+        approx = len(self._ordered_batches(seed_override=None) or [])
+        if self._max_batches is not None:
+            approx = min(approx, int(self._max_batches))
+        return max(1, approx)
+
+
+def get_hdf5_dataloader(
     *,
-    graph_iter_fn: callable,
-    max_edges_per_batch: int,
-    max_nodes_per_batch: int | None = None,
-    graph_multiple: int = 1,
-) -> tuple[Iterable[jraph.GraphsTuple], dict]:
-    """
-    Greedily pack graphs into batches limited by edge/node totals.
-
-    The packing is two-pass to keep XLA shapes stable:
-    1) Scan to determine padding targets (graphs/nodes/edges) and count batches.
-    2) Yield padded batches with fixed shapes. Graphs exceeding the per-graph
-       caps are dropped.
-    """
-
-    def _make_iter():
-        return iter(graph_iter_fn())
-
-    def _scan():
-        current_len = edge_sum = node_sum = 0
-        max_graphs = max_total_nodes = max_total_edges = 0
-        dropped = batches = 0
-        graphs_seen = kept = 0
-        max_single_nodes = max_single_edges = 0
-        for g in _make_iter():
-            g_edges = int(g.n_edge.sum())
-            g_nodes = int(g.n_node.sum())
-            graphs_seen += 1
-            max_single_nodes = max(max_single_nodes, g_nodes)
-            max_single_edges = max(max_single_edges, g_edges)
-            if g_edges > max_edges_per_batch or (
-                max_nodes_per_batch is not None and g_nodes > max_nodes_per_batch
-            ):
-                dropped += 1
-                continue
-            kept += 1
-            would_edges = edge_sum + g_edges
-            would_nodes = node_sum + g_nodes
-            if current_len and (
-                would_edges > max_edges_per_batch
-                or (
-                    max_nodes_per_batch is not None
-                    and would_nodes > max_nodes_per_batch
-                )
-            ):
-                max_graphs = max(max_graphs, current_len)
-                max_total_nodes = max(max_total_nodes, node_sum)
-                max_total_edges = max(max_total_edges, edge_sum)
-                batches += 1
-                current_len = edge_sum = node_sum = 0
-            current_len += 1
-            edge_sum += g_edges
-            node_sum += g_nodes
-        if current_len:
-            max_graphs = max(max_graphs, current_len)
-            max_total_nodes = max(max_total_nodes, node_sum)
-            max_total_edges = max(max_total_edges, edge_sum)
-            batches += 1
-        return (
-            max_graphs + 1 if max_graphs else 1,
-            max_total_nodes + 1 if max_total_nodes else 1,
-            max_total_edges + 1 if max_total_edges else 1,
-            dropped,
-            batches,
-            graphs_seen,
-            kept,
-            max_single_nodes,
-            max_single_edges,
-        )
-
-    (
-        pad_graphs,
-        pad_nodes,
-        pad_edges,
-        dropped,
-        total_batches,
-        graphs_seen,
-        kept,
-        max_single_nodes,
-        max_single_edges,
-    ) = _scan()
-
-    graph_multiple = max(int(graph_multiple or 1), 1)
-    if graph_multiple > 1:
-        pad_graphs = (
-            (pad_graphs + graph_multiple - 1) // graph_multiple
-        ) * graph_multiple
-
-    def _empty_graph_like(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-        def _zero_nodes(arr):
-            shape = (0,) + arr.shape[1:]
-            return np.zeros(shape, dtype=arr.dtype)
-
-        nodes = graph.nodes.__class__()
-        for key, value in graph.nodes.items():
-            nodes[key] = _zero_nodes(value)
-
-        edges = graph.edges.__class__()
-        for key, value in graph.edges.items():
-            edges[key] = _zero_nodes(value)
-
-        globals_dict = graph.globals.__class__()
-        for key, value in graph.globals.items():
-            globals_dict[key] = np.zeros_like(value)
-
-        return jraph.GraphsTuple(
-            nodes=nodes,
-            edges=edges,
-            senders=np.zeros((0,), dtype=graph.senders.dtype),
-            receivers=np.zeros((0,), dtype=graph.receivers.dtype),
-            globals=globals_dict,
-            n_node=np.asarray([0], dtype=np.int32),
-            n_edge=np.asarray([0], dtype=np.int32),
-        )
-
-    def _pad_graph_list(graphs: list[jraph.GraphsTuple]):
-        if graph_multiple <= 1 or not graphs:
-            return
-        remainder = len(graphs) % graph_multiple
-        if remainder == 0:
-            return
-        template = graphs[0]
-        dummy = _empty_graph_like(template)
-        for _ in range(graph_multiple - remainder):
-            graphs.append(dummy)
-
-    def _iter():
-        current: list[jraph.GraphsTuple] = []
-        edge_sum = node_sum = 0
-        for g in _make_iter():
-            g_edges = int(g.n_edge.sum())
-            g_nodes = int(g.n_node.sum())
-            if g_edges > max_edges_per_batch or (
-                max_nodes_per_batch is not None and g_nodes > max_nodes_per_batch
-            ):
-                continue
-            would_edges = edge_sum + g_edges
-            would_nodes = node_sum + g_nodes
-            if current and (
-                would_edges > max_edges_per_batch
-                or (
-                    max_nodes_per_batch is not None
-                    and would_nodes > max_nodes_per_batch
-                )
-            ):
-                _pad_graph_list(current)
-                batched = jraph.batch_np(current)
-                yield jraph.pad_with_graphs(
-                    batched,
-                    n_node=pad_nodes,
-                    n_edge=pad_edges,
-                    n_graph=pad_graphs,
-                )
-                current = []
-                edge_sum = node_sum = 0
-            current.append(g)
-            edge_sum += g_edges
-            node_sum += g_nodes
-        if current:
-            _pad_graph_list(current)
-            batched = jraph.batch_np(current)
-            yield jraph.pad_with_graphs(
-                batched,
-                n_node=pad_nodes,
-                n_edge=pad_edges,
-                n_graph=pad_graphs,
-            )
-
-    info = dict(
-        dropped=dropped,
-        total_batches=total_batches,
-        pad_graphs=pad_graphs,
-        pad_nodes=pad_nodes,
-        pad_edges=pad_edges,
-        graphs_seen=graphs_seen,
-        kept_graphs=kept,
-        max_single_nodes=max_single_nodes,
-        max_single_edges=max_single_edges,
-    )
-    return _iter(), info
-
-
-def _estimate_caps(
-    datasets: list[HDF5Dataset],
-    z_table,
+    data_file: Path | str,
+    atomic_numbers: AtomicNumberTable,
     r_max: float,
-) -> tuple[int, int]:
-    converter = AtomsToGraphs(atomic_numbers=z_table, r_max=r_max)
-    max_nodes = max_edges = 1
-    for dataset in datasets:
-        for idx in range(len(dataset)):
-            atoms = dataset[idx]
-            graph = converter.convert(atoms)
-            nodes = int(graph.n_node.sum())
-            edges = int(graph.n_edge.sum())
-            max_nodes = max(max_nodes, nodes)
-            max_edges = max(max_edges, edges)
-    return max_nodes, max_edges
+    shuffle: bool,
+    max_nodes: int | None,
+    max_edges: int | None,
+    seed: int | None = None,
+    niggli_reduce: bool = False,
+    max_batches: int | None = None,
+    prefetch_batches: int | None = None,
+    num_workers: int | None = None,
+    dataset_specs: Sequence[StreamingDatasetSpec] | None = None,
+) -> StreamingGraphDataLoader:
+    """Create a StreamingGraphDataLoader from one or more HDF5 files.
+
+    The resulting loader yields fixed-shape padded batches suitable for JAX
+    compilation reuse. This wrapper validates the path, opens the dataset, and
+    forwards options to `StreamingGraphDataLoader`.
+
+    Args:
+        data_file: Path to a single HDF5 file.
+        atomic_numbers: Atomic number table for species encoding.
+        r_max: Cutoff radius for graph construction.
+        shuffle: Whether to shuffle graphs/batches each epoch.
+        max_nodes: Optional node padding cap (None triggers a scan).
+        max_edges: Optional edge padding cap (None triggers a scan).
+        seed: Optional shuffle seed.
+        niggli_reduce: Whether to apply Niggli reduction to periodic cells.
+        max_batches: Optional cap on batches per epoch.
+        prefetch_batches: Prefetch depth hint for downstream training/eval loops.
+        num_workers: Number of multiprocessing workers for graph conversion.
+        dataset_specs: Optional per-file dataset specifications.
+    Returns:
+        Configured StreamingGraphDataLoader instance.
+    """
+    if data_file is None:
+        raise ValueError('data_file must be provided.')
+    path = Path(data_file)
+    if path.is_dir():
+        raise ValueError(f"Expected an HDF5 file, got directory '{path.resolve()}'.")
+    if path.suffix.lower() not in ('.h5', '.hdf5'):
+        raise ValueError(f"Path '{path.resolve()}' is not an HDF5 file.")
+    datasets = [HDF5Dataset(path, mode='r')]
+    if dataset_specs is None:
+        dataset_specs = [StreamingDatasetSpec(path=path)]
+    return StreamingGraphDataLoader(
+        datasets=datasets,
+        dataset_specs=dataset_specs,
+        z_table=atomic_numbers,
+        r_max=r_max,
+        n_node=max_nodes,
+        n_edge=max_edges,
+        shuffle=shuffle,
+        seed=seed,
+        niggli_reduce=niggli_reduce,
+        max_batches=max_batches,
+        prefetch_batches=prefetch_batches,
+        num_workers=num_workers,
+    )
+
+
+GraphDataLoader = StreamingGraphDataLoader
+
+
+__all__ = [
+    'StreamingDatasetSpec',
+    'StreamingGraphDataLoader',
+    'GraphDataLoader',
+    'get_hdf5_dataloader',
+]

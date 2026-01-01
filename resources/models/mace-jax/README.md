@@ -4,7 +4,7 @@ Utilities and examples for working with pre-trained [MACE](https://github.com/AC
 
 ## Contents
 
-- `convert_foundation_to_jax.py` – downloads a Torch MACE foundation model (e.g. the `mp` “small” checkpoint), converts it to MACE-JAX parameters using `mace_jax.cli.mace_torch2jax`, and writes a ready-to-use bundle (`config.json` + `params.msgpack`).
+- `convert_foundation_to_jax.py` – downloads a Torch MACE foundation model (e.g. the `mp` “small” checkpoint), converts it to MACE-JAX parameters using `mace_jax.cli.mace_jax_from_torch`, and writes a ready-to-use bundle (`config.json` + `params.msgpack`).
 
 ## Usage
 

@@ -237,7 +237,7 @@ if __name__ == '__main__':
 
 #### Running the JAX backend
 
-The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle exported via `mace_torch2jax` or the new fine-tuning utilities:
+The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle exported via `mace_jax_from_torch` or the new fine-tuning utilities:
 
 ```bash
 equitrain -v \

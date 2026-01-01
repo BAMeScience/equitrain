@@ -34,17 +34,20 @@ def add_common_file_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
 
 def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
-        '--batch-size', help='Batch size for computation', type=int, default=16
+        '--batch-size',
+        help='Batch size for computation (torch backend only)',
+        type=int,
+        default=16,
     )
     parser.add_argument(
         '--batch-max-nodes',
-        help='Maximum number of nodes per batch',
+        help='Maximum number of nodes per batch (optional for JAX)',
         type=int,
         default=None,
     )
     parser.add_argument(
         '--batch-max-edges',
-        help='Maximum number of edges per batch',
+        help='Maximum number of edges per batch (required for JAX)',
         type=int,
         default=None,
     )

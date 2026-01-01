@@ -147,5 +147,5 @@ def test_jax_evaluate_requires_pack_limits(monkeypatch):
     monkeypatch.setattr(jax_evaluate, 'validate_evaluate_args', lambda *a, **k: None)
     monkeypatch.setattr(jax_evaluate, 'load_model_bundle', lambda *a, **k: bundle)
 
-    with pytest.raises(ValueError, match='requires --batch-max-edges or --batch-max-nodes'):
+    with pytest.raises(ValueError, match='requires --batch-max-edges'):
         jax_evaluate.evaluate(args)

@@ -24,7 +24,7 @@ from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
-from mace_jax.cli import mace_torch2jax  # noqa: E402
+from mace_jax.cli import mace_jax_from_torch  # noqa: E402
 
 from equitrain import get_args_parser_train  # noqa: E402
 from equitrain import train as equitrain_train  # noqa: E402
@@ -209,7 +209,7 @@ def _export_jax_model(
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / DEFAULT_CONFIG_NAME).write_text(json.dumps(_sanitize_config(config)))
 
-    jax_module, jax_params, _ = mace_torch2jax.convert_model(torch_model, config)
+    jax_module, jax_params, _ = mace_jax_from_torch.convert_model(torch_model, config)
     (target_dir / DEFAULT_PARAMS_NAME).write_bytes(serialization.to_bytes(jax_params))
     return jax_module, jax_params
 
