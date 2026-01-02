@@ -335,7 +335,10 @@ def test_train_torch_and_jax_match(tmp_path):
         args_jax.train_max_steps = 2
         args_jax.valid_max_steps = 1
         args_jax.batch_size = 1
-        _set_jax_batch_limits(args_jax)
+        jax_graphs = _make_jax_graph(structures, torch_model_pre)
+        max_nodes = int(np.max(np.asarray(jax_graphs.n_node)))
+        max_edges = int(np.max(np.asarray(jax_graphs.n_edge)))
+        _set_jax_batch_limits(args_jax, nodes=max_nodes, edges=max_edges)
         args_jax.lr = 5e-3
         args_jax.weight_decay = 0.0
         args_jax.energy_weight = 1.0

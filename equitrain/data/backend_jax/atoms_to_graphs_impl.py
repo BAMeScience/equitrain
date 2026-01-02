@@ -241,6 +241,7 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
     data_dict: dict[str, jnp.ndarray] = {
         'positions': positions,
         'node_attrs': node_attrs,
+        'node_attrs_index': species,
         'edge_index': jnp.stack([senders, receivers], axis=0),
         'shifts': shifts,
         'batch': batch,

@@ -170,6 +170,19 @@ def _node_batch_indices(graph: jraph.GraphsTuple) -> jnp.ndarray:
     )
 
 
+def _graph_mask(graph: jraph.GraphsTuple) -> jnp.ndarray:
+    mask = jraph.get_graph_padding_mask(graph).astype(jnp.float32)
+    if mask.shape == graph.n_node.shape:
+        non_empty = jnp.asarray(graph.n_node > 0, dtype=jnp.float32)
+        mask = mask * non_empty
+    weights = getattr(graph.globals, 'weight', None)
+    if weights is not None:
+        weight_mask = jnp.asarray(weights > 0, dtype=jnp.float32)
+        if weight_mask.shape == mask.shape:
+            mask = mask * weight_mask
+    return mask
+
+
 def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
     if 'energy' not in outputs:
         raise ValueError(
@@ -342,7 +355,7 @@ def build_loss_fn(apply_fn, settings: LossSettings):
     )
 
     def loss_fn(variables, graph: jraph.GraphsTuple):
-        mask = jraph.get_graph_padding_mask(graph).astype(jnp.float32)
+        mask = _graph_mask(graph)
         mask_sum = jnp.sum(mask)
         mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
         outputs = apply_fn(variables, graph)
