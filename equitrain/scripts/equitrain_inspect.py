@@ -2,8 +2,8 @@ import sys
 
 from tabulate import tabulate
 
-from equitrain import check_args_complete, get_args_parser_inspect
-from equitrain.backends.torch_model import get_model
+from .. import check_args_complete, get_args_parser_inspect
+from ..backends.torch_model import get_model
 
 
 # %%

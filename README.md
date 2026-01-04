@@ -187,6 +187,22 @@ equitrain -v \
     --model-wrapper 'orb' \
     --epochs 10 \
     --tqdm
+
+# JAX multi-GPU (single node, auto spawns one process per visible GPU)
+CUDA_VISIBLE_DEVICES=0,1 \
+equitrain -v \
+    --backend jax \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir result_jax \
+    --model path/to/mace.model \
+    --model-wrapper mace \
+    --batch-max-edges 200000 \
+    --device gpu \
+    --launcher auto \
+    --distributed \
+    --epochs 10 \
+    --tqdm
 ```
 
 <!-- TODO: change this following a notebook style -->

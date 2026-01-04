@@ -1,6 +1,6 @@
 import sys
 
-from equitrain import evaluate, get_args_parser_evaluate
+from .. import evaluate, get_args_parser_evaluate
 
 
 # %%

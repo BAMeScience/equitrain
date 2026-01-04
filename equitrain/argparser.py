@@ -128,6 +128,48 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         type=str,
         default='auto',
     )
+    parser.add_argument(
+        '--distributed',
+        action='store_true',
+        help='Initialize jax.distributed for multi-process training.',
+    )
+    parser.add_argument(
+        '--launcher',
+        choices=['none', 'local', 'auto'],
+        default='auto',
+        help=(
+            'Launch strategy for distributed training. '
+            'auto enables local multi-process when multiple GPUs are visible.'
+        ),
+    )
+    parser.add_argument(
+        '--process-count',
+        '--process_count',
+        type=int,
+        default=None,
+        help='Total number of JAX processes when using --distributed.',
+    )
+    parser.add_argument(
+        '--process-index',
+        '--process_index',
+        type=int,
+        default=None,
+        help='Index of this JAX process when using --distributed.',
+    )
+    parser.add_argument(
+        '--coordinator-address',
+        '--coordinator_address',
+        type=str,
+        default=None,
+        help='Coordinator address for jax.distributed initialization.',
+    )
+    parser.add_argument(
+        '--coordinator-port',
+        '--coordinator_port',
+        type=int,
+        default=None,
+        help='Coordinator port for jax.distributed initialization.',
+    )
     return parser
 
 

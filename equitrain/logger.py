@@ -18,6 +18,8 @@ class FileLogger:
         output_dir=None,
         logger_name='EqLog',
         verbosity=0,
+        stream=True,
+        log_suffix=None,
     ):
         """
         Initialize the FileLogger.
@@ -33,6 +35,8 @@ class FileLogger:
         self.output_dir = output_dir
         self.verbosity = verbosity
         self.logger_name = logger_name
+        self._stream = bool(stream)
+        self._log_suffix = '' if log_suffix is None else str(log_suffix)
         self.logger = self._setup_logger(log_to_file)
 
     def _setup_logger(self, log_to_file):
@@ -45,16 +49,17 @@ class FileLogger:
         if self.output_dir and log_to_file:
             os.makedirs(self.output_dir, exist_ok=True)
             file_handler = logging.FileHandler(
-                os.path.join(self.output_dir, 'trainer.log')
+                os.path.join(self.output_dir, f'trainer{self._log_suffix}.log')
             )
             file_handler.setLevel(log_level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(log_level)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+        if self._stream:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(log_level)
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
 
         logger.propagate = False
         return logger
@@ -102,6 +107,8 @@ def init_logger(
     enable_logging: bool,
     log_to_file: bool,
     output_dir: str | None,
+    stream: bool = True,
+    log_suffix: str | None = None,
 ) -> FileLogger:
     return FileLogger(
         enable_logging=enable_logging,
@@ -109,4 +116,6 @@ def init_logger(
         output_dir=output_dir,
         logger_name=f'Equitrain[{backend_name}]',
         verbosity=getattr(args, 'verbose', 0),
+        stream=stream,
+        log_suffix=log_suffix,
     )

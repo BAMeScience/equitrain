@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import itertools
+import os
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
+
+# Suppress PJRT coordination-service shutdown warnings on exit
+# (WatchJobStateAsync CANCELLED/UNAVAILABLE); must be set before importing JAX.
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+os.environ.setdefault('ABSL_MIN_LOG_LEVEL', '2')
 
 import jax
 import jax.numpy as jnp
@@ -65,6 +74,284 @@ class TrainState:
     params: object
     opt_state: object
     ema_params: object
+
+
+def _parse_visible_devices() -> list[str] | None:
+    raw = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if not raw:
+        return None
+    devices = [device.strip() for device in raw.split(',') if device.strip()]
+    return devices or None
+
+
+def _infer_gpu_count() -> int | None:
+    visible_devices = _parse_visible_devices()
+    if visible_devices:
+        return len(visible_devices)
+    slurm_gpus = os.environ.get('SLURM_GPUS_ON_NODE')
+    if slurm_gpus:
+        try:
+            return int(slurm_gpus)
+        except ValueError:
+            pass
+    try:
+        return sum(
+            1 for dev in jax.devices() if dev.platform in {'cuda', 'gpu', 'rocm'}
+        )
+    except Exception:
+        return None
+
+
+def _infer_process_count(args) -> int | None:
+    if getattr(args, 'process_count', None) is not None:
+        return args.process_count
+    env_count = os.environ.get('JAX_PROCESS_COUNT')
+    if env_count:
+        try:
+            return int(env_count)
+        except ValueError:
+            pass
+    visible_devices = _parse_visible_devices()
+    if visible_devices:
+        return len(visible_devices)
+    slurm_gpus = os.environ.get('SLURM_GPUS_ON_NODE')
+    if slurm_gpus:
+        try:
+            return int(slurm_gpus)
+        except ValueError:
+            pass
+    try:
+        return jax.local_device_count()
+    except Exception:
+        return None
+
+
+def _resolve_coordinator_address(args) -> str:
+    address = getattr(args, 'coordinator_address', None) or os.environ.get(
+        'JAX_COORDINATOR_ADDRESS'
+    )
+    port = getattr(args, 'coordinator_port', None) or 12345
+    if address:
+        if ':' in address:
+            return address
+        return f'{address}:{port}'
+    return f'127.0.0.1:{port}'
+
+
+def _launch_local_processes(args) -> int | None:
+    launcher = getattr(args, 'launcher', 'none')
+    auto = launcher == 'auto'
+    if launcher not in {'local', 'auto'}:
+        return None
+    if (
+        getattr(args, 'process_index', None) is not None
+        or os.environ.get('JAX_PROCESS_INDEX') is not None
+    ):
+        return None
+    if auto and not getattr(args, 'distributed', False):
+        device = getattr(args, 'jax_platform', None) or getattr(args, 'device', None)
+        if device and device.lower() in {'cpu', 'tpu'}:
+            return None
+        gpu_count = _infer_gpu_count()
+        if gpu_count is None or gpu_count <= 1:
+            return None
+        args.distributed = True
+        if getattr(args, 'process_count', None) is None:
+            args.process_count = gpu_count
+
+    if not getattr(args, 'distributed', False):
+        raise ValueError('Use --distributed together with --launcher local.')
+
+    process_count = _infer_process_count(args)
+    if process_count is None:
+        raise ValueError(
+            'Unable to infer process count. Set --process-count or CUDA_VISIBLE_DEVICES.'
+        )
+    if process_count < 1:
+        raise ValueError(f'Invalid process count: {process_count}.')
+    if process_count == 1:
+        return None
+
+    visible_devices = _parse_visible_devices()
+    if visible_devices and process_count > len(visible_devices):
+        raise ValueError(
+            'process_count exceeds available CUDA_VISIBLE_DEVICES entries.'
+        )
+    if visible_devices is None:
+        device_count = jax.local_device_count()
+        if process_count > device_count:
+            raise ValueError(
+                f'process_count ({process_count}) exceeds visible devices ({device_count}).'
+            )
+
+    coordinator = _resolve_coordinator_address(args)
+    base_env = os.environ.copy()
+    base_env['JAX_PROCESS_COUNT'] = str(process_count)
+    base_env['JAX_COORDINATOR_ADDRESS'] = coordinator
+    base_env['EQUITRAIN_LAUNCHED_LOCAL'] = '1'
+    base_env.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+    base_env.setdefault('ABSL_MIN_LOG_LEVEL', '2')
+
+    child_argv = list(sys.argv)
+    if '--distributed' not in child_argv:
+        child_argv.append('--distributed')
+
+    procs: list[subprocess.Popen] = []
+    previous_handlers = {}
+
+    def _terminate_processes(sig: int, *, force: bool = False) -> None:
+        if not procs:
+            return
+        for proc in procs:
+            if proc.poll() is not None:
+                continue
+            try:
+                if proc.pid:
+                    os.killpg(proc.pid, sig)
+            except Exception:
+                try:
+                    proc.send_signal(sig)
+                except Exception:
+                    pass
+        if force:
+            return
+        deadline = time.time() + 10.0
+        for proc in procs:
+            if proc.poll() is not None:
+                continue
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            try:
+                proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                pass
+        for proc in procs:
+            if proc.poll() is not None:
+                continue
+            try:
+                if proc.pid:
+                    os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+    def _handle_signal(signum, _frame):
+        _terminate_processes(signum)
+        raise SystemExit(128 + signum)
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        previous_handlers[signum] = signal.getsignal(signum)
+        signal.signal(signum, _handle_signal)
+
+    try:
+        for index in range(process_count):
+            env = base_env.copy()
+            env['JAX_PROCESS_INDEX'] = str(index)
+            if visible_devices:
+                env['CUDA_VISIBLE_DEVICES'] = visible_devices[index]
+            else:
+                env['CUDA_VISIBLE_DEVICES'] = str(index)
+            procs.append(
+                subprocess.Popen(
+                    [sys.executable, *child_argv],
+                    env=env,
+                    start_new_session=True,
+                )
+            )
+
+        exit_codes: list[int] = []
+        active = list(procs)
+        while active:
+            for proc in list(active):
+                retcode = proc.poll()
+                if retcode is None:
+                    continue
+                exit_codes.append(retcode)
+                active.remove(proc)
+                if retcode != 0 and active:
+                    _terminate_processes(signal.SIGTERM)
+                    active.clear()
+                    break
+            if active:
+                time.sleep(0.1)
+        _terminate_processes(signal.SIGTERM)
+        return max(exit_codes) if exit_codes else 0
+    finally:
+        _terminate_processes(signal.SIGTERM, force=True)
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+
+def _initialize_distributed(args) -> None:
+    if not getattr(args, 'distributed', False):
+        return
+    if not hasattr(jax, 'distributed'):
+        raise RuntimeError('This JAX build does not expose jax.distributed.initialize.')
+    is_initialized = getattr(jax.distributed, 'is_initialized', None)
+    if callable(is_initialized) and is_initialized():
+        return
+    process_count = getattr(args, 'process_count', None) or os.environ.get(
+        'JAX_PROCESS_COUNT'
+    )
+    process_index = getattr(args, 'process_index', None) or os.environ.get(
+        'JAX_PROCESS_INDEX'
+    )
+    coordinator_address = getattr(args, 'coordinator_address', None) or os.environ.get(
+        'JAX_COORDINATOR_ADDRESS'
+    )
+    coordinator = _resolve_coordinator_address(args) if coordinator_address else None
+    init_kwargs = {}
+    if coordinator is not None:
+        init_kwargs['coordinator_address'] = coordinator
+    if process_count is not None:
+        init_kwargs['num_processes'] = int(process_count)
+    if process_index is not None:
+        init_kwargs['process_id'] = int(process_index)
+    try:
+        jax.distributed.initialize(**init_kwargs)
+    except RuntimeError as exc:
+        if 'already initialized' not in str(exc):
+            raise
+
+
+def _shutdown_distributed() -> None:
+    distributed = getattr(jax, 'distributed', None)
+    shutdown = getattr(distributed, 'shutdown', None)
+    is_initialized = getattr(distributed, 'is_initialized', None)
+    if not callable(shutdown):
+        return
+    try:
+        if not callable(is_initialized) or is_initialized():
+            process_count = getattr(jax, 'process_count', lambda: 1)()
+            if process_count > 1 and os.environ.get('EQUITRAIN_LAUNCHED_LOCAL') == '1':
+                return
+            shutdown()
+    except Exception:
+        pass
+
+
+def _iter_loader_for_epoch(
+    loader,
+    *,
+    epoch: int,
+    seed: int | None,
+    process_count: int,
+    process_index: int,
+):
+    if loader is None:
+        return None
+    iter_batches = getattr(loader, 'iter_batches', None)
+    if callable(iter_batches):
+        return iter_batches(
+            epoch=epoch,
+            seed=seed,
+            process_count=process_count,
+            process_index=process_index,
+        )
+    return loader
 
 
 def _normalize_max_steps(value):
@@ -189,6 +476,7 @@ def _build_train_functions(
     clip_value = None if grad_clip_value is None else float(grad_clip_value)
 
     if multi_device:
+        local_devices = jax.local_devices()
 
         def grad_step(params, batch):
             (loss, aux), grads = jax.value_and_grad(
@@ -200,7 +488,9 @@ def _build_train_functions(
             aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
             return loss, aux, grads
 
-        grad_step_fn = jax.pmap(grad_step, axis_name='device', in_axes=(0, 0))
+        grad_step_fn = jax.pmap(
+            grad_step, axis_name='device', in_axes=(0, 0), devices=local_devices
+        )
 
         def apply_updates(state: TrainState, grads, ema_factor):
             updates, new_opt_state = optimizer.update(
@@ -226,6 +516,7 @@ def _build_train_functions(
             apply_updates,
             axis_name='device',
             in_axes=(0, 0, None),
+            devices=local_devices,
         )
         return grad_step_fn, apply_updates_fn
 
@@ -257,6 +548,7 @@ def _build_train_functions(
 
 def _build_eval_step(loss_fn, *, multi_device: bool):
     if multi_device:
+        local_devices = jax.local_devices()
 
         def step(params, batch):
             loss, aux = loss_fn(params, batch)
@@ -264,7 +556,7 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
             aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
             return loss, aux
 
-        return jax.pmap(step, axis_name='device', in_axes=(0, 0))
+        return jax.pmap(step, axis_name='device', in_axes=(0, 0), devices=local_devices)
 
     return jax.jit(loss_fn)
 
@@ -286,15 +578,22 @@ def _run_train_epoch(
     metric_settings,
     learning_rate: float,
     mask,
+    is_primary: bool,
 ):
     loss_collection = JaxLossCollection()
     ema_count = ema_count_start
-    device_count = jax.local_device_count() if multi_device else 1
+    local_devices = jax.local_devices()
+    device_count = len(local_devices) if multi_device else 1
     use_chunked_multi = multi_device and device_count > 1
     total_steps = None
-    if hasattr(train_loader, '__len__'):
+    if hasattr(train_loader, 'total_batches_hint'):
+        approx_batches = int(getattr(train_loader, 'total_batches_hint', 0))
+    elif hasattr(train_loader, '__len__'):
         approx_batches = len(train_loader)
-        if use_chunked_multi and approx_batches is not None:
+    else:
+        approx_batches = None
+    if approx_batches is not None:
+        if use_chunked_multi:
             total_steps = (approx_batches + device_count - 1) // device_count
         else:
             total_steps = approx_batches
@@ -321,7 +620,7 @@ def _run_train_epoch(
         progress = tqdm(
             iterator,
             total=total_steps,
-            disable=False,
+            disable=not is_primary,
             desc='Training',
         )
         iterator = progress
@@ -464,7 +763,8 @@ def _run_eval_loop(
         return None, JaxLossCollection()
 
     loss_collection = JaxLossCollection()
-    device_count = jax.local_device_count() if multi_device else 1
+    local_devices = jax.local_devices()
+    device_count = len(local_devices) if multi_device else 1
     mean_loss = None
 
     if multi_device and device_count > 1:
@@ -509,13 +809,23 @@ def _run_eval_loop(
 
 
 def train(args):
+    exit_code = _launch_local_processes(args)
+    if exit_code is not None:
+        raise SystemExit(exit_code)
+
     validate_training_args(args, 'jax')
     set_jax_platform(getattr(args, 'jax_platform', None))
+    _initialize_distributed(args)
 
     if getattr(args, 'weighted_sampler', False):
         raise ValueError('The JAX backend does not support weighted data sampling.')
 
     ensure_output_dir(getattr(args, 'output_dir', None))
+
+    process_count = getattr(jax, 'process_count', lambda: 1)()
+    process_index = getattr(jax, 'process_index', lambda: 0)()
+    is_primary = process_index == 0
+    log_suffix = f'.rank{process_index}' if process_index else ''
 
     logger = init_logger(
         args,
@@ -523,11 +833,13 @@ def train(args):
         enable_logging=True,
         log_to_file=True,
         output_dir=args.output_dir,
+        stream=is_primary,
+        log_suffix=log_suffix,
     )
     logger.log(1, ArgsFormatter(args))
 
     wandb_run = None
-    if getattr(args, 'wandb_project', None):
+    if is_primary and getattr(args, 'wandb_project', None):
         try:
             import wandb
         except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
@@ -560,7 +872,8 @@ def train(args):
     train_seed = getattr(args, 'seed', None)
 
     multi_device = _is_multi_device()
-    device_count = jax.local_device_count() if multi_device else 1
+    local_devices = jax.local_devices()
+    device_count = len(local_devices) if multi_device else 1
 
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
@@ -679,9 +992,16 @@ def train(args):
         if use_ema and train_state.ema_params is not None
         else train_state.params
     )
+    initial_valid_loader = _iter_loader_for_epoch(
+        valid_loader,
+        epoch=0,
+        seed=None,
+        process_count=process_count,
+        process_index=process_index,
+    )
     initial_val_loss, initial_val_collection = _run_eval_loop(
         params_for_eval,
-        valid_loader,
+        initial_valid_loader,
         eval_step_fn,
         max_steps=valid_max_steps,
         multi_device=multi_device,
@@ -725,9 +1045,16 @@ def train(args):
         epoch_start_time = time.perf_counter()
 
         epoch_lr = scheduler_controller.current_lr
+        epoch_train_loader = _iter_loader_for_epoch(
+            train_loader,
+            epoch=epoch,
+            seed=train_seed if getattr(args, 'shuffle', False) else None,
+            process_count=process_count,
+            process_index=process_index,
+        )
         train_state, train_metrics_collection, ema_count = _run_train_epoch(
             train_state,
-            train_loader,
+            epoch_train_loader,
             grad_step_fn,
             apply_updates_fn,
             max_steps=train_max_steps,
@@ -741,6 +1068,7 @@ def train(args):
             metric_settings=metric_settings,
             learning_rate=epoch_lr,
             mask=mask,
+            is_primary=is_primary,
         )
         epoch_time = time.perf_counter() - epoch_start_time
         last_train_metrics = train_metrics_collection
@@ -757,9 +1085,16 @@ def train(args):
             if use_ema and train_state.ema_params is not None
             else train_state.params
         )
+        epoch_valid_loader = _iter_loader_for_epoch(
+            valid_loader,
+            epoch=epoch,
+            seed=None,
+            process_count=process_count,
+            process_index=process_index,
+        )
         val_loss_value, val_metrics_collection = _run_eval_loop(
             eval_params,
-            valid_loader,
+            epoch_valid_loader,
             eval_step_fn,
             max_steps=valid_max_steps,
             multi_device=multi_device,
@@ -802,7 +1137,7 @@ def train(args):
             best_epoch = epoch
             improved = True
 
-        if improved:
+        if improved and is_primary:
             opt_state_host = _host(train_state.opt_state)
             jax_checkpoint.save_checkpoint(
                 args,
@@ -855,10 +1190,11 @@ def train(args):
         else best_params_host
     )
 
-    _save_parameters(Path(args.output_dir), final_params_host)
+    if is_primary:
+        _save_parameters(Path(args.output_dir), final_params_host)
 
     test_metrics = None
-    if getattr(args, 'test_file', None):
+    if is_primary and getattr(args, 'test_file', None):
         test_loader = _build_streaming_loader(args.test_file, shuffle=False)
         if test_loader is not None:
             eval_params = (
@@ -866,9 +1202,16 @@ def train(args):
                 if multi_device
                 else final_params_host
             )
+            epoch_test_loader = _iter_loader_for_epoch(
+                test_loader,
+                epoch=start_epoch + num_epochs,
+                seed=None,
+                process_count=process_count,
+                process_index=process_index,
+            )
             _, test_metric_collection = _run_eval_loop(
                 eval_params,
-                test_loader,
+                epoch_test_loader,
                 eval_step_fn,
                 max_steps=None,
                 multi_device=multi_device,
@@ -882,6 +1225,15 @@ def train(args):
             )
             test_metrics.update(test_metric_collection)
             test_metrics.log(logger, 'test', epoch=start_epoch + num_epochs - 1)
+
+    if process_count > 1:
+        try:
+            from jax.experimental import multihost_utils
+
+            multihost_utils.sync_global_devices('equitrain_train_complete')
+        except Exception as exc:
+            if is_primary:
+                logger.log(1, f'Failed to sync processes at shutdown: {exc}')
 
     if best_epoch is None:
         best_epoch = start_epoch + num_epochs - 1
@@ -903,6 +1255,7 @@ def train(args):
 
     if wandb_run is not None:
         wandb_run.finish()
+    _shutdown_distributed()
 
     return {
         'train_loss': summary_train_loss,

@@ -1,6 +1,6 @@
 import sys
 
-from equitrain import ArgumentError, get_args_parser_train, train
+from .. import ArgumentError, get_args_parser_train, train
 
 
 # %%

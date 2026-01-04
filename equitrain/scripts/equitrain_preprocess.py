@@ -1,6 +1,6 @@
 import sys
 
-from equitrain import get_args_parser_preprocess, preprocess
+from .. import get_args_parser_preprocess, preprocess
 
 
 # %%

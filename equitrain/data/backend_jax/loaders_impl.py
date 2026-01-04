@@ -689,15 +689,6 @@ class StreamingGraphDataLoader:
                 continue
             yield graph
 
-    def _iter_graphs_parallel_from_tasks(self, task_iter: Iterator[tuple]):
-        """Yield graphs from tasks using multiprocessing workers."""
-        return self._run_task_stream(
-            task_iter,
-            ordered=True,
-            allow_skip=False,
-            expect_all=True,
-        )
-
     def _ensure_worker_pool(self) -> None:
         """Create worker processes and queues if needed."""
         if self._num_workers <= 0 or self._worker_procs is not None:
@@ -751,16 +742,12 @@ class StreamingGraphDataLoader:
         self,
         task_iter: Iterator[tuple[int, int, int]],
         *,
-        ordered: bool,
-        allow_skip: bool,
         expect_all: bool,
     ):
         """Stream graphs from a task iterator, optionally in parallel.
 
         Args:
             task_iter: Iterator yielding (seq_id, dataset_idx, sample_idx) tuples.
-            ordered: Whether to preserve task ordering in output graphs.
-            allow_skip: Whether workers may skip graphs (e.g., zero-weight).
             expect_all: Whether to warn if fewer graphs than tasks are produced.
 
         Returns:
@@ -799,26 +786,25 @@ class StreamingGraphDataLoader:
             producer = threading.Thread(target=_producer, daemon=True)
             producer.start()
 
-            finished_workers = 0
-            processed = 0
-            produced = 0
-            next_seq = 0
-            pending: dict[int, jraph.GraphsTuple] = {}
-            skipped: set[int] | None = set() if allow_skip and ordered else None
+            state = {
+                'finished_workers': 0,
+                'processed': 0,
+                'produced': 0,
+                'next_seq': 0,
+                'pending': {},
+            }
 
             def _advance_pending():
                 """Emit buffered graphs in sequence order when available."""
-                nonlocal next_seq
+                next_seq = state['next_seq']
+                pending = state['pending']
                 while True:
-                    if skipped is not None and next_seq in skipped:
-                        skipped.remove(next_seq)
-                        next_seq += 1
-                        continue
                     graph = pending.pop(next_seq, None)
                     if graph is None:
                         break
                     yield graph
                     next_seq += 1
+                state['next_seq'] = next_seq
 
             def _check_worker_health():
                 """Detect and surface worker process failures."""
@@ -837,92 +823,89 @@ class StreamingGraphDataLoader:
                         f'Graph worker {idx} exited unexpectedly with code {exit_code}.'
                     )
 
-            try:
+            def _should_stop() -> bool:
+                if (
+                    producer_done.is_set()
+                    and state['processed'] >= total_tasks['value']
+                ):
+                    return True
+                if state['finished_workers'] >= worker_count:
+                    return True
+                return False
+
+            def _iter_results():
+                """Yield raw worker results until tasks are exhausted."""
                 while True:
-                    if producer_done.is_set() and processed >= total_tasks['value']:
-                        break
-                    if finished_workers >= worker_count:
+                    if _should_stop():
                         break
                     try:
                         tag, payload_a, payload_b = result_queue.get(timeout=1.0)
                     except Empty:
-                        if producer_done.is_set() and processed >= total_tasks['value']:
+                        if _should_stop():
                             break
                         if producer_exc['value'] is not None and producer_done.is_set():
                             break
                         _check_worker_health()
                         continue
-                    if tag == _RESULT_DONE:
-                        finished_workers += 1
-                        continue
-                    if tag == _RESULT_ERROR:
-                        if stop_event is not None:
-                            stop_event.set()
-                        self._shutdown_workers()
-                        raise RuntimeError(
-                            f'Graph worker {payload_a} failed: {payload_b}'
-                        )
-                    seq_id = payload_a
-                    if tag == _RESULT_SKIP:
-                        if not allow_skip:
-                            raise RuntimeError(
-                                'Graph worker skipped a graph unexpectedly.'
-                            )
-                        processed += 1
-                        if not ordered:
-                            continue
-                        if seq_id == next_seq:
-                            next_seq += 1
-                            for graph in _advance_pending():
-                                yield graph
-                        else:
-                            if skipped is not None:
-                                skipped.add(seq_id)
-                        continue
-                    graph = payload_b
-                    processed += 1
-                    produced += 1
-                    if not ordered:
-                        yield graph
-                        continue
-                    if seq_id == next_seq:
-                        yield graph
-                        next_seq += 1
-                        yield from _advance_pending()
-                    else:
-                        pending[seq_id] = graph
+                    yield tag, payload_a, payload_b
                 if producer_exc['value'] is not None:
                     raise RuntimeError('Task iterator failed.') from producer_exc[
                         'value'
                     ]
                 if expect_all and producer_done.is_set():
                     expected = total_tasks['value']
-                    if produced < expected:
+                    if state['produced'] < expected:
                         logging.warning(
                             'Assignment stream produced fewer graphs than expected '
                             '(%s/%s).',
-                            produced,
+                            state['produced'],
                             expected,
                         )
-                if ordered and producer_done.is_set():
+
+            def _handle_ordered(tag, payload_a, payload_b):
+                """Handle worker results while preserving task order."""
+                if tag == _RESULT_DONE:
+                    state['finished_workers'] += 1
+                    return
+                if tag == _RESULT_ERROR:
+                    if stop_event is not None:
+                        stop_event.set()
+                    self._shutdown_workers()
+                    raise RuntimeError(f'Graph worker {payload_a} failed: {payload_b}')
+                seq_id = payload_a
+                if tag == _RESULT_SKIP:
+                    raise RuntimeError('Graph worker skipped a graph unexpectedly.')
+                graph = payload_b
+                state['processed'] += 1
+                state['produced'] += 1
+                if seq_id == state['next_seq']:
+                    yield graph
+                    state['next_seq'] += 1
+                    yield from _advance_pending()
+                else:
+                    state['pending'][seq_id] = graph
+
+            try:
+                for tag, payload_a, payload_b in _iter_results():
+                    yield from _handle_ordered(tag, payload_a, payload_b)
+                if producer_done.is_set():
                     final_total = total_tasks['value']
-                    while next_seq < final_total:
-                        if skipped is not None and next_seq in skipped:
-                            skipped.remove(next_seq)
-                            next_seq += 1
-                            continue
-                        graph = pending.pop(next_seq, None)
+                    while state['next_seq'] < final_total:
+                        graph = state['pending'].pop(state['next_seq'], None)
                         if graph is None:
                             break
                         yield graph
-                        next_seq += 1
-                    if pending:
-                        for seq_id in sorted(pending):
-                            if seq_id >= next_seq:
-                                yield pending[seq_id]
+                        state['next_seq'] += 1
+                    if state['pending']:
+                        for seq_id in sorted(state['pending']):
+                            if seq_id >= state['next_seq']:
+                                yield state['pending'][seq_id]
             finally:
                 producer.join(timeout=1)
-                if not producer_done.is_set() or processed < total_tasks['value']:
+                if (
+                    not producer_done.is_set()
+                    or state['processed'] < total_tasks['value']
+                ):
                     if stop_event is not None:
                         stop_event.set()
                     if self._worker_procs is not None:
@@ -930,12 +913,6 @@ class StreamingGraphDataLoader:
                 self._worker_lock.release()
 
         return _iter()
-
-    def _graph_iterator_from_tasks(self, task_iter: Iterator[tuple[int, int, int]]):
-        """Select the appropriate task iterator backend (single vs parallel)."""
-        if self._num_workers <= 0:
-            return self._iter_graphs_single_from_tasks(task_iter)
-        return self._iter_graphs_parallel_from_tasks(task_iter)
 
     def _ordered_batches(self, *, seed_override: int | None):
         """Return ordered batch plans derived from precomputed assignments."""
@@ -1032,8 +1009,6 @@ class StreamingGraphDataLoader:
             )
             graph_iter = self._run_task_stream(
                 task_iter,
-                ordered=True,
-                allow_skip=False,
                 expect_all=True,
             )
             if include_counts:
@@ -1052,7 +1027,7 @@ class StreamingGraphDataLoader:
 
             return _iter()
         task_iter = self._task_iterator_from_batches(batch_plan)
-        graph_iter = self._graph_iterator_from_tasks(task_iter)
+        graph_iter = self._iter_graphs_single_from_tasks(task_iter)
 
         def _iter():
             """Yield padded batches following the assignment plan."""
@@ -1149,6 +1124,8 @@ class StreamingGraphDataLoader:
         if self._max_batches is not None:
             batch_plan = batch_plan[: int(self._max_batches)]
         if process_count > 1:
+            full = (len(batch_plan) // process_count) * process_count
+            batch_plan = batch_plan[:full]
             batch_plan = [
                 batch
                 for idx, batch in enumerate(batch_plan)
