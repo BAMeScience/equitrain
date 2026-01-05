@@ -1,4 +1,13 @@
-"""Shared streaming stats cache helpers."""
+"""Shared streaming stats cache helpers.
+
+Streaming stats (n_nodes/n_edges/n_graphs/n_batches) are computed once per
+dataset/shard and reused across runs to avoid expensive rescans. The cache is
+stored as a hidden sidecar file (``.<stem>.streamstats.pkl``) next to each HDF5
+shard, so glob patterns like ``dir/*.h5`` do not treat the cache as data.
+
+Cache entries are invalidated when either the dataset signature (size/mtime) or
+the spec fingerprint changes (e.g. r_max, atomic_numbers, or edge cap).
+"""
 
 from __future__ import annotations
 
@@ -34,6 +43,7 @@ def spec_fingerprint(
     r_max: float,
     atomic_numbers: Sequence[int],
     edge_cap: int | None = None,
+    node_percentile: float | None = None,
 ) -> str:
     """Build a stable fingerprint for dataset spec + packing parameters."""
     payload = {
@@ -47,33 +57,39 @@ def spec_fingerprint(
         'r_max': float(r_max),
         'atomic_numbers': [int(z) for z in atomic_numbers],
         'edge_cap': int(edge_cap) if edge_cap is not None else None,
+        'node_percentile': (
+            float(node_percentile) if node_percentile is not None else None
+        ),
     }
     encoded = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
 
 
 def stats_payload_from_parts(
-    batch_assignments: list[list[int]],
     n_nodes: int,
     n_edges: int,
     n_graphs: int,
+    n_batches: int | None = None,
 ) -> dict:
-    """Serialize streaming stats to a JSON/pickle-friendly payload."""
-    return {
-        'batch_assignments': batch_assignments,
+    """Serialize streaming caps to a JSON/pickle-friendly payload."""
+    payload = {
         'n_nodes': int(n_nodes),
         'n_edges': int(n_edges),
         'n_graphs': int(n_graphs),
     }
+    if n_batches is not None:
+        payload['n_batches'] = int(n_batches)
+    return payload
 
 
-def stats_payload_to_parts(payload: dict) -> tuple[list[list[int]], int, int, int]:
+def stats_payload_to_parts(payload: dict) -> tuple[int, int, int, int | None]:
     """Deserialize streaming stats payload back into components."""
+    n_batches = payload.get('n_batches')
     return (
-        payload['batch_assignments'],
         int(payload['n_nodes']),
         int(payload['n_edges']),
         int(payload['n_graphs']),
+        int(n_batches) if n_batches is not None else None,
     )
 
 
