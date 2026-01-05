@@ -97,8 +97,10 @@ mace-jax = [
 
 [project.scripts]
 equitrain            = "equitrain.scripts.equitrain:main"
+equitrain-hdf5-benchmark = "equitrain.scripts.equitrain_hdf5_benchmark:main"
 equitrain-evaluate   = "equitrain.scripts.equitrain_evaluate:main"
 equitrain-export     = "equitrain.scripts.equitrain_export:main"
+equitrain-hdf5-info  = "equitrain.scripts.equitrain_hdf5_info:main"
 equitrain-inspect    = "equitrain.scripts.equitrain_inspect:main"
 equitrain-predict    = "equitrain.scripts.equitrain_predict:main"
 equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
