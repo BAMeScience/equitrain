@@ -127,7 +127,7 @@ equitrain-preprocess \
     --r-max 4.5
 ```
 
-The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed. XYZ files are parsed through ASE so that lattice vectors, species labels, and per-configuration metadata are retained. The generated HDF5 archive is a lightweight collection of numbered groups where each entry stores positions, atomic numbers, energy, optional forces and stress, the cell matrix, and periodic boundary conditions. Precomputed statistics (means, standard deviations, cutoff radius, atomic energies) are stored alongside and reused by the training entry points.
+The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed. XYZ files are parsed through ASE so that lattice vectors, species labels, and per-configuration metadata are retained. Precomputed statistics (means, standard deviations, cutoff radius, atomic energies) are stored alongside and reused by the training entry points.
 
 Under the hood, each processed file is organised as:
 
@@ -204,6 +204,10 @@ equitrain -v \
     --epochs 10 \
     --tqdm
 ```
+
+HDF5 inputs can be a directory, a glob (e.g. `data/train_*.h5`), or a comma-separated
+list of files; all shards are concatenated in order. This applies to
+`--train-file`, `--valid-file`, and `--test-file` when training with either backend.
 
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
@@ -294,6 +298,9 @@ def predict_with_mace():
 if __name__ == '__main__':
     predict_with_mace()
 ```
+
+For HDF5 inputs you can pass a directory, glob, or comma-separated list of files
+via `--predict-file` (all shards are concatenated in order).
 
 ---
 

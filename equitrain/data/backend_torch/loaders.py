@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from glob import glob
 from pathlib import Path
 
 import torch
@@ -70,9 +71,37 @@ def dataloader_update_errors(
     return dataloader
 
 
+def _expand_hdf5_paths(data_file: Path | str | list[Path | str]):
+    if data_file is None:
+        return []
+    if isinstance(data_file, (list, tuple)):
+        entries = list(data_file)
+    else:
+        entries = [data_file]
+
+    expanded: list[Path] = []
+    for entry in entries:
+        if entry is None:
+            continue
+        token = str(entry)
+        parts = [part.strip() for part in token.split(',') if part.strip()]
+        for part in parts:
+            path = Path(part).expanduser()
+            if path.is_dir():
+                matches = sorted(path.glob('*.h5')) + sorted(path.glob('*.hdf5'))
+                expanded.extend(matches)
+                continue
+            if any(char in part for char in '*?[]'):
+                matches = sorted(glob(part))
+                expanded.extend(Path(match) for match in matches)
+                continue
+            expanded.append(path)
+    return expanded
+
+
 def get_dataloader(
     args,
-    data_file: Path | str,
+    data_file: Path | str | list[Path | str],
     atomic_numbers: list[int],
     r_max: float,
     accelerator: Accelerator = None,
@@ -81,12 +110,22 @@ def get_dataloader(
         return None
 
     niggli_reduce = getattr(args, 'niggli_reduce', False)
-    data_set = HDF5GraphDataset(
-        data_file,
-        r_max=r_max,
-        atomic_numbers=atomic_numbers,
-        niggli_reduce=niggli_reduce,
-    )
+    files = _expand_hdf5_paths(data_file)
+    if not files:
+        raise ValueError('No HDF5 files found for the provided data_file input.')
+    datasets = [
+        HDF5GraphDataset(
+            path,
+            r_max=r_max,
+            atomic_numbers=atomic_numbers,
+            niggli_reduce=niggli_reduce,
+        )
+        for path in files
+    ]
+    if len(datasets) == 1:
+        data_set = datasets[0]
+    else:
+        data_set = torch.utils.data.ConcatDataset(datasets)
 
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
     num_workers = _resolve_num_workers(args.num_workers, accelerator)

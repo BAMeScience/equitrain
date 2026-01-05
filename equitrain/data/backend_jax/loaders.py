@@ -1,11 +1,40 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from glob import glob
 from pathlib import Path
 
 from equitrain.data.format_hdf5 import HDF5Dataset
 
 from .loaders_impl import GraphDataLoader
+
+
+def _expand_hdf5_paths(data_file: Path | str | Sequence[Path | str]) -> list[Path]:
+    if data_file is None:
+        return []
+    if isinstance(data_file, (list, tuple)):
+        entries = list(data_file)
+    else:
+        entries = [data_file]
+
+    expanded: list[Path] = []
+    for entry in entries:
+        if entry is None:
+            continue
+        token = str(entry)
+        parts = [part.strip() for part in token.split(',') if part.strip()]
+        for part in parts:
+            path = Path(part).expanduser()
+            if path.is_dir():
+                matches = sorted(path.glob('*.h5')) + sorted(path.glob('*.hdf5'))
+                expanded.extend(matches)
+                continue
+            if any(char in part for char in '*?[]'):
+                matches = sorted(glob(part))
+                expanded.extend(Path(match) for match in matches)
+                continue
+            expanded.append(path)
+    return expanded
 
 
 def get_dataloader(
@@ -28,10 +57,9 @@ def get_dataloader(
     if data_file is None:
         return None
 
-    if isinstance(data_file, list | tuple):
-        files = list(data_file)
-    else:
-        files = [data_file]
+    files = _expand_hdf5_paths(data_file)
+    if not files:
+        raise ValueError('No HDF5 files found for the provided data_file input.')
     datasets = [HDF5Dataset(Path(file), mode='r') for file in files]
 
     return GraphDataLoader(
