@@ -599,6 +599,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             '--tqdm', help='Show TQDM status bar', action='store_true', default=False
         )
         parser.add_argument(
+            '--tqdm-desc',
+            help='Optional description string for the prediction progress bar',
+            type=str,
+            default=None,
+        )
+        parser.add_argument(
             '--niggli-reduce',
             help='Apply Niggli reduction before graph construction at inference time',
             action='store_true',

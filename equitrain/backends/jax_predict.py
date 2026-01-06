@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import pickle
 import threading
@@ -41,7 +42,9 @@ _NODE_OUTPUT_KEYS = {
     'forces',
 }
 _EDGE_OUTPUT_KEYS: set[str] = set()
-_SKIP_OUTPUT_KEYS: set[str] = set()
+_SKIP_OUTPUT_KEYS: set[str] = {
+    'lammps_natoms',
+}
 
 
 def _prefetch_to_device(iterator, capacity: int, device_put_fn: Callable[[Any], Any]):
@@ -193,14 +196,13 @@ def predict_streaming(
             except Exception:  # pragma: no cover - defensive fallback
                 total_hint = 0
 
-    @jax.pmap(
+    _predict_step = functools.partial(
+        jax.pmap,
         in_axes=(None, 0),
         out_axes=0,
         axis_name='devices',
         devices=local_devices,
-    )
-    def _predict_step(params_, graph):
-        return predictor(params_, graph)
+    )(predictor)
 
     def _prepare_device_graphs(graph):
         if local_device_count <= 1:
@@ -453,11 +455,12 @@ def predict(args):
     )
     base_apply = make_apply_fn(wrapper, num_species=len(z_table))
 
+    tqdm_desc = getattr(args, 'tqdm_desc', None)
     graph_ids, outputs = predict_streaming(
         base_apply,
         bundle.params,
         loader,
-        name='JAX predict',
+        name=str(tqdm_desc) if tqdm_desc else 'JAX predict',
         progress_bar=getattr(args, 'tqdm', False),
     )
 
