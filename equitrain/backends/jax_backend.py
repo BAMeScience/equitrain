@@ -1033,8 +1033,33 @@ def train(args):
         if initial_val_loss is not None and start_epoch > 1:
             best_val = float(initial_val_loss)
             best_epoch = start_epoch - 1
+    initial_train_loss = None
+    if scheduler_controller.monitor == 'train' and train_loader is not None:
+
+        def _train_metric_step(params, batch):
+            loss, aux, _ = grad_step_fn(params, batch)
+            return loss, aux
+
+        initial_train_loader = _iter_loader_for_epoch(
+            train_loader,
+            epoch=start_epoch,
+            seed=train_seed if getattr(args, 'shuffle', False) else None,
+            process_count=process_count,
+            process_index=process_index,
+        )
+        initial_train_loss, _ = _run_eval_loop(
+            train_state.params,
+            initial_train_loader,
+            _train_metric_step,
+            max_steps=train_max_steps,
+            multi_device=multi_device,
+            logger=logger,
+        )
     scheduler_controller.register_initial_metric(
-        initial_val_loss, epoch=args.epochs_start - 1
+        initial_train_loss
+        if scheduler_controller.monitor == 'train'
+        else initial_val_loss,
+        epoch=args.epochs_start - 1,
     )
 
     num_epochs = args.epochs
