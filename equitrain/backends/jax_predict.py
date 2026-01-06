@@ -449,7 +449,6 @@ def predict(args):
         raise RuntimeError('Prediction dataset is empty.')
     effective_nodes = getattr(loader, '_n_node', batch_max_nodes)
     effective_edges = getattr(loader, '_n_edge', batch_max_edges)
-    effective_graphs = getattr(loader, '_n_graph', None)
     if batch_max_edges is not None and effective_edges != batch_max_edges:
         logging.warning(
             'Requested max edges per batch (%s) was raised to %s to fit the data.',
