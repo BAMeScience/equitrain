@@ -104,6 +104,7 @@ def load_checkpoint(
 
     checkpoint_dir = None
     args_checkpoint = None
+    ema_params = None
 
     if load_checkpoint_dir is None and load_best_checkpoint:
         checkpoint_dir, epoch = _find_best_checkpoint(args.output_dir, 'val')
@@ -154,6 +155,10 @@ def load_checkpoint(
 
         params = _load_params(bundle.params, params_path)
         bundle = replace(bundle, params=flax_core.freeze(params))
+        ema_path = directory / 'ema_params.msgpack'
+        if ema_path.exists():
+            ema_loaded = _load_params(bundle.params, ema_path)
+            ema_params = flax_core.freeze(ema_loaded)
 
         opt_path = directory / 'opt_state.msgpack'
         if opt_state is not None:
@@ -178,7 +183,7 @@ def load_checkpoint(
     if loaded:
         args.epochs_start = epochs_start
 
-    return bundle, opt_state, args_checkpoint
+    return bundle, opt_state, args_checkpoint, ema_params
 
 
 def save_checkpoint(
@@ -188,6 +193,7 @@ def save_checkpoint(
     bundle: ModelBundle,
     opt_state: Any,
     logger: FileLogger | None = None,
+    ema_params: Any | None = None,
 ):
     monitor_total = val_metric.main.meters['total'].avg
     output_dir = (
@@ -204,6 +210,9 @@ def save_checkpoint(
     opt_path = output_dir / 'opt_state.msgpack'
     if opt_state is not None:
         opt_path.write_bytes(serialization.to_bytes(opt_state))
+    if ema_params is not None:
+        ema_path = output_dir / 'ema_params.msgpack'
+        ema_path.write_bytes(serialization.to_bytes(ema_params))
 
     config_path = output_dir / DEFAULT_CONFIG_NAME
     config_path.write_text(json.dumps(bundle.config))

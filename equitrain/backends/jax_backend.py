@@ -942,15 +942,19 @@ def train(args):
     )
     opt_state = optimizer.init(bundle.params)
 
-    bundle, opt_state, args_checkpoint = jax_checkpoint.load_checkpoint(
-        args, bundle, opt_state, logger
+    bundle, opt_state, args_checkpoint, resume_ema_params = (
+        jax_checkpoint.load_checkpoint(args, bundle, opt_state, logger)
     )
     if args_checkpoint is not None:
         check_args_consistency(args, args_checkpoint, logger)
 
     use_ema = bool(getattr(args, 'ema', False))
     ema_decay = float(getattr(args, 'ema_decay', 0.999)) if use_ema else None
-    ema_params = bundle.params if use_ema else None
+    ema_params = (
+        resume_ema_params
+        if use_ema and resume_ema_params is not None
+        else (bundle.params if use_ema else None)
+    )
     ema_count = 0 if use_ema else 0
 
     train_state = TrainState(
@@ -1175,6 +1179,7 @@ def train(args):
                 ),
                 opt_state_host,
                 logger,
+                ema_params=best_ema_params_host if use_ema else None,
             )
 
         monitored_metric = (
