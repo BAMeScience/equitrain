@@ -98,7 +98,7 @@ class _PlateauScheduler(_SchedulerBase):
             return False
         self.num_bad_epochs = 0
         new_lr = max(self.current_lr * self.factor, self.min_lr)
-        if new_lr < self.current_lr - self.eps:
+        if new_lr < self.current_lr:
             self.current_lr = new_lr
             return True
         return False
