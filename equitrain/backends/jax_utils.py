@@ -13,8 +13,7 @@ import jax
 import jax.numpy as jnp
 import jraph
 import numpy as np
-from flax import core as flax_core
-from flax import serialization
+from flax import nnx, serialization
 from jax import tree_util as jtu
 
 from equitrain.argparser import ArgumentError
@@ -102,14 +101,36 @@ def load_model_bundle(
     set_jax_dtype(dtype)
 
     wrapper_name = _discover_wrapper_name(config, wrapper)
+
+    if wrapper_name == 'mace':
+        from mace_jax.tools import bundle as mace_bundle  # noqa: PLC0415
+
+        bundle = mace_bundle.load_model_bundle(
+            model_arg,
+            dtype=dtype,
+            wrapper='mace',
+        )
+        return ModelBundle(
+            config=bundle.config,
+            params=bundle.params,
+            module=bundle.graphdef,
+        )
+
     build_module = get_wrapper_builder(wrapper_name)
 
     jax_module, template = build_module(config)
-    variables = jax_module.init(jax.random.PRNGKey(0), template)
-    variables = serialization.from_bytes(variables, params_path.read_bytes())
-    variables = flax_core.freeze(variables)
+    graphdef, state = nnx.split(jax_module)
+    from mace_jax.nnx_utils import (  # noqa: PLC0415
+        state_to_pure_dict,
+        state_to_serializable_dict,
+    )
 
-    return ModelBundle(config=config, params=variables, module=jax_module)
+    state_template = state_to_serializable_dict(state)
+    state_pure = serialization.from_bytes(state_template, params_path.read_bytes())
+    nnx.replace_by_pure_dict(state, state_pure)
+    params = state_to_pure_dict(state)
+
+    return ModelBundle(config=config, params=params, module=graphdef)
 
 
 def is_multi_device() -> bool:

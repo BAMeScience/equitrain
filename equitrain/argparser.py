@@ -319,6 +319,16 @@ def add_loss_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
+def add_predict_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--tqdm-desc',
+        dest='tqdm_desc',
+        default=None,
+        help='Optional description for the tqdm progress bar.',
+    )
+    return parser
+
+
 def add_model_freeze_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--freeze-params',

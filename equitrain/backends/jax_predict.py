@@ -273,9 +273,9 @@ def predict_streaming(
                 is_leaf=lambda x: x is None,
             )
             ids, per_graph = _split_prediction_outputs(device_outputs, device_graph)
-            for key in list(batch_outputs):
+            for key, values in batch_outputs.items():
                 if key not in per_graph:
-                    batch_outputs[key].extend([None] * len(ids))
+                    values.extend([None] * len(ids))
             for key, values in per_graph.items():
                 if key not in batch_outputs:
                     batch_outputs[key] = [None] * len(batch_graph_ids)
