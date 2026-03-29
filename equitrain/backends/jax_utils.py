@@ -108,18 +108,17 @@ def load_model_bundle(
     build_module = get_wrapper_builder(wrapper_name)
 
     jax_module, template = build_module(config)
-    graphdef, state = nnx.split(jax_module)
-    from mace_jax.nnx_utils import (  # noqa: PLC0415
-        state_to_pure_dict,
-        state_to_serializable_dict,
-    )
+    if template is not None:
+        params_template = template
+        module = jax_module
+    else:
+        graphdef, state = nnx.split(jax_module)
+        params_template = serialization.to_state_dict(state)
+        module = graphdef
 
-    state_template = state_to_serializable_dict(state)
-    state_pure = serialization.from_bytes(state_template, params_path.read_bytes())
-    nnx.replace_by_pure_dict(state, state_pure)
-    params = state_to_pure_dict(state)
+    params = serialization.from_bytes(params_template, params_path.read_bytes())
 
-    return ModelBundle(config=config, params=params, module=graphdef)
+    return ModelBundle(config=config, params=params, module=module)
 
 
 def is_multi_device() -> bool:

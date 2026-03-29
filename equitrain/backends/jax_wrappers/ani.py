@@ -74,11 +74,44 @@ class AniWrapper:
         self.compute_force = compute_force
         self.compute_stress = compute_stress
 
+    def _species_order_numbers(self) -> list[int] | None:
+        species_order = self.config.get('species_order')
+        if species_order is None:
+            return None
+
+        resolved = []
+        for symbol in species_order:
+            number = _SYMBOL_TO_Z.get(str(symbol), symbol)
+            resolved.append(int(number))
+        return resolved
+
+    def _species_index_remap(self) -> jnp.ndarray | None:
+        dataset_numbers = self.config.get('atomic_numbers')
+        model_numbers = self._species_order_numbers()
+
+        if dataset_numbers is None or model_numbers is None:
+            return None
+
+        index_by_number = {int(z): idx for idx, z in enumerate(model_numbers)}
+        remap = []
+        for number in dataset_numbers:
+            z = int(number)
+            if z not in index_by_number:
+                raise ValueError(
+                    'ANI species_order does not cover every atomic number in '
+                    f'config.atomic_numbers: missing Z={z}.'
+                )
+            remap.append(index_by_number[z])
+        return jnp.asarray(remap, dtype=jnp.int32)
+
     def _prepare_batch_inputs(
         self,
         data_dict: dict[str, jnp.ndarray],
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         species = jnp.asarray(data_dict['node_attrs_index'], dtype=jnp.int32)
+        remap = self._species_index_remap()
+        if remap is not None:
+            species = remap[species]
         coordinates = jnp.asarray(data_dict['positions'])
         ptr = jnp.asarray(data_dict['ptr'], dtype=jnp.int32)
 
@@ -120,13 +153,24 @@ class AniWrapper:
             'counts': counts,
         }
 
+        apply = getattr(self.module, 'apply')
+
         if hasattr(self.module, 'init'):
             try:
-                return self.module.apply(variables, model_inputs)
+                return apply(variables, model_inputs)
             except TypeError:
-                return self.module.apply(variables, species_batch, coordinates_batch)
+                return apply(variables, species_batch, coordinates_batch)
 
-        apply_fn = self.module.apply(variables)
+        try:
+            return apply(variables, model_inputs)
+        except TypeError:
+            pass
+        try:
+            return apply(variables, species_batch, coordinates_batch)
+        except TypeError:
+            pass
+
+        apply_fn = apply(variables)
         try:
             outputs, _ = apply_fn(model_inputs)
         except TypeError:
@@ -234,17 +278,12 @@ class AniWrapper:
         if numbers is not None:
             return AtomicNumberTable([int(z) for z in numbers])
 
-        species_order = self.config.get('species_order')
+        species_order = self._species_order_numbers()
         if species_order is None:
             return AtomicNumberTable([1, 6, 7, 8])
 
-        resolved = sorted(
-            {
-                _SYMBOL_TO_Z.get(str(symbol), symbol)
-                for symbol in species_order
-            }
-        )
-        return AtomicNumberTable([int(z) for z in resolved])
+        resolved = sorted(set(species_order))
+        return AtomicNumberTable(resolved)
 
     @property
     def atomic_energies(self):
@@ -269,7 +308,9 @@ class AniWrapper:
 
     @r_max.setter
     def r_max(self, value: float):
-        self.config['r_max'] = float(value)
+        # Keep Torch ANI parity: changing the cutoff would require rebuilding the
+        # underlying ANI features, so treat this as an intentional no-op.
+        return
 
     def with_compute_flags(
         self, *, force: bool | None = None, stress: bool | None = None
