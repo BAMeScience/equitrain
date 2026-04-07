@@ -38,6 +38,18 @@ _SYMBOL_TO_Z = {
 }
 
 
+def _voigt6_to_full3x3(stress: jnp.ndarray) -> jnp.ndarray:
+    sxx, syy, szz, syz, sxz, sxy = [stress[..., idx] for idx in range(6)]
+    return jnp.stack(
+        [
+            jnp.stack([sxx, sxy, sxz], axis=-1),
+            jnp.stack([sxy, syy, syz], axis=-1),
+            jnp.stack([sxz, syz, szz], axis=-1),
+        ],
+        axis=-2,
+    )
+
+
 def _import_symbol(path: str):
     module_name, _, attr_name = path.replace(':', '.').rpartition('.')
     if not module_name or not attr_name:
@@ -104,26 +116,71 @@ class AniWrapper:
             remap.append(index_by_number[z])
         return jnp.asarray(remap, dtype=jnp.int32)
 
+    def _remap_species(self, species: jnp.ndarray) -> jnp.ndarray:
+        remap = self._species_index_remap()
+        if remap is None:
+            return species
+
+        valid = species >= 0
+        safe_species = jnp.where(valid, species, 0)
+        remapped = remap[safe_species]
+        return jnp.where(valid, remapped, -1)
+
+    def _node_mask_from_data(self, data_dict: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        if 'node_mask' in data_dict:
+            return jnp.asarray(data_dict['node_mask'], dtype=bool)
+        if 'node_attrs' in data_dict:
+            node_attrs = jnp.asarray(data_dict['node_attrs'])
+            return jnp.sum(jnp.abs(node_attrs), axis=-1) > 0
+        return jnp.ones((jnp.asarray(data_dict['positions']).shape[0],), dtype=bool)
+
+    def _prepare_direct_inputs(
+        self,
+        species: jnp.ndarray,
+        coordinates: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        species_batch = jnp.asarray(species, dtype=jnp.int32)
+        coordinates_batch = jnp.asarray(coordinates)
+
+        if species_batch.ndim == 1:
+            species_batch = species_batch[None, :]
+        if coordinates_batch.ndim == 2:
+            coordinates_batch = coordinates_batch[None, :, :]
+        if species_batch.ndim != 2 or coordinates_batch.ndim != 3:
+            raise ValueError(
+                'ANI direct inputs must have species shape [batch, atoms] and '
+                'coordinates shape [batch, atoms, 3].'
+            )
+        if coordinates_batch.shape[-1] != 3:
+            raise ValueError('ANI coordinates must have trailing dimension 3.')
+
+        atom_mask = species_batch >= 0
+        counts = jnp.sum(atom_mask, axis=1, dtype=jnp.int32)
+        return species_batch, coordinates_batch, atom_mask, counts
+
     def _prepare_batch_inputs(
         self,
         data_dict: dict[str, jnp.ndarray],
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         species = jnp.asarray(data_dict['node_attrs_index'], dtype=jnp.int32)
-        remap = self._species_index_remap()
-        if remap is not None:
-            species = remap[species]
         coordinates = jnp.asarray(data_dict['positions'])
         ptr = jnp.asarray(data_dict['ptr'], dtype=jnp.int32)
+        node_mask = self._node_mask_from_data(data_dict)
 
-        counts = ptr[1:] - ptr[:-1]
-        batch_size = counts.shape[0]
-        max_atoms = jnp.max(
-            jnp.concatenate([counts, jnp.zeros((1,), dtype=counts.dtype)])
-        )
+        raw_counts = ptr[1:] - ptr[:-1]
+        batch_size = raw_counts.shape[0]
+        max_atoms = species.shape[0]
 
         graph_index = jnp.arange(batch_size, dtype=jnp.int32)
-        batch = jnp.repeat(graph_index, counts, total_repeat_length=species.shape[0])
+        batch = jnp.repeat(graph_index, raw_counts, total_repeat_length=species.shape[0])
         local_index = jnp.arange(species.shape[0], dtype=jnp.int32) - ptr[batch]
+        counts = jax.ops.segment_sum(
+            node_mask.astype(jnp.int32),
+            batch,
+            num_segments=batch_size,
+        )
+        species = self._remap_species(species)
+        species = jnp.where(node_mask, species, -1)
 
         species_batch = jnp.full((batch_size, max_atoms), -1, dtype=jnp.int32)
         coordinates_batch = jnp.zeros(
@@ -134,7 +191,7 @@ class AniWrapper:
 
         species_batch = species_batch.at[batch, local_index].set(species)
         coordinates_batch = coordinates_batch.at[batch, local_index].set(coordinates)
-        atom_mask = atom_mask.at[batch, local_index].set(True)
+        atom_mask = atom_mask.at[batch, local_index].set(node_mask)
 
         return species_batch, coordinates_batch, atom_mask, counts
 
@@ -214,8 +271,10 @@ class AniWrapper:
 
         if 'stress' in result and result['stress'] is not None:
             stress = jnp.asarray(result['stress'])
-            if stress.ndim == 2 and stress.shape[-1] == 6:
-                stress = stress.reshape(stress.shape[0], 6)
+            if stress.ndim >= 1 and stress.shape[-1] == 6:
+                stress = _voigt6_to_full3x3(stress)
+            elif stress.ndim == 2 and stress.shape == (3, 3):
+                stress = stress[None, :, :]
             result['stress'] = stress[: counts.shape[0]]
 
         return result
@@ -223,7 +282,8 @@ class AniWrapper:
     def apply(
         self,
         variables: dict[str, Any],
-        data_dict: dict[str, jnp.ndarray],
+        data_dict_or_species: dict[str, jnp.ndarray] | jnp.ndarray,
+        coordinates: jnp.ndarray | None = None,
         *,
         compute_force: bool | None = None,
         compute_stress: bool | None = None,
@@ -231,9 +291,19 @@ class AniWrapper:
         force_flag = self.compute_force if compute_force is None else compute_force
         stress_flag = self.compute_stress if compute_stress is None else compute_stress
 
-        species_batch, coordinates_batch, atom_mask, counts = self._prepare_batch_inputs(
-            data_dict
-        )
+        if coordinates is None:
+            if not isinstance(data_dict_or_species, dict):
+                raise ValueError(
+                    'ANI JAX wrapper expects a data dictionary, or direct '
+                    '`species, coordinates` inputs.'
+                )
+            species_batch, coordinates_batch, atom_mask, counts = (
+                self._prepare_batch_inputs(data_dict_or_species)
+            )
+        else:
+            species_batch, coordinates_batch, atom_mask, counts = (
+                self._prepare_direct_inputs(data_dict_or_species, coordinates)
+            )
 
         def _forward(coords):
             outputs = self._call_module(
@@ -258,6 +328,7 @@ class AniWrapper:
         }
 
         if force_flag and result['forces'] is None:
+
             def _total_energy(coords):
                 return jnp.sum(_forward(coords)['energy'])
 
