@@ -7,9 +7,19 @@ from __future__ import annotations
 from importlib import import_module
 from types import MappingProxyType
 
-__all__ = ['MaceWrapper', 'available_wrappers', 'get_wrapper_builder']
+__all__ = [
+    'MaceWrapper',
+    'AniWrapper',
+    'available_wrappers',
+    'create_wrapper',
+    'get_wrapper_builder',
+    'infer_wrapper_name',
+]
 
-_MODULE_MAP = {'MaceWrapper': 'mace'}
+_MODULE_MAP = {
+    'MaceWrapper': 'mace',
+    'AniWrapper': 'ani',
+}
 _CACHE = {}
 _ERRORS = {}
 
@@ -52,6 +62,42 @@ def available_wrappers() -> MappingProxyType:
     return MappingProxyType(status)
 
 
+def infer_wrapper_name(config: dict | None, explicit: str | None = None) -> str:
+    if explicit:
+        return explicit.strip().lower()
+
+    config = config or {}
+    for key in ('model_wrapper', 'wrapper', 'wrapper_name'):
+        value = config.get(key)
+        if value:
+            return str(value).strip().lower()
+    return 'mace'
+
+
+def _wrapper_class_name(name: str) -> str:
+    normalized = infer_wrapper_name({}, name)
+    return f'{normalized.capitalize()}Wrapper'
+
+
+def create_wrapper(
+    name: str | None,
+    *,
+    module,
+    config: dict | None,
+    compute_force: bool = False,
+    compute_stress: bool = False,
+):
+    wrapper_name = infer_wrapper_name(config, name)
+    wrapper_module = import_module(f'.{wrapper_name}', __name__)
+    wrapper_class = getattr(wrapper_module, _wrapper_class_name(wrapper_name))
+    return wrapper_class(
+        module=module,
+        config=config or {},
+        compute_force=compute_force,
+        compute_stress=compute_stress,
+    )
+
+
 def get_wrapper_builder(name: str):
     """
     Return the ``build_module`` helper for the requested wrapper.
@@ -60,7 +106,7 @@ def get_wrapper_builder(name: str):
     if not name:
         raise ValueError('Wrapper name must be provided to load a JAX model.')
 
-    module_name = name.strip().lower()
+    module_name = infer_wrapper_name({}, name)
     try:
         module = import_module(f'.{module_name}', __name__)
     except ModuleNotFoundError as exc:

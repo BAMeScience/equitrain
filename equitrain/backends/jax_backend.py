@@ -51,7 +51,7 @@ from equitrain.backends.jax_utils import (
 from equitrain.backends.jax_utils import (
     prepare_single_batch as _prepare_single_batch,
 )
-from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
+from equitrain.backends.jax_wrappers import create_wrapper
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.logger import ensure_output_dir, init_logger
@@ -928,7 +928,8 @@ def train(args):
     if train_loader is None:
         raise RuntimeError('Training dataset is empty.')
 
-    wrapper = JaxMaceWrapper(
+    wrapper = create_wrapper(
+        getattr(args, 'model_wrapper', None),
         module=bundle.module,
         config=bundle.config,
         compute_force=args.forces_weight > 0.0,

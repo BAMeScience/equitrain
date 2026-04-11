@@ -17,7 +17,7 @@ from flax import nnx, serialization
 from jax import tree_util as jtu
 
 from equitrain.argparser import ArgumentError
-from equitrain.backends.jax_wrappers import get_wrapper_builder
+from equitrain.backends.jax_wrappers import get_wrapper_builder, infer_wrapper_name
 
 DEFAULT_CONFIG_NAME = 'config.json'
 DEFAULT_PARAMS_NAME = 'params.msgpack'
@@ -78,17 +78,6 @@ def resolve_model_paths(model_arg: str) -> tuple[Path, Path]:
     return config_path, params_path
 
 
-def _discover_wrapper_name(config: dict, explicit: str | None) -> str:
-    if explicit:
-        return explicit.strip().lower()
-
-    for key in ('model_wrapper', 'wrapper', 'wrapper_name'):
-        value = config.get(key)
-        if value:
-            return str(value).strip().lower()
-    return 'mace'
-
-
 def load_model_bundle(
     model_arg: str,
     dtype: str,
@@ -100,7 +89,7 @@ def load_model_bundle(
 
     set_jax_dtype(dtype)
 
-    wrapper_name = _discover_wrapper_name(config, wrapper)
+    wrapper_name = infer_wrapper_name(config, wrapper)
 
     if wrapper_name == 'mace':
         from mace_jax.tools import bundle as mace_bundle  # noqa: PLC0415
@@ -119,18 +108,17 @@ def load_model_bundle(
     build_module = get_wrapper_builder(wrapper_name)
 
     jax_module, template = build_module(config)
-    graphdef, state = nnx.split(jax_module)
-    from mace_jax.nnx_utils import (  # noqa: PLC0415
-        state_to_pure_dict,
-        state_to_serializable_dict,
-    )
+    if template is not None:
+        params_template = template
+        module = jax_module
+    else:
+        graphdef, state = nnx.split(jax_module)
+        params_template = serialization.to_state_dict(state)
+        module = graphdef
 
-    state_template = state_to_serializable_dict(state)
-    state_pure = serialization.from_bytes(state_template, params_path.read_bytes())
-    nnx.replace_by_pure_dict(state, state_pure)
-    params = state_to_pure_dict(state)
+    params = serialization.from_bytes(params_template, params_path.read_bytes())
 
-    return ModelBundle(config=config, params=params, module=graphdef)
+    return ModelBundle(config=config, params=params, module=module)
 
 
 def is_multi_device() -> bool:
