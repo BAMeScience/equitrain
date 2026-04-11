@@ -52,7 +52,7 @@ def test_convert_lmdb_to_hdf5(monkeypatch, tmp_path, lmdb_records):
     monkeypatch.setattr(
         lmdb_module,
         '_load_aselmdb_dataset',
-        lambda: (lambda config: _DummyLmdbDataset(lmdb_records)),
+        lambda: lambda config: _DummyLmdbDataset(lmdb_records),
     )
 
     dst = convert_lmdb_to_hdf5(

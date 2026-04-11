@@ -44,8 +44,8 @@ class ErrorFn(torch.nn.Module):
             raise ValueError(f'Invalid loss type: {loss_type}')
 
         if loss_weight_type == 'groundstate':
-            self.weight_fn = (
-                lambda x, y: torch.exp(-1000.0 * self.rowwise_norm(y) ** 2) + 1.0
+            self.weight_fn = lambda x, y: (
+                torch.exp(-1000.0 * self.rowwise_norm(y) ** 2) + 1.0
             )
         else:
             self.weight_fn = None

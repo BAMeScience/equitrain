@@ -135,7 +135,9 @@ def test_jax_ani_wrapper_computes_forces_when_module_only_returns_energy():
         {},
         {
             'node_attrs_index': jnp.array([0, 1], dtype=jnp.int32),
-            'positions': jnp.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]], dtype=jnp.float32),
+            'positions': jnp.array(
+                [[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]], dtype=jnp.float32
+            ),
             'ptr': jnp.array([0, 2], dtype=jnp.int32),
         },
     )
@@ -178,10 +180,20 @@ def test_jax_ani_wrapper_ignores_padding_and_jits():
 
     outputs = jax.jit(lambda inputs: wrapper.apply({}, inputs))(data)
 
-    np.testing.assert_allclose(outputs['energy'], np.array([5.0, 0.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        outputs['energy'], np.array([5.0, 0.0], dtype=np.float32)
+    )
     np.testing.assert_allclose(
         outputs['forces'],
-        np.array([[-2.0, 0.0, 0.0], [0.0, -4.0, 0.0]], dtype=np.float32),
+        np.array(
+            [
+                [-2.0, 0.0, 0.0],
+                [0.0, -4.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        ),
     )
     np.testing.assert_allclose(
         outputs['stress'],
@@ -214,7 +226,9 @@ def test_jax_ani_wrapper_converts_voigt_stress_to_full_matrix():
     )
 
 
-def test_load_model_bundle_supports_non_mace_wrappers_without_mace_jax(tmp_path, monkeypatch):
+def test_load_model_bundle_supports_non_mace_wrappers_without_mace_jax(
+    tmp_path, monkeypatch
+):
     config = {
         'wrapper_name': 'ani',
         'atomic_numbers': [1, 6],
@@ -235,4 +249,6 @@ def test_load_model_bundle_supports_non_mace_wrappers_without_mace_jax(tmp_path,
     bundle = jax_utils.load_model_bundle(str(model_dir), dtype='float32', wrapper='ani')
 
     assert bundle.config['wrapper_name'] == 'ani'
-    np.testing.assert_allclose(bundle.params['params']['scale'], np.array([2.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        bundle.params['params']['scale'], np.array([2.0], dtype=np.float32)
+    )

@@ -138,7 +138,7 @@ class AniWrapper:
         self,
         species: jnp.ndarray,
         coordinates: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, dict | None]:
         species_batch = jnp.asarray(species, dtype=jnp.int32)
         coordinates_batch = jnp.asarray(coordinates)
 
@@ -156,12 +156,14 @@ class AniWrapper:
 
         atom_mask = species_batch >= 0
         counts = jnp.sum(atom_mask, axis=1, dtype=jnp.int32)
-        return species_batch, coordinates_batch, atom_mask, counts
+        return species_batch, coordinates_batch, atom_mask, counts, None
 
     def _prepare_batch_inputs(
         self,
         data_dict: dict[str, jnp.ndarray],
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[
+        jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]
+    ]:
         species = jnp.asarray(data_dict['node_attrs_index'], dtype=jnp.int32)
         coordinates = jnp.asarray(data_dict['positions'])
         ptr = jnp.asarray(data_dict['ptr'], dtype=jnp.int32)
@@ -172,7 +174,9 @@ class AniWrapper:
         max_atoms = species.shape[0]
 
         graph_index = jnp.arange(batch_size, dtype=jnp.int32)
-        batch = jnp.repeat(graph_index, raw_counts, total_repeat_length=species.shape[0])
+        batch = jnp.repeat(
+            graph_index, raw_counts, total_repeat_length=species.shape[0]
+        )
         local_index = jnp.arange(species.shape[0], dtype=jnp.int32) - ptr[batch]
         counts = jax.ops.segment_sum(
             node_mask.astype(jnp.int32),
@@ -193,7 +197,26 @@ class AniWrapper:
         coordinates_batch = coordinates_batch.at[batch, local_index].set(coordinates)
         atom_mask = atom_mask.at[batch, local_index].set(node_mask)
 
-        return species_batch, coordinates_batch, atom_mask, counts
+        force_layout = {
+            'batch': batch,
+            'local_index': local_index,
+            'node_mask': node_mask,
+        }
+
+        return species_batch, coordinates_batch, atom_mask, counts, force_layout
+
+    def _flatten_forces(
+        self,
+        forces: jnp.ndarray,
+        atom_mask: jnp.ndarray,
+        force_layout: dict[str, jnp.ndarray] | None,
+    ) -> jnp.ndarray:
+        if force_layout is None:
+            return forces[atom_mask]
+
+        gathered = forces[force_layout['batch'], force_layout['local_index']]
+        node_mask = jnp.asarray(force_layout['node_mask'], dtype=bool)
+        return jnp.where(node_mask[:, None], gathered, 0.0)
 
     def _call_module(
         self,
@@ -240,6 +263,7 @@ class AniWrapper:
         *,
         counts: jnp.ndarray,
         atom_mask: jnp.ndarray,
+        force_layout: dict[str, jnp.ndarray] | None,
     ) -> dict[str, jnp.ndarray]:
         if isinstance(outputs, dict):
             result = dict(outputs)
@@ -265,7 +289,11 @@ class AniWrapper:
         if 'forces' in result and result['forces'] is not None:
             forces = jnp.asarray(result['forces'])
             if forces.ndim == 3:
-                result['forces'] = forces[atom_mask]
+                result['forces'] = self._flatten_forces(
+                    forces,
+                    atom_mask,
+                    force_layout,
+                )
             else:
                 result['forces'] = forces
 
@@ -297,11 +325,11 @@ class AniWrapper:
                     'ANI JAX wrapper expects a data dictionary, or direct '
                     '`species, coordinates` inputs.'
                 )
-            species_batch, coordinates_batch, atom_mask, counts = (
+            species_batch, coordinates_batch, atom_mask, counts, force_layout = (
                 self._prepare_batch_inputs(data_dict_or_species)
             )
         else:
-            species_batch, coordinates_batch, atom_mask, counts = (
+            species_batch, coordinates_batch, atom_mask, counts, force_layout = (
                 self._prepare_direct_inputs(data_dict_or_species, coordinates)
             )
 
@@ -317,6 +345,7 @@ class AniWrapper:
                 outputs,
                 counts=counts,
                 atom_mask=atom_mask,
+                force_layout=force_layout,
             )
 
         normalized = _forward(coordinates_batch)
@@ -333,7 +362,11 @@ class AniWrapper:
                 return jnp.sum(_forward(coords)['energy'])
 
             forces_full = -jax.grad(_total_energy)(coordinates_batch)
-            result['forces'] = forces_full[atom_mask]
+            result['forces'] = self._flatten_forces(
+                forces_full,
+                atom_mask,
+                force_layout,
+            )
 
         if stress_flag and result['stress'] is None:
             result['stress'] = jnp.zeros(

@@ -1326,7 +1326,9 @@ def _raise_memory_hint(exc, args, *, phase: str):
 def _save_parameters(output_dir: Path, variables) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     params_path = output_dir / 'jax_params.msgpack'
-    params_path.write_bytes(serialization.to_bytes(pure_to_serializable_dict(variables)))
+    params_path.write_bytes(
+        serialization.to_bytes(pure_to_serializable_dict(variables))
+    )
 
 
 def evaluate(args):

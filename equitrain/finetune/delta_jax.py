@@ -51,7 +51,10 @@ def ensure_delta_params(variables, delta_template) -> flax_core.FrozenDict:
     """
     unfrozen = _as_mutable_tree(variables)
 
-    if 'base_params' in unfrozen and unfrozen.get('params', {}).get('delta') is not None:
+    if (
+        'base_params' in unfrozen
+        and unfrozen.get('params', {}).get('delta') is not None
+    ):
         return flax_core.freeze(unfrozen)
 
     return flax_core.freeze(

@@ -216,7 +216,9 @@ def save_checkpoint(
 
     opt_path = output_dir / 'opt_state.msgpack'
     if opt_state is not None:
-        opt_path.write_bytes(serialization.to_bytes(pure_to_serializable_dict(opt_state)))
+        opt_path.write_bytes(
+            serialization.to_bytes(pure_to_serializable_dict(opt_state))
+        )
     if ema_params is not None:
         ema_path = output_dir / 'ema_params.msgpack'
         ema_path.write_bytes(

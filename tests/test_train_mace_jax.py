@@ -492,7 +492,7 @@ def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path):
     args.plateau_factor = 0.5
     args.plateau_patience = 0
     args.plateau_mode = 'min'
-    args.plateau_threshold = 0.0
+    args.plateau_threshold = 1.0
     args.plateau_threshold_mode = 'rel'
     args.plateau_eps = 0.0
     args.freeze_params = [r'.*']
@@ -504,6 +504,7 @@ def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path):
     summary = equitrain_train(args)
     assert len(summary['lr_history']) == args.epochs + 1
     assert summary['lr_history'][0] == pytest.approx(args.lr)
-    assert summary['lr_history'][1] <= summary['lr_history'][0]
-    assert summary['lr_history'][2] <= summary['lr_history'][1]
-    assert summary['lr_history'][-1] < args.lr
+    assert summary['lr_history'][1] == pytest.approx(args.lr * args.plateau_factor)
+    assert summary['lr_history'][2] == pytest.approx(
+        args.lr * args.plateau_factor * args.plateau_factor
+    )
