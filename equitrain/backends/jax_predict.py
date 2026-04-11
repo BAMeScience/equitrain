@@ -23,6 +23,7 @@ from equitrain.backends.jax_utils import (
     stack_or_none,
     supports_multiprocessing_workers,
 )
+from equitrain.backends.jax_wrappers import create_wrapper
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.data.backend_jax.loaders_impl_cache import (
@@ -464,6 +465,7 @@ def predict(args):
 
     wrapper = _create_wrapper(
         bundle,
+        wrapper_name=getattr(args, 'model_wrapper', None),
         compute_force=getattr(args, 'forces_weight', 0.0) > 0.0,
         compute_stress=getattr(args, 'stress_weight', 0.0) > 0.0,
     )
@@ -493,10 +495,15 @@ def _load_bundle(model_path: str, dtype: str, wrapper: str | None):
     return _load_model_bundle(model_path, dtype=dtype, wrapper=wrapper)
 
 
-def _create_wrapper(bundle, *, compute_force: bool, compute_stress: bool):
-    from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
-
-    return JaxMaceWrapper(
+def _create_wrapper(
+    bundle,
+    *,
+    wrapper_name: str | None = None,
+    compute_force: bool,
+    compute_stress: bool,
+):
+    return create_wrapper(
+        wrapper_name or bundle.config.get('model_wrapper'),
         module=bundle.module,
         config=bundle.config,
         compute_force=compute_force,

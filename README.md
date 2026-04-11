@@ -1,5 +1,7 @@
 # Equitrain: A Unified Framework for Training and Fine-tuning Machine Learning Interatomic Potentials
 
+Equitrain is a Python toolkit for preprocessing atomistic datasets, training interatomic potential models, and fine-tuning existing checkpoints through one consistent CLI and API.
+
 Equitrain is an open-source software package designed to simplify the training and fine-tuning of machine learning universal interatomic potentials (MLIPs). Equitrain addresses the challenges posed by the diverse and often complex training codes specific to each MLIP by providing a unified and efficient framework. This allows researchers to focus on model development rather than implementation details.
 
 ---
@@ -111,6 +113,17 @@ For JAX-based workflows, install the corresponding extras, e.g.:
 pip install equitrain[jax,mace-jax]
 ```
 
+ANI can be used through either backend, but the model artifact format differs:
+
+- Torch ANI uses TorchANI models/checkpoints directly and requires the `ani` extra.
+- JAX ANI uses a JAX-native ANI-like module packaged as a JAX bundle (`config.json` + `params.msgpack`).
+
+For Torch ANI support:
+
+```bash
+pip install equitrain[torch,ani]
+```
+
 ### 1. Preprocessing Data
 
 Preprocess data files to compute necessary statistics and prepare for training:
@@ -188,6 +201,16 @@ equitrain -v \
     --epochs 10 \
     --tqdm
 
+# Training with TorchANI
+equitrain -v \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir result_ani \
+    --model path/to/ani.model \
+    --model-wrapper ani \
+    --epochs 10 \
+    --tqdm
+
 # JAX multi-GPU (single node, auto spawns one process per visible GPU)
 CUDA_VISIBLE_DEVICES=0,1 \
 equitrain -v \
@@ -257,7 +280,15 @@ if __name__ == '__main__':
 
 #### Running the JAX backend
 
-The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle exported via `mace_jax_from_torch` or the new fine-tuning utilities:
+The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle. A JAX bundle is a model directory with a `config.json` file and a `params.msgpack` file:
+
+```text
+path/to/jax_bundle/
+  config.json
+  params.msgpack
+```
+
+For MACE, this bundle can be exported via `mace_jax_from_torch` or the fine-tuning utilities:
 
 ```bash
 equitrain -v \
@@ -268,6 +299,40 @@ equitrain -v \
     --output-dir result-jax \
     --epochs 5
 ```
+
+For JAX ANI, the bundle must describe how to construct a JAX-native ANI-like module. It does not load TorchANI checkpoints directly. A minimal `config.json` looks like:
+
+```json
+{
+  "wrapper_name": "ani",
+  "atomic_numbers": [1, 6, 7, 8],
+  "species_order": ["H", "C", "N", "O"],
+  "r_max": 5.2,
+  "module_factory": "my_package.my_ani:create_model",
+  "model_kwargs": {}
+}
+```
+
+The `module_factory`, `module_builder`, or `module_class` entry must resolve to a Python object that builds the JAX model. The resulting module should expose an `apply` method that accepts either a mapping with `species`, `coordinates`, `atom_mask`, and `counts`, or positional `(species, coordinates)` inputs. The output must include `energy` and may optionally include `forces` and `stress`. If the module returns only energy and `--forces-weight` is positive, the JAX ANI wrapper computes forces with `jax.grad`.
+
+Example JAX ANI training command:
+
+```bash
+equitrain -v \
+    --backend jax \
+    --model path/to/jax_ani_bundle \
+    --model-wrapper ani \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir result-jax-ani \
+    --energy-weight 1.0 \
+    --forces-weight 1.0 \
+    --stress-weight 0.0 \
+    --batch-max-edges 10000 \
+    --epochs 5
+```
+
+Start by testing JAX ANI with `--forces-weight 0.0` for an energy-only smoke test. After the bundle loads and energy training works, enable force training to exercise the `jax.grad` force path.
 
 ---
 
@@ -301,6 +366,26 @@ if __name__ == '__main__':
 
 For HDF5 inputs you can pass a directory, glob, or comma-separated list of files
 via `--predict-file` (all shards are concatenated in order).
+
+The same backend/model distinction applies for prediction. Torch ANI uses a TorchANI checkpoint:
+
+```bash
+equitrain-predict \
+    --model path/to/ani.model \
+    --model-wrapper ani \
+    --predict-file data/valid.h5
+```
+
+JAX ANI uses the JAX bundle described above:
+
+```bash
+equitrain-predict \
+    --backend jax \
+    --model path/to/jax_ani_bundle \
+    --model-wrapper ani \
+    --predict-file data/valid.h5 \
+    --batch-max-edges 10000
+```
 
 ---
 

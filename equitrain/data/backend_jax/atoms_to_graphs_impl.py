@@ -210,6 +210,11 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
 
     n_node = jnp.asarray(graph.n_node, dtype=jnp.int32)
     graph_mask = jraph.get_graph_padding_mask(graph)
+    node_padding_mask = jnp.repeat(
+        graph_mask,
+        graph.n_node,
+        total_repeat_length=positions.shape[0],
+    )
     all_positive = jnp.all(n_node > 0)
     graph_mask = jnp.where(
         all_positive,
@@ -247,6 +252,7 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
         'batch': batch,
         'ptr': ptr,
         'cell': cell,
+        'node_mask': node_padding_mask,
     }
 
     unit_shifts = getattr(graph.edges, 'unit_shifts', None)

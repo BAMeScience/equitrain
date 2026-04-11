@@ -78,7 +78,7 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
 
         return apply_fn
 
-    def fake_jax_wrapper(*args, **kwargs):
+    def fake_create_wrapper(*args, **kwargs):
         captured['wrapper_kwargs'] = kwargs
         return SimpleNamespace(compute_force=False, compute_stress=False)
 
@@ -111,7 +111,7 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     monkeypatch.setattr(jax_evaluate, 'load_model_bundle', lambda *a, **k: bundle)
     monkeypatch.setattr(jax_evaluate, 'get_dataloader', fake_get_dataloader)
     monkeypatch.setattr(jax_evaluate, 'make_apply_fn', fake_make_apply_fn)
-    monkeypatch.setattr(jax_evaluate, 'JaxMaceWrapper', fake_jax_wrapper)
+    monkeypatch.setattr(jax_evaluate, 'create_wrapper', fake_create_wrapper)
     monkeypatch.setattr(jax_evaluate, 'build_eval_loss', fake_build_eval_loss)
     monkeypatch.setattr(jax_evaluate, '_build_eval_step', fake_build_eval_step)
     monkeypatch.setattr(jax_evaluate, '_run_eval_loop', fake_run_eval_loop)

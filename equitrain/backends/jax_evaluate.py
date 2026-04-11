@@ -19,7 +19,7 @@ from equitrain.backends.jax_utils import (
     replicate_to_local_devices,
     supports_multiprocessing_workers,
 )
-from equitrain.backends.jax_wrappers import MaceWrapper as JaxMaceWrapper
+from equitrain.backends.jax_wrappers import create_wrapper
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.logger import init_logger
@@ -99,7 +99,8 @@ def evaluate(args):
     if test_loader is None:
         raise RuntimeError('Test dataset is empty.')
 
-    wrapper = JaxMaceWrapper(
+    wrapper = create_wrapper(
+        getattr(args, 'model_wrapper', None),
         module=bundle.module,
         config=bundle.config,
         compute_force=args.forces_weight > 0.0,
