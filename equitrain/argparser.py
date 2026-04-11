@@ -692,7 +692,7 @@ def check_args_complete(args: argparse.ArgumentParser, script_type: str):
     # Check if all expected arguments are present and there are no extras
     if expected_args != actual_args:
         missing = expected_args - actual_args
-        extra = actual_args - expected_args
+        extra = (actual_args - expected_args) - {'resume'}
         if missing:
             raise ValueError(f'Missing arguments: {missing}')
         if extra:
@@ -710,6 +710,9 @@ def get_loss_monitor(args: argparse.ArgumentParser) -> list[str]:
 
 
 def check_args_consistency(args, args_new, logger):
+    if not args_new:
+        return
+
     for k, v in args_new.items():
         if k == 'epochs_start':
             continue

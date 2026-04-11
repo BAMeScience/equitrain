@@ -8,6 +8,7 @@ from typing import Any
 
 from flax import core as flax_core
 from flax import serialization
+from mace_jax.nnx_utils import normalize_pure_dict, pure_to_serializable_dict
 
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
@@ -73,13 +74,17 @@ def _resolve_model_path(base_dir: Path):
 def _load_params(params_template, params_path: Path):
     if params_path.suffix != '.msgpack':
         raise ValueError(f'Unsupported JAX checkpoint format: {params_path}')
-    return serialization.from_bytes(params_template, params_path.read_bytes())
+    serialized_template = pure_to_serializable_dict(params_template)
+    loaded = serialization.from_bytes(serialized_template, params_path.read_bytes())
+    return normalize_pure_dict(params_template, loaded)
 
 
 def _load_opt_state(opt_template, opt_path: Path):
     if not opt_path.exists():
         return opt_template
-    return serialization.from_bytes(opt_template, opt_path.read_bytes())
+    serialized_template = pure_to_serializable_dict(opt_template)
+    loaded = serialization.from_bytes(serialized_template, opt_path.read_bytes())
+    return normalize_pure_dict(opt_template, loaded)
 
 
 def load_model_state(bundle: ModelBundle, state_dict_path: str) -> ModelBundle:
@@ -205,14 +210,18 @@ def save_checkpoint(
         logger.log(1, f'Saving JAX checkpoint to `{output_dir}`')
 
     params_path = output_dir / DEFAULT_PARAMS_NAME
-    params_path.write_bytes(serialization.to_bytes(bundle.params))
+    params_path.write_bytes(
+        serialization.to_bytes(pure_to_serializable_dict(bundle.params))
+    )
 
     opt_path = output_dir / 'opt_state.msgpack'
     if opt_state is not None:
-        opt_path.write_bytes(serialization.to_bytes(opt_state))
+        opt_path.write_bytes(serialization.to_bytes(pure_to_serializable_dict(opt_state)))
     if ema_params is not None:
         ema_path = output_dir / 'ema_params.msgpack'
-        ema_path.write_bytes(serialization.to_bytes(ema_params))
+        ema_path.write_bytes(
+            serialization.to_bytes(pure_to_serializable_dict(ema_params))
+        )
 
     config_path = output_dir / DEFAULT_CONFIG_NAME
     config_path.write_text(json.dumps(bundle.config))

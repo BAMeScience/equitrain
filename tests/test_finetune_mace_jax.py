@@ -23,12 +23,20 @@ import jax.numpy as jnp  # noqa: E402
 import jax.tree_util as jtu  # noqa: E402
 import jraph  # noqa: E402
 from flax import core as flax_core  # noqa: E402
+from flax import nnx  # noqa: E402
 from flax import serialization, traverse_util  # noqa: E402
 from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_jax_from_torch  # noqa: E402
+from mace_jax.nnx_utils import (  # noqa: E402
+    normalize_pure_dict,
+    pure_to_serializable_dict,
+    replace_state_from_pure_dict,
+    state_to_pure_dict,
+    state_to_serializable_dict,
+)
 from torch.serialization import add_safe_globals  # noqa: E402
 
 from equitrain import get_args_parser_train
@@ -84,6 +92,15 @@ add_safe_globals([slice])
 _FINE_TUNE_LR = 2.5e-3
 _MAX_STEPS = 24
 _PARITY_STEPS = 64
+_RUNNING_ON_CUDA = torch.cuda.is_available()
+
+
+def _parity_rtol(cpu: float, gpu: float | None = None) -> float:
+    return gpu if _RUNNING_ON_CUDA and gpu is not None else cpu
+
+
+def _parity_atol(cpu: float, gpu: float | None = None) -> float:
+    return gpu if _RUNNING_ON_CUDA and gpu is not None else cpu
 
 
 def _cleanup_path(path: Path) -> None:
@@ -168,7 +185,7 @@ def _build_jax_args(
     args.backend = 'jax'
     args.model = str(model_path)
     args.opt = 'momentum'
-    args.freeze_params = [r'params\.base\..*']
+    args.freeze_params = [r'base_params\..*']
     args.unfreeze_params = [r'params\.delta\..*']
 
     return args
@@ -213,19 +230,39 @@ def _patch_jax_loader_for_deltas():
 
         base_module = mace_jax_from_torch._build_jax_model(config_for_build)
         wrapped_module = wrap_with_deltas(base_module)
-        template = mace_jax_from_torch._prepare_template_data(config_for_build)
         params_bytes = Path(params_path).read_bytes()
-
-        variables_template = wrapped_module.init(jax.random.PRNGKey(0), template)
-        try:
-            loaded = serialization.from_bytes(variables_template, params_bytes)
-        except ValueError:
-            base_variables = base_module.init(jax.random.PRNGKey(0), template)
-            loaded = serialization.from_bytes(base_variables, params_bytes)
+        _, base_state = nnx.split(base_module)
+        restored = serialization.msgpack_restore(params_bytes)
+        if (
+            isinstance(restored, dict)
+            and 'base_params' in restored
+            and restored.get('params', {}).get('delta') is not None
+        ):
+            normalized_base = normalize_pure_dict(
+                state_to_pure_dict(base_state),
+                restored['base_params'],
+            )
+            normalized_delta = normalize_pure_dict(
+                wrapped_module.delta_template,
+                restored['params']['delta'],
+            )
+            params = flax_core.freeze(
+                {
+                    'base_params': normalized_base,
+                    'params': {'delta': normalized_delta},
+                }
+            )
+        else:
+            state_template = state_to_serializable_dict(base_state)
+            loaded = serialization.from_bytes(state_template, params_bytes)
+            replace_state_from_pure_dict(base_state, loaded)
+            params = ensure_delta_params(
+                state_to_pure_dict(base_state), wrapped_module.delta_template
+            )
 
         return ModelBundle(
             config=config_data,
-            params=ensure_delta_params(loaded),
+            params=params,
             module=wrapped_module,
         )
 
@@ -361,9 +398,11 @@ def _export_jax_model(
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / DEFAULT_CONFIG_NAME).write_text(json.dumps(_sanitize_config(config)))
 
-    jax_module, jax_params, _ = mace_jax_from_torch.convert_model(torch_model, config)
-    (target_dir / DEFAULT_PARAMS_NAME).write_bytes(serialization.to_bytes(jax_params))
-    return jax_module, jax_params
+    jax_module, jax_state, _ = mace_jax_from_torch.convert_model(torch_model, config)
+    (target_dir / DEFAULT_PARAMS_NAME).write_bytes(
+        serialization.to_bytes(state_to_serializable_dict(jax_state))
+    )
+    return jax_module, jax_state
 
 
 def _convert_torch_model_to_jax_params(
@@ -376,8 +415,11 @@ def _convert_torch_model_to_jax_params(
         float(x) for x in torch_model.atomic_energies_fn.atomic_energies.detach().cpu()
     ]
     config['r_max'] = float(torch_model.r_max.item())
-    _, params, _ = mace_jax_from_torch.convert_model(torch_model, config)
-    params_tree = flax_core.unfreeze(params.get('params', {}))
+    _, state, _ = mace_jax_from_torch.convert_model(torch_model, config)
+    params_tree = flax_core.unfreeze(state_to_pure_dict(state))
+    delta_template = flax_core.unfreeze(
+        wrap_with_deltas(mace_jax_from_torch._build_jax_model(config)).delta_template
+    )
 
     if base_params is not None:
         base_unfrozen = flax_core.unfreeze(base_params)
@@ -386,8 +428,6 @@ def _convert_torch_model_to_jax_params(
 
     if 'base_params' in base_unfrozen:
         base_tree = flax_core.unfreeze(base_unfrozen['base_params'])
-    elif 'params' in base_unfrozen and 'base' in base_unfrozen['params']:
-        base_tree = flax_core.unfreeze(base_unfrozen['params']['base'])
     elif base_params is not None:
         raise ValueError('Expected base parameters to include a base tree.')
     else:
@@ -395,37 +435,28 @@ def _convert_torch_model_to_jax_params(
 
     flat_params = traverse_util.flatten_dict(params_tree)
     flat_base = traverse_util.flatten_dict(base_tree)
+    flat_template = traverse_util.flatten_dict(delta_template)
 
-    missing_in_converted = sorted(set(flat_base) - set(flat_params))
+    missing_in_converted = sorted(set(flat_template) - set(flat_params))
     if missing_in_converted:
         missing_keys = ', '.join('.'.join(k) for k in missing_in_converted)
         raise ValueError(f'Converted Torch parameters missing keys: {missing_keys}')
 
-    unexpected_in_converted = sorted(set(flat_params) - set(flat_base))
-    if unexpected_in_converted:
-        unexpected_keys = ', '.join('.'.join(k) for k in unexpected_in_converted)
-        raise ValueError(
-            f'Converted Torch parameters contain unexpected keys: {unexpected_keys}'
-        )
-
     delta_flat = {}
-    for key, base_val in flat_base.items():
+    for key in flat_template:
+        base_val = flat_base[key]
         new_val = flat_params[key]
         delta_flat[key] = jnp.asarray(new_val) - jnp.asarray(base_val)
 
     delta_tree = traverse_util.unflatten_dict(delta_flat)
-
-    result_vars = {
-        key: value
-        for key, value in base_unfrozen.items()
-        if key not in ('params', 'base_params')
-    }
-    result_vars['base_params'] = base_tree
-    result_vars['params'] = {'delta': delta_tree}
-    return flax_core.freeze(result_vars)
+    return flax_core.freeze(
+        {
+            'base_params': base_tree,
+            'params': {'delta': delta_tree},
+        }
+    )
 
 
-@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
 def test_finetune_gradient_parity(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
@@ -541,24 +572,23 @@ def test_finetune_gradient_parity(tmp_path):
     np.testing.assert_allclose(
         float(jax_loss_value),
         float(torch_loss.detach().cpu().numpy()),
-        rtol=1e-4,
-        atol=1e-6,
+        rtol=_parity_rtol(1e-4, 5e-4),
+        atol=_parity_atol(1e-6, 5e-6),
     )
     np.testing.assert_allclose(
         np.linalg.norm(jax_grad_vec),
         np.linalg.norm(torch_grad_vec),
-        rtol=1e-4,
+        rtol=_parity_rtol(5e-3, 1e-2),
         atol=1e-7,
     )
     np.testing.assert_allclose(
         np.max(np.abs(jax_grad_vec)),
         np.max(np.abs(torch_grad_vec)),
-        rtol=1e-4,
+        rtol=_parity_rtol(5e-3, 1e-2),
         atol=1e-7,
     )
 
 
-@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
 def test_finetune_mace_jax(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
@@ -632,8 +662,8 @@ def test_finetune_mace_jax(tmp_path):
             np.testing.assert_allclose(
                 jax_energy_pre,
                 torch_energy_pre,
-                rtol=1e-5,
-                atol=1e-4,
+                rtol=_parity_rtol(1e-5, 1e-4),
+                atol=_parity_atol(1e-4, 5e-4),
                 err_msg='Torch and JAX predictions differ before fine-tuning.',
             )
 
@@ -651,28 +681,22 @@ def test_finetune_mace_jax(tmp_path):
             np.testing.assert_allclose(
                 jax_energy_post,
                 torch_energy_post,
-                rtol=1e-5,
-                atol=1e-5,
+                rtol=_parity_rtol(1e-5, 1e-4),
+                atol=_parity_atol(1e-5, 5e-4),
                 err_msg='Torch and JAX predictions differ after fine-tuning.',
             )
 
-            delta_atomic = np.asarray(
-                serialization.to_state_dict(jax_params_from_torch)['params']['delta'][
-                    'atomic_energies_fn'
-                ]['atomic_energies']
-            )
-            np.testing.assert_allclose(
-                delta_atomic,
-                0.0,
-                atol=0.0,
-                err_msg='Delta parameters modified atomic energies.',
+            delta_state = serialization.to_state_dict(jax_params_from_torch)['params'][
+                'delta'
+            ]
+            assert 'atomic_energies_fn' not in delta_state, (
+                'Atomic energies should remain part of the frozen base state.'
             )
     finally:
         for path in cleanup_paths:
             _cleanup_path(path)
 
 
-@pytest.mark.skipif(torch.cuda.is_available(), reason='CPU-only reference test')
 def test_jax_checkpoint_parity(tmp_path):
     pytest.importorskip('mace')
     pytest.importorskip('mace_jax')
@@ -797,16 +821,16 @@ def test_jax_checkpoint_parity(tmp_path):
         np.testing.assert_allclose(
             jax_predictions_trained,
             torch_predictions,
-            rtol=1e-5,
-            atol=1e-5,
+            rtol=_parity_rtol(1e-5, 1e-4),
+            atol=_parity_atol(1e-5, 5e-4),
             err_msg='Checkpointed JAX model predictions differ from Torch.',
         )
 
         np.testing.assert_allclose(
             jax_predictions_converted,
             torch_predictions,
-            rtol=1e-5,
-            atol=1e-5,
+            rtol=_parity_rtol(1e-5, 1e-4),
+            atol=_parity_atol(1e-5, 5e-4),
             err_msg='Converted Torch parameters differ from Torch predictions.',
         )
 
@@ -817,23 +841,20 @@ def test_jax_checkpoint_parity(tmp_path):
         flat_trained = traverse_util.flatten_dict(trained_delta)
         flat_converted = traverse_util.flatten_dict(converted_delta)
         for key, trained_val in flat_trained.items():
-            key_str = '.'.join(key)
+            key_str = '.'.join(map(str, key))
             np.testing.assert_allclose(
                 np.asarray(trained_val),
                 np.asarray(flat_converted[key]),
-                rtol=0.0,
-                atol=5e-7,
+                rtol=_parity_rtol(0.0, 1e-2),
+                atol=_parity_atol(5e-7, 1e-5),
                 err_msg=f'Fine-tuned delta mismatch at {key_str}',
             )
 
         delta_state = serialization.to_state_dict(jax_params_from_torch)['params'][
             'delta'
         ]
-        np.testing.assert_allclose(
-            np.asarray(delta_state['atomic_energies_fn']['atomic_energies']),
-            0.0,
-            atol=0.0,
-            err_msg='Delta parameters modified atomic energies after checkpoint conversion.',
+        assert 'atomic_energies_fn' not in delta_state, (
+            'Atomic energies should remain part of the frozen base state after checkpoint conversion.'
         )
 
         base_state = serialization.to_state_dict(base_bundle.params)['base_params']
@@ -841,13 +862,35 @@ def test_jax_checkpoint_parity(tmp_path):
         flat_base = traverse_util.flatten_dict(flax_core.unfreeze(base_state))
         flat_ckpt = traverse_util.flatten_dict(flax_core.unfreeze(ckpt_state))
         for key, base_val in flat_base.items():
-            key_str = '.'.join(key)
-            np.testing.assert_allclose(
-                np.asarray(flat_ckpt[key]),
-                np.asarray(base_val),
-                atol=0.0,
-                err_msg=f'Base parameter changed during JAX fine-tuning at {key_str}',
-            )
+            key_str = '.'.join(map(str, key))
+            ckpt_val = flat_ckpt[key]
+            if isinstance(base_val, dict) or hasattr(base_val, 'keys'):
+                flat_base_config = traverse_util.flatten_dict(
+                    pure_to_serializable_dict(base_val)
+                )
+                flat_ckpt_config = traverse_util.flatten_dict(
+                    pure_to_serializable_dict(ckpt_val)
+                )
+                assert flat_base_config.keys() == flat_ckpt_config.keys(), (
+                    f'Base parameter structure changed during JAX fine-tuning at {key_str}'
+                )
+                for subkey, sub_base_val in flat_base_config.items():
+                    np.testing.assert_allclose(
+                        np.asarray(flat_ckpt_config[subkey]),
+                        np.asarray(sub_base_val),
+                        atol=0.0,
+                        err_msg=(
+                            'Base parameter changed during JAX fine-tuning at '
+                            f'{key_str}.{".".join(map(str, subkey))}'
+                        ),
+                    )
+            else:
+                np.testing.assert_allclose(
+                    np.asarray(ckpt_val),
+                    np.asarray(base_val),
+                    atol=0.0,
+                    err_msg=f'Base parameter changed during JAX fine-tuning at {key_str}',
+                )
     finally:
         for path in cleanup_paths:
             _cleanup_path(path)

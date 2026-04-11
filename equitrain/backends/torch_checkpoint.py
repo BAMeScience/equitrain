@@ -152,11 +152,29 @@ def load_checkpoint(
     if load_checkpoint is not None and accelerator is not None:
         if logger is not None:
             logger.log(1, f'Loading checkpoint {load_checkpoint}...')
-        accelerator.load_state(load_checkpoint)
-        ema_path = Path(load_checkpoint) / 'ema.bin'
-        if model_ema and ema_path.exists():
-            model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
-        result = True
+        try:
+            accelerator.load_state(load_checkpoint)
+        except RuntimeError as exc:
+            model_path = _resolve_model_path(load_checkpoint)
+            if model_path is None:
+                raise
+            if logger is not None:
+                logger.log(
+                    1,
+                    'Accelerate checkpoint restore failed; '
+                    f'falling back to model weights at {model_path}. '
+                    f'Original error: {exc}',
+                )
+            load_model_state(model, model_path)
+            ema_path = Path(load_checkpoint) / 'ema.bin'
+            if model_ema and ema_path.exists():
+                model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+            result = True
+        else:
+            ema_path = Path(load_checkpoint) / 'ema.bin'
+            if model_ema and ema_path.exists():
+                model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+            result = True
 
     if load_checkpoint_model is not None:
         if logger is not None:

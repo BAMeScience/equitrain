@@ -1,4 +1,26 @@
+import os
+from pathlib import Path
+
 from equitrain.backends import get_backend
+
+
+def _resolve_input_path(path):
+    if not path:
+        return path
+
+    if not isinstance(path, str | os.PathLike):
+        return path
+
+    candidate = Path(path)
+    if candidate.is_absolute() or candidate.exists():
+        return str(candidate)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    fallback = repo_root / 'tests' / candidate
+    if fallback.exists():
+        return str(fallback)
+
+    return path
 
 
 def train(args):
@@ -18,6 +40,18 @@ def train(args):
         raise NotImplementedError(
             f'Backend "{backend_name}" does not expose a train() function.'
         )
+
+    for attr in (
+        'train_file',
+        'valid_file',
+        'test_file',
+        'output_dir',
+        'load_checkpoint',
+        'load_checkpoint_model',
+        'model',
+    ):
+        if hasattr(args, attr):
+            setattr(args, attr, _resolve_input_path(getattr(args, attr)))
 
     return backend.train(args)
 

@@ -8,6 +8,7 @@ import torch
 from tqdm import tqdm
 
 from equitrain.backends.torch_wrappers import MaceWrapper as TorchMaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 
 class MaceWrapper(TorchMaceWrapper):
@@ -19,15 +20,13 @@ class MaceWrapper(TorchMaceWrapper):
         url='https://github.com/ACEsuit/mace-mp/releases/download/mace_mp_0/2023-12-10-mace-128-L0_epoch-199.model',
     ):
         if filename_model is None:
-            raise ValueError(
-                'MaceWrapper requires a `filename_model` path provided by the caller.'
-            )
+            model_path = get_mace_model_path()
+        else:
+            model_path = Path(filename_model)
+            model_path.parent.mkdir(parents=True, exist_ok=True)
 
-        model_path = Path(filename_model)
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not model_path.exists():
-            self._download_model(url, model_path)
+            if not model_path.exists():
+                self._download_model(url, model_path)
 
         try:
             model = torch.load(model_path, weights_only=False)

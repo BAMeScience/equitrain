@@ -15,6 +15,8 @@ os.environ.setdefault('ABSL_MIN_LOG_LEVEL', '2')
 
 import jax
 import jax.numpy as jnp
+from mace_jax.nnx_config import ConfigDict
+from mace_jax.nnx_utils import pure_to_serializable_dict
 import numpy as np
 import optax
 from flax import serialization, struct
@@ -67,6 +69,16 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 ensure_multiprocessing_spawn()
+
+
+def _is_config_leaf(value):
+    return isinstance(value, ConfigDict)
+
+
+def _select_restored_value(new_val, old_val, mask_val):
+    if isinstance(new_val, ConfigDict) or isinstance(old_val, ConfigDict):
+        return new_val if bool(np.asarray(mask_val)) else old_val
+    return jnp.where(mask_val, new_val, old_val)
 
 
 @struct.dataclass
@@ -681,21 +693,19 @@ def _run_train_epoch(
 
         if mask_tree is not None:
             restored_params = jtu.tree_map(
-                lambda new_val, old_val, mask_val: jnp.where(
-                    mask_val, new_val, old_val
-                ),
+                _select_restored_value,
                 state.params,
                 params_before,
                 mask_tree,
+                is_leaf=_is_config_leaf,
             )
             if use_ema and state.ema_params is not None and ema_before is not None:
                 restored_ema = jtu.tree_map(
-                    lambda new_val, old_val, mask_val: jnp.where(
-                        mask_val, new_val, old_val
-                    ),
+                    _select_restored_value,
                     state.ema_params,
                     ema_before,
                     mask_tree,
+                    is_leaf=_is_config_leaf,
                 )
             else:
                 restored_ema = state.ema_params
@@ -1315,7 +1325,7 @@ def _raise_memory_hint(exc, args, *, phase: str):
 def _save_parameters(output_dir: Path, variables) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     params_path = output_dir / 'jax_params.msgpack'
-    params_path.write_bytes(serialization.to_bytes(variables))
+    params_path.write_bytes(serialization.to_bytes(pure_to_serializable_dict(variables)))
 
 
 def evaluate(args):
