@@ -15,12 +15,12 @@ os.environ.setdefault('ABSL_MIN_LOG_LEVEL', '2')
 
 import jax
 import jax.numpy as jnp
-from mace_jax.nnx_config import ConfigDict
-from mace_jax.nnx_utils import pure_to_serializable_dict
 import numpy as np
 import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
+from mace_jax.nnx_config import ConfigDict
+from mace_jax.nnx_utils import pure_to_serializable_dict
 
 from equitrain.argparser import (
     ArgsFormatter,

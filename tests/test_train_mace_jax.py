@@ -46,7 +46,6 @@ from equitrain.data.format_hdf5.dataset import HDF5Dataset  # noqa: E402
 from equitrain.utility_test import MaceWrapper as TorchMaceWrapper  # noqa: E402
 from equitrain.utility_test.mace_support import get_mace_model_path  # noqa: E402
 
-
 _RUNNING_ON_CUDA = torch.cuda.is_available()
 
 

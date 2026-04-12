@@ -23,8 +23,11 @@ import jax.numpy as jnp  # noqa: E402
 import jax.tree_util as jtu  # noqa: E402
 import jraph  # noqa: E402
 from flax import core as flax_core  # noqa: E402
-from flax import nnx  # noqa: E402
-from flax import serialization, traverse_util  # noqa: E402
+from flax import (  # noqa: E402
+    nnx,  # noqa: E402
+    serialization,
+    traverse_util,
+)
 from mace.data.atomic_data import AtomicData  # noqa: E402
 from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
@@ -563,7 +566,7 @@ def test_finetune_gradient_parity(tmp_path):
         jax_loss_value, _ = loss_fn(bundle.params, graph)
         jax_grads = jax.grad(scalar_loss, allow_int=True)(bundle.params)
         flat_jax = traverse_util.flatten_dict(
-            jtu.tree_map(lambda x: np.asarray(x), jax_grads['params']['delta']),
+            jtu.tree_map(np.asarray, jax_grads['params']['delta']),
         )
         jax_grad_vec = np.concatenate(
             [flat_jax[key].ravel() for key in sorted(flat_jax)]

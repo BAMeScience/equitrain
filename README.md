@@ -396,10 +396,124 @@ equitrain-predict \
 
 ---
 
-### Fine-Tuning with Delta Wrappers
+### Fine-Tuning Adapters
 
-- Additive delta wrappers are available for both backends via `equitrain.finetune`. The Torch helper (`DeltaFineTuneWrapper`) freezes the base model and exposes only the residual parameters for optimisation. The JAX helper (`wrap_with_deltas` / `ensure_delta_params`) provides the same behaviour for Flax modules.
-- These utilities power the fine-tuning tests and are ready to be imported in user scripts, enabling LoRA-style workflows without modifying the core training loops.
+Equitrain ships adapter-style fine-tuning helpers in `equitrain.finetune`. They
+are currently exposed through the Python API and are designed to keep the
+original model frozen while training only a small set of additional parameters.
+
+#### Delta Fine-Tuning
+
+Delta fine-tuning is the simplest adapter method in the repository:
+
+- every selected parameter gets a trainable additive residual with the same shape
+- the forward pass uses `base_parameter + delta`
+- the base model stays frozen throughout optimisation
+
+This is effectively LoRA without any rank compression. It is useful when you
+want the simplest possible residual fine-tuning scheme and do not need to limit
+adapter size aggressively.
+
+Implementation details:
+
+- Torch: `DeltaFineTuneWrapper` mirrors all base parameters with same-shaped
+  delta tensors and merges them only for the forward pass or export.
+- JAX/NNX: `wrap_jax_module_with_deltas()` / `JaxDeltaFineTuneModule` keep the
+  frozen model state under `base_params` and the trainable residuals under
+  `params.delta`.
+
+Minimal Torch example:
+
+```python
+from equitrain import get_args_parser_train, train
+from equitrain.finetune import TorchDeltaFineTuneWrapper
+from equitrain.utility_test import MaceWrapper
+
+args = get_args_parser_train().parse_args([])
+args.train_file = 'data/train.h5'
+args.valid_file = 'data/valid.h5'
+args.output_dir = 'runs/mace-delta'
+
+base_model = MaceWrapper(args, filename_model='path/to/mace.model')
+args.model = TorchDeltaFineTuneWrapper(base_model)
+
+train(args)
+```
+
+#### LoRA Fine-Tuning
+
+Equitrain also provides LoRA adapters for both backends:
+
+- Torch: `TorchLoRAFineTuneWrapper`
+- JAX/NNX: `wrap_jax_module_with_lora()` / `JaxLoRAFineTuneModule`
+
+The LoRA implementation in this repository is intentionally close to the delta
+wrapper, but it only applies low-rank updates to eligible weight tensors:
+
+- only parameters named `*.weight` with `ndim >= 2` receive LoRA adapters
+- higher-order weights are flattened to `(shape[0], prod(shape[1:]))`, updated
+  as a matrix, and reshaped back to the original tensor shape
+- biases and 1D weights remain frozen
+
+Instead of requiring one fixed rank for the whole model, Equitrain lets you
+specify either:
+
+- `rank_reduction`: percentage of rank to remove
+- `rank_fraction`: percentage of rank to keep
+
+This is usually more practical for MLIPs, because different layers can have very
+different matrix sizes. For example, `rank_reduction=75` keeps roughly 25% of
+the effective rank of each eligible weight matrix, with a minimum rank of 1.
+
+The effective update is:
+
+```text
+W_eff = W + scale * (B @ A)
+```
+
+where:
+
+- `A` has shape `(r, in_dim)`
+- `B` has shape `(out_dim, r)`
+- `scale = alpha / r` if `alpha` is provided, otherwise `scale = 1`
+
+Torch example:
+
+```python
+from equitrain import get_args_parser_train, train
+from equitrain.finetune import TorchLoRAFineTuneWrapper
+from equitrain.utility_test import MaceWrapper
+
+args = get_args_parser_train().parse_args([])
+args.train_file = 'data/train.h5'
+args.valid_file = 'data/valid.h5'
+args.output_dir = 'runs/mace-lora'
+
+base_model = MaceWrapper(args, filename_model='path/to/mace.model')
+args.model = TorchLoRAFineTuneWrapper(
+    base_model,
+    rank_reduction=75,
+    alpha=16,
+)
+
+train(args)
+```
+
+JAX helper example:
+
+```python
+from equitrain.finetune import wrap_jax_module_with_lora
+
+lora_module = wrap_jax_module_with_lora(
+    jax_module,
+    rank_reduction=75,
+    alpha=16,
+)
+variables = lora_module.init()
+```
+
+For JAX, the wrapped variable tree stores the frozen imported state under
+`base_params` and the trainable LoRA weights under `params.lora`.
 
 ---
 
