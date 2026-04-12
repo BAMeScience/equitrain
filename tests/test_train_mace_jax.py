@@ -504,6 +504,7 @@ def test_jax_plateau_scheduler_reduces_learning_rate(tmp_path):
     assert len(summary['lr_history']) == args.epochs + 1
     assert summary['lr_history'][0] == pytest.approx(args.lr)
     assert all(
-        curr <= prev for prev, curr in zip(summary['lr_history'], summary['lr_history'][1:])
+        curr <= prev
+        for prev, curr in zip(summary['lr_history'], summary['lr_history'][1:])
     )
     assert min(summary['lr_history']) < args.lr
