@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import zlib
+from dataclasses import dataclass
 
-from flax import core as flax_core
-from flax import nnx
-from flax import traverse_util
 import jax
 import jax.numpy as jnp
+from flax import core as flax_core
+from flax import nnx, traverse_util
 from mace_jax.nnx_utils import state_to_pure_dict
 
 from equitrain.finetune._lora_common import (
