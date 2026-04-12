@@ -17,6 +17,29 @@ Equitrain is an open-source software package designed to simplify the training a
 
 ---
 
+## Supported Models
+
+`equitrain` currently supports the following model families through model
+wrappers:
+
+| Wrapper | Backends | Upstream / Companion Project | Notes |
+| --- | --- | --- | --- |
+| `mace` | Torch, JAX | [`mace-model`](https://github.com/bamescience/mace-model) | Companion repository in this workspace for MACE model definitions, conversion, and foundation-model export. |
+| `sevennet` | Torch | [`MDIL-SNU/SevenNet`](https://github.com/MDIL-SNU/SevenNet) | Torch wrapper around SevenNet checkpoints and models. |
+| `orb` | Torch | [`orbital-materials/orb-models`](https://github.com/orbital-materials/orb-models) | Torch wrapper around ORB force-field models. |
+| `ani` | Torch, JAX | [`aiqm/torchani`](https://github.com/aiqm/torchani) | Torch uses TorchANI directly; JAX uses a JAX-native ANI-like bundle interface. |
+| `m3gnet` | Torch | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | The Torch backend uses the MatGL-backed M3GNet implementation. |
+
+For MACE specifically, the intended repository split is:
+
+- [`mace-model`](https://github.com/bamescience/mace-model): model definition,
+  backend-specific model code, model initialization, conversion, and foundation
+  model export
+- [`equitrain`](https://github.com/bamescience/equitrain): preprocessing,
+  training, fine-tuning, checkpoint handling, and experiment orchestration
+
+---
+
 ## Installation
 
 `equitrain` can be installed in your environment by doing:
@@ -100,6 +123,17 @@ conda activate equitrain
 ---
 
 ## Quickstart Guide
+
+If you are working with MACE, treat
+[`mace-model`](https://github.com/bamescience/mace-model) as the companion
+model repository and `equitrain` as the training repository. In other words:
+
+1. prepare or convert the model artifact with `mace-model`
+2. train or fine-tune it with `equitrain`
+
+The dependency examples below still reflect the current MACE runtime extras in
+`equitrain`; the repository boundary above describes the intended long-term
+split between model code and training code.
 
 Many examples below use the Torch backend. Ensure the relevant extras are installed, for example:
 
