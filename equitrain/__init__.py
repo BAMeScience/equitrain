@@ -90,3 +90,27 @@ def predict_graphs(*args, **kwargs):
     from .predict import predict_graphs as _predict_graphs
 
     return _predict_graphs(*args, **kwargs)
+
+
+def get_torch_wrapper_predictor(*args, **kwargs):
+    from .calculators import TorchWrapperPredictor
+
+    return TorchWrapperPredictor(*args, **kwargs)
+
+
+def get_jax_wrapper_predictor(*args, **kwargs):
+    from .calculators import JaxWrapperPredictor
+
+    return JaxWrapperPredictor(*args, **kwargs)
+
+
+def build_ase_calculator(*args, **kwargs):
+    from .calculators import build_ase_calculator as _build_ase_calculator
+
+    return _build_ase_calculator(*args, **kwargs)
+
+
+def build_jax_ase_calculator(*args, **kwargs):
+    from .calculators import build_jax_ase_calculator as _build_jax_ase_calculator
+
+    return _build_jax_ase_calculator(*args, **kwargs)

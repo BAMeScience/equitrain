@@ -423,6 +423,102 @@ equitrain-predict \
 
 ---
 
+### 4. ASE Calculators and Relaxation
+
+`equitrain` also exposes a small calculator API for structure-level inference
+and geometry optimization with ASE:
+
+Torch:
+- `equitrain.calculators.TorchWrapperPredictor`
+- `equitrain.calculators.build_ase_calculator`
+
+JAX:
+- `equitrain.calculators.JaxWrapperPredictor`
+- `equitrain.calculators.build_jax_ase_calculator`
+
+Important behavior:
+
+- `model_wrapper` is required and must be explicit.
+- Torch `model` must be either:
+  - a loaded `torch.nn.Module`, or
+  - an existing model file path.
+- JAX `model` must be either:
+  - a loaded JAX `ModelBundle` (`config`, `params`, `module`), or
+  - an existing JAX bundle path (`config.json` + `params.msgpack`).
+- Foundation-model alias resolution is intentionally not done inside the
+  calculator; resolve aliases before creating the calculator and pass the loaded
+  model (or resolved file path).
+- The ASE calculator returns `energy` and `forces` (no stress).
+- If a requested GPU/CUDA device is unavailable, the API falls back to CPU.
+
+Supported wrappers:
+- Torch calculator: `mace`, `ani`, `orb`, `sevennet`, `m3gnet`
+- JAX calculator: wrappers available in `equitrain.backends.jax_wrappers` (currently `mace`, `ani`)
+
+#### Batched Structure Prediction
+
+```python
+from ase.build import molecule
+from equitrain.calculators import TorchWrapperPredictor
+
+predictor = TorchWrapperPredictor(
+    model="path/to/model.pt",
+    model_wrapper="mace",
+    device="cuda:0",
+    default_dtype="float32",
+    batch_size=16,
+    require_forces=True,
+)
+
+atoms = molecule("H2O")
+energies, forces = predictor.predict([atoms], require_forces=True)
+print(energies[0], forces[0].shape)
+```
+
+#### ASE Geometry Optimization
+
+```python
+from ase.build import molecule
+from ase.optimize import FIRE
+from equitrain.calculators import build_ase_calculator
+
+atoms = molecule("H2O")
+atoms.calc = build_ase_calculator(
+    model="path/to/model.pt",
+    model_wrapper="mace",
+    device="cuda:0",
+    default_dtype="float64",
+    batch_size=8,
+)
+
+opt = FIRE(atoms, logfile=None)
+opt.run(fmax=0.05, steps=200)
+print("Relaxed energy:", atoms.get_potential_energy())
+```
+
+You can also import these from the top-level package:
+
+```python
+from equitrain import build_ase_calculator, get_torch_wrapper_predictor
+```
+
+JAX example:
+
+```python
+from ase.build import molecule
+from equitrain.calculators import build_jax_ase_calculator
+
+atoms = molecule("H2O")
+atoms.calc = build_jax_ase_calculator(
+    model="path/to/jax_bundle",
+    model_wrapper="ani",
+    device="cpu",
+)
+print(atoms.get_potential_energy())
+```
+
+---
+
 ### JAX Backend Multi-Device Notes
 
 - When the JAX backend detects more than one local accelerator, it automatically switches to a multi-device (`pmap`) execution. In that mode the training and evaluation batch size must be divisible by `jax.local_device_count()` so that each device processes an identical number of graphs.

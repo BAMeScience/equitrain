@@ -21,14 +21,22 @@ def get_model(args, logger=None):
         if not hasattr(args, 'stress_weight'):
             setattr(args, 'stress_weight', 0.0)
 
-        if args.model_wrapper == 'ani':
+        wrapper_name = str(getattr(args, 'model_wrapper', '')).strip().lower()
+        if wrapper_name == 'ani':
             model = _torch_wrappers.AniWrapper(args, model)
-        if args.model_wrapper == 'mace':
+        elif wrapper_name == 'mace':
             model = _torch_wrappers.MaceWrapper(args, model)
-        if args.model_wrapper == 'orb':
+        elif wrapper_name == 'orb':
             model = _torch_wrappers.OrbWrapper(args, model)
-        if args.model_wrapper == 'sevennet':
+        elif wrapper_name == 'sevennet':
             model = _torch_wrappers.SevennetWrapper(args, model)
+        elif wrapper_name == 'm3gnet':
+            model = _torch_wrappers.M3GNetWrapper(args, model)
+        else:
+            raise ValueError(
+                f"Unsupported torch model_wrapper '{wrapper_name}'. "
+                'Use one of: mace, ani, orb, sevennet, m3gnet.'
+            )
 
     if hasattr(args, 'r_max') and args.r_max is not None:
         if logger is not None:
