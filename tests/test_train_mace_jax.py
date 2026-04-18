@@ -23,13 +23,11 @@ from mace.data.utils import config_from_atoms  # noqa: E402
 from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_jax_from_torch  # noqa: E402
-from mace_jax.nnx_utils import (  # noqa: E402
-    normalize_pure_dict,
-    state_to_serializable_dict,
-)
+from mace_jax.nnx_utils import state_to_serializable_dict  # noqa: E402
 
 from equitrain import get_args_parser_train  # noqa: E402
 from equitrain import train as equitrain_train  # noqa: E402
+from equitrain.backends.jax_nnx_compat import normalize_pure_dict  # noqa: E402
 from equitrain.backends.jax_utils import (  # noqa: E402
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,

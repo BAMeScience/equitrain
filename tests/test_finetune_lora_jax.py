@@ -20,7 +20,7 @@ class _LinearModule(nnx.Module):
         self.bias = nnx.Param(jnp.arange(3, dtype=jnp.float32) / 10.0)
 
     def __call__(self, x):
-        return jnp.matmul(x, self.weight.value.T) + self.bias.value
+        return jnp.matmul(x, self.weight[...].T) + self.bias[...]
 
 
 class _TensorModule(nnx.Module):
@@ -30,7 +30,7 @@ class _TensorModule(nnx.Module):
         )
 
     def __call__(self, x):
-        return jnp.einsum('bij,oij->bo', x, self.weight.value)
+        return jnp.einsum('bij,oij->bo', x, self.weight[...])
 
 
 class _ToyJaxModule(nnx.Module):

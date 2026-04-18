@@ -48,18 +48,29 @@ class Configuration:
     ) -> 'Configuration':
         """Convert ase.Atoms to Configuration"""
 
+        calc = getattr(atoms, 'calc', None)
+
         if energy_key == 'energy':
-            energy = atoms.get_potential_energy()  # eV
+            if calc is not None:
+                energy = atoms.get_potential_energy()  # eV
+            else:
+                energy = atoms.info.get('energy', None)  # eV
         else:
             energy = atoms.info.get(energy_key, None)  # eV
 
         if forces_key == 'forces':
-            forces = atoms.get_forces()  # eV / Ang
+            if calc is not None:
+                forces = atoms.get_forces()  # eV / Ang
+            else:
+                forces = atoms.arrays.get('forces', None)  # eV / Ang
         else:
             forces = atoms.arrays.get(forces_key, None)  # eV / Ang
 
         if stress_key == 'stress':
-            stress = atoms.get_stress()  # eV / Ang
+            if calc is not None:
+                stress = atoms.get_stress()  # eV / Ang
+            else:
+                stress = atoms.info.get('stress', None)  # eV / Ang
         else:
             stress = atoms.info.get(stress_key, None)  # eV / Ang
 

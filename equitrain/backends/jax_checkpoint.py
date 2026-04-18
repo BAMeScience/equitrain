@@ -8,12 +8,15 @@ from typing import Any
 
 from flax import core as flax_core
 from flax import serialization
-from mace_jax.nnx_utils import normalize_pure_dict, pure_to_serializable_dict
 
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     ModelBundle,
+)
+from equitrain.backends.jax_nnx_compat import (
+    normalize_pure_dict,
+    pure_to_serializable_dict,
 )
 from equitrain.logger import FileLogger
 

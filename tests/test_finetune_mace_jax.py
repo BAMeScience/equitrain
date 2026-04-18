@@ -34,8 +34,6 @@ from mace.tools import torch_geometric  # noqa: E402
 from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_jax_from_torch  # noqa: E402
 from mace_jax.nnx_utils import (  # noqa: E402
-    normalize_pure_dict,
-    pure_to_serializable_dict,
     replace_state_from_pure_dict,
     state_to_pure_dict,
     state_to_serializable_dict,
@@ -45,6 +43,10 @@ from torch.serialization import add_safe_globals  # noqa: E402
 from equitrain import get_args_parser_train
 from equitrain import train as equitrain_train
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
+from equitrain.backends.jax_nnx_compat import (  # noqa: E402
+    normalize_pure_dict,
+    pure_to_serializable_dict,
+)
 from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
@@ -258,7 +260,18 @@ def _patch_jax_loader_for_deltas():
         else:
             state_template = state_to_serializable_dict(base_state)
             loaded = serialization.from_bytes(state_template, params_bytes)
+            normalize2mom = None
+            if (
+                isinstance(loaded, dict)
+                and loaded.get('_normalize2mom_consts_var') is not None
+            ):
+                loaded = dict(loaded)
+                normalize2mom = loaded.pop('_normalize2mom_consts_var')
             replace_state_from_pure_dict(base_state, loaded)
+            if normalize2mom is not None:
+                cfg = base_state.get('_normalize2mom_consts_var', None)
+                if cfg is not None and hasattr(cfg, 'set_value'):
+                    cfg.set_value(normalize2mom)
             params = ensure_delta_params(
                 state_to_pure_dict(base_state), wrapped_module.delta_template
             )

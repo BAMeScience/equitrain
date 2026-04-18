@@ -20,7 +20,6 @@ import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
 from mace_jax.nnx_config import ConfigDict
-from mace_jax.nnx_utils import pure_to_serializable_dict
 
 from equitrain.argparser import (
     ArgsFormatter,
@@ -32,6 +31,7 @@ from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 from equitrain.backends.jax_loss_metrics import LossMetrics
+from equitrain.backends.jax_nnx_compat import pure_to_serializable_dict
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
     ModelBundle,

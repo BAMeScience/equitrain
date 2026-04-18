@@ -32,6 +32,27 @@ class AtomsToGraphs:
         self.r_fixed = r_fixed
         self.r_edges = r_edges
         self.r_pbc = r_pbc
+        self._encoding_cache: dict[
+            tuple[int, ...], tuple[torch.Tensor, torch.Tensor]
+        ] = {}
+
+    def _atomic_encoding(
+        self,
+        atoms,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        key = tuple(int(z) for z in atoms.get_atomic_numbers())
+        cached = self._encoding_cache.get(key)
+        if cached is not None:
+            return cached
+
+        atomic_numbers = torch.tensor(key, dtype=torch.long)
+        indices = atomic_numbers_to_indices(atomic_numbers, self.atomic_numbers)
+        node_attrs = to_one_hot(
+            torch.tensor(indices, dtype=torch.long).unsqueeze(-1),
+            num_classes=len(self.atomic_numbers),
+        )
+        self._encoding_cache[key] = (atomic_numbers, node_attrs)
+        return atomic_numbers, node_attrs
 
     def _get_neighbors(self, atoms):
         return get_neighborhood(
@@ -39,19 +60,13 @@ class AtomsToGraphs:
         )
 
     def convert(self, atoms):
-        atomic_numbers = torch.tensor(atoms.get_atomic_numbers())
+        atomic_numbers, node_attrs = self._atomic_encoding(atoms)
         positions = torch.tensor(atoms.get_positions(), dtype=torch.get_default_dtype())
         cell = torch.tensor(
             np.array(atoms.get_cell()), dtype=torch.get_default_dtype()
         ).view(1, 3, 3)
         natoms = positions.shape[0]
         tags = torch.Tensor(atoms.get_tags())
-
-        indices = atomic_numbers_to_indices(atomic_numbers, self.atomic_numbers)
-        node_attrs = to_one_hot(
-            torch.tensor(indices, dtype=torch.long).unsqueeze(-1),
-            num_classes=len(self.atomic_numbers),
-        )
 
         data = Data(
             cell=cell,
