@@ -18,32 +18,32 @@ pytest.importorskip('mace', reason='MACE is required for MACE JAX integration te
 pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
 pytest.importorskip('jax', reason='JAX runtime is required for these tests.')
 
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
-import jax.tree_util as jtu  # noqa: E402
-import jraph  # noqa: E402
-from flax import core as flax_core  # noqa: E402
-from flax import (  # noqa: E402
-    nnx,  # noqa: E402
+import jax
+import jax.numpy as jnp
+import jax.tree_util as jtu
+import jraph
+from flax import core as flax_core
+from flax import (
+    nnx,
     serialization,
     traverse_util,
 )
-from mace.data.atomic_data import AtomicData  # noqa: E402
-from mace.data.utils import config_from_atoms  # noqa: E402
-from mace.tools import torch_geometric  # noqa: E402
-from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
-from mace_jax.cli import mace_jax_from_torch  # noqa: E402
-from mace_jax.nnx_utils import (  # noqa: E402
+from mace.data.atomic_data import AtomicData
+from mace.data.utils import config_from_atoms
+from mace.tools import torch_geometric
+from mace.tools.scripts_utils import extract_config_mace_model
+from mace_jax.cli import mace_jax_from_torch
+from mace_jax.nnx_utils import (
     replace_state_from_pure_dict,
     state_to_pure_dict,
     state_to_serializable_dict,
 )
-from torch.serialization import add_safe_globals  # noqa: E402
+from torch.serialization import add_safe_globals
 
 from equitrain import get_args_parser_train
 from equitrain import train as equitrain_train
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
-from equitrain.backends.jax_nnx_compat import (  # noqa: E402
+from equitrain.backends.jax_nnx_compat import (
     normalize_pure_dict,
     pure_to_serializable_dict,
 )

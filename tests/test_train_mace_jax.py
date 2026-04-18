@@ -15,34 +15,34 @@ pytest.importorskip('mace', reason='MACE is required for MACE JAX integration te
 pytest.importorskip('mace_jax', reason='MACE JAX is required for these tests.')
 pytest.importorskip('jax', reason='JAX runtime is required for these tests.')
 
-import jraph  # noqa: E402
-from flax import core as flax_core  # noqa: E402
-from flax import serialization  # noqa: E402
-from mace.data.atomic_data import AtomicData  # noqa: E402
-from mace.data.utils import config_from_atoms  # noqa: E402
-from mace.tools import torch_geometric  # noqa: E402
-from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
-from mace_jax.cli import mace_jax_from_torch  # noqa: E402
-from mace_jax.nnx_utils import state_to_serializable_dict  # noqa: E402
+import jraph
+from flax import core as flax_core
+from flax import serialization
+from mace.data.atomic_data import AtomicData
+from mace.data.utils import config_from_atoms
+from mace.tools import torch_geometric
+from mace.tools.scripts_utils import extract_config_mace_model
+from mace_jax.cli import mace_jax_from_torch
+from mace_jax.nnx_utils import state_to_serializable_dict
 
-from equitrain import get_args_parser_train  # noqa: E402
-from equitrain import train as equitrain_train  # noqa: E402
-from equitrain.backends.jax_nnx_compat import normalize_pure_dict  # noqa: E402
-from equitrain.backends.jax_utils import (  # noqa: E402
+from equitrain import get_args_parser_train
+from equitrain import train as equitrain_train
+from equitrain.backends.jax_nnx_compat import normalize_pure_dict
+from equitrain.backends.jax_utils import (
     DEFAULT_CONFIG_NAME,
     DEFAULT_PARAMS_NAME,
     ModelBundle,
     load_model_bundle,
 )
-from equitrain.data.atomic import AtomicNumberTable  # noqa: E402
-from equitrain.data.backend_jax import (  # noqa: E402
+from equitrain.data.atomic import AtomicNumberTable
+from equitrain.data.backend_jax import (
     graph_from_configuration,
     graph_to_data,
 )
-from equitrain.data.configuration import Configuration as EqConfiguration  # noqa: E402
-from equitrain.data.format_hdf5.dataset import HDF5Dataset  # noqa: E402
-from equitrain.utility_test import MaceWrapper as TorchMaceWrapper  # noqa: E402
-from equitrain.utility_test.mace_support import get_mace_model_path  # noqa: E402
+from equitrain.data.configuration import Configuration as EqConfiguration
+from equitrain.data.format_hdf5.dataset import HDF5Dataset
+from equitrain.utility_test import MaceWrapper as TorchMaceWrapper
+from equitrain.utility_test.mace_support import get_mace_model_path
 
 _RUNNING_ON_CUDA = torch.cuda.is_available()
 
