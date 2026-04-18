@@ -56,15 +56,17 @@ jobs:
       runs-on: ubuntu-latest
       steps:
         - uses: actions/checkout@v4
-        - uses: chartboost/ruff-action@v1
+        - uses: astral-sh/ruff-action@v3
           with:
             version: "0.15.11"
-            args: "check ."
+            args: "check"
+            src: "."
   ruff-formatting:
       runs-on: ubuntu-latest
       steps:
         - uses: actions/checkout@v4
-        - uses: chartboost/ruff-action@v1
+        - uses: astral-sh/ruff-action@v3
           with:
             version: "0.15.11"
-            args: "format . --check --verbose"
+            args: "format --check --verbose"
+            src: "."
