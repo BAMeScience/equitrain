@@ -3,11 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-pytest.importorskip("torch", reason="Torch is required for torch calculator tests.")
+pytest.importorskip('torch', reason='Torch is required for torch calculator tests.')
 pytest.importorskip(
-    "torch_geometric", reason="torch_geometric is required for torch calculator tests."
+    'torch_geometric', reason='torch_geometric is required for torch calculator tests.'
 )
-pytest.importorskip("ase", reason="ASE is required for calculator tests.")
+pytest.importorskip('ase', reason='ASE is required for calculator tests.')
 
 import torch  # noqa: E402
 from ase import Atoms  # noqa: E402
@@ -28,18 +28,18 @@ class _DummyTorchWrappedModel(torch.nn.Module):
         device = batch.ptr.device
         energy = torch.arange(1, num_graphs + 1, dtype=torch.float32, device=device)
         forces = torch.zeros((num_nodes, 3), dtype=torch.float32, device=device)
-        return {"energy": energy, "forces": forces}
+        return {'energy': energy, 'forces': forces}
 
 
 def _install_dummy_builder(monkeypatch):
     dummy_model = _DummyTorchWrappedModel()
 
     def _fake_builder(**_kwargs):
-        return dummy_model, "cpu", "mace"
+        return dummy_model, 'cpu', 'mace'
 
     monkeypatch.setattr(
         torch_calculators,
-        "_build_wrapped_torch_model",
+        '_build_wrapped_torch_model',
         _fake_builder,
     )
 
@@ -47,9 +47,9 @@ def _install_dummy_builder(monkeypatch):
 def test_torch_wrapper_predictor_predict(monkeypatch):
     _install_dummy_builder(monkeypatch)
     predictor = torch_calculators.TorchWrapperPredictor(
-        model="unused.pt",
-        model_wrapper="mace",
-        device="cpu",
+        model='unused.pt',
+        model_wrapper='mace',
+        device='cpu',
         batch_size=8,
         require_forces=True,
     )
@@ -69,9 +69,9 @@ def test_torch_wrapper_predictor_predict(monkeypatch):
 def test_build_torch_ase_calculator(monkeypatch):
     _install_dummy_builder(monkeypatch)
     calc = torch_calculators.build_ase_calculator(
-        model="unused.pt",
-        model_wrapper="mace",
-        device="cpu",
+        model='unused.pt',
+        model_wrapper='mace',
+        device='cpu',
         batch_size=4,
     )
     atoms = Atoms(numbers=[1, 1], positions=[[0.0, 0.0, 0.0], [0.0, 0.0, 0.75]])

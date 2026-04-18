@@ -113,6 +113,7 @@ def _build_wrapped_torch_model(
 ) -> tuple[Any, str, str]:
     try:
         import torch
+
         from equitrain.backends.torch_model import get_model as get_torch_model
     except Exception as exc:
         raise RuntimeError(
@@ -196,6 +197,7 @@ class TorchWrapperPredictor:
         try:
             import torch
             from torch_geometric.data import Batch
+
             from equitrain.data.backend_torch.atoms_to_graphs import AtomsToGraphs
         except Exception as exc:
             raise RuntimeError(
