@@ -58,6 +58,7 @@ jobs:
         - uses: actions/checkout@v4
         - uses: chartboost/ruff-action@v1
           with:
+            version: "0.15.11"
             args: "check ."
   ruff-formatting:
       runs-on: ubuntu-latest
@@ -65,4 +66,5 @@ jobs:
         - uses: actions/checkout@v4
         - uses: chartboost/ruff-action@v1
           with:
+            version: "0.15.11"
             args: "format . --check --verbose"

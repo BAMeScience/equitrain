@@ -39,7 +39,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "mypy==1.0.1",
-  "ruff",
+  "ruff==0.15.11",
   "pytest",
 ]
 docu = [
@@ -106,6 +106,7 @@ equitrain-predict    = "equitrain.scripts.equitrain_predict:main"
 equitrain-preprocess = "equitrain.scripts.equitrain_preprocess:main"
 
 [tool.ruff]
+required-version = "==0.15.11"
 # Exclude a variety of commonly ignored directories.
 include = ["equitrain/**/*.py", "tests/**/*.py"]
 exclude = [
