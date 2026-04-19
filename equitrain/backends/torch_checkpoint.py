@@ -65,6 +65,15 @@ def _find_last_checkpoint(base_path: Path | str, monitor_target: str):
     return dirs[max_index], epochs[max_index]
 
 
+def _resolve_model_path(base_dir: Path | str):
+    base = Path(base_dir)
+    for candidate in ('pytorch_model.bin', 'model.safetensors'):
+        candidate_path = base / candidate
+        if candidate_path.exists():
+            return str(candidate_path)
+    return None
+
+
 def _load_state_dict(path: Path, map_location):
     if path.suffix == '.safetensors':
         try:
@@ -127,14 +136,6 @@ def load_checkpoint(
         if epoch is not None:
             epochs_start = epoch + 1
 
-    def _resolve_model_path(base_dir: Path | str):
-        base = Path(base_dir)
-        for candidate in ('pytorch_model.bin', 'model.safetensors'):
-            candidate_path = base / candidate
-            if candidate_path.exists():
-                return str(candidate_path)
-        return None
-
     if load_checkpoint_model is None and load_best_checkpoint_model:
         candidate_dir, epoch = _find_best_checkpoint(args.output_dir, 'val')
         if candidate_dir is not None:
@@ -149,21 +150,21 @@ def load_checkpoint(
         if epoch is not None:
             epochs_start = epoch + 1
 
-    if load_checkpoint is not None and accelerator is not None:
+    if load_checkpoint is not None:
         if logger is not None:
             logger.log(1, f'Loading checkpoint {load_checkpoint}...')
-        try:
-            accelerator.load_state(load_checkpoint)
-        except RuntimeError as exc:
+        if accelerator is None:
             model_path = _resolve_model_path(load_checkpoint)
             if model_path is None:
-                raise
+                raise FileNotFoundError(
+                    'Unable to locate model weights inside checkpoint directory '
+                    f'{load_checkpoint!r}.'
+                )
             if logger is not None:
                 logger.log(
                     1,
-                    'Accelerate checkpoint restore failed; '
-                    f'falling back to model weights at {model_path}. '
-                    f'Original error: {exc}',
+                    'Accelerator not provided; loading model weights only from '
+                    f'checkpoint directory {load_checkpoint}.',
                 )
             load_model_state(model, model_path)
             ema_path = Path(load_checkpoint) / 'ema.bin'
@@ -171,10 +172,29 @@ def load_checkpoint(
                 model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
             result = True
         else:
-            ema_path = Path(load_checkpoint) / 'ema.bin'
-            if model_ema and ema_path.exists():
-                model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
-            result = True
+            try:
+                accelerator.load_state(load_checkpoint)
+            except RuntimeError as exc:
+                model_path = _resolve_model_path(load_checkpoint)
+                if model_path is None:
+                    raise
+                if logger is not None:
+                    logger.log(
+                        1,
+                        'Accelerate checkpoint restore failed; '
+                        f'falling back to model weights at {model_path}. '
+                        f'Original error: {exc}',
+                    )
+                load_model_state(model, model_path)
+                ema_path = Path(load_checkpoint) / 'ema.bin'
+                if model_ema and ema_path.exists():
+                    model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+                result = True
+            else:
+                ema_path = Path(load_checkpoint) / 'ema.bin'
+                if model_ema and ema_path.exists():
+                    model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+                result = True
 
     if load_checkpoint_model is not None:
         if logger is not None:

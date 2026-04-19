@@ -4,7 +4,7 @@ from .. import check_args_complete, get_args_parser_export
 from ..argparser import ArgsFormatter
 from ..backends.torch_model import get_model
 from ..backends.torch_wrappers import AbstractWrapper
-from ..checkpoint import load_checkpoint, save_checkpoint
+from ..checkpoint import load_checkpoint
 from ..logger import FileLogger
 
 
@@ -19,7 +19,7 @@ def _export(args):
 
     model = get_model(args)
 
-    # Import model, optimizer, lr_scheduler from checkpoint if possible
+    # Import model weights from a checkpoint if requested.
     if not load_checkpoint(args, model, logger=logger)[0]:
         logger.log(1, 'No checkpoint found, using initial model')
 

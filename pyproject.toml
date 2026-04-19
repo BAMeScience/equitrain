@@ -58,6 +58,8 @@ torch = [
 jax = [
   "jax>=0.4",
   "jaxlib>=0.4",
+  "flax",
+  "jraph",
 ]
 ani = [
   "torch>=2.0.0",
@@ -94,6 +96,8 @@ mace-jax = [
   "mace-jax>=0.2.0",  # JAX implementation of MACE potentials
   "jax>=0.4",         # Core JAX runtime
   "jaxlib>=0.4",      # JAX XLA binaries
+  "flax",
+  "jraph",
 ]
 
 [project.scripts]

@@ -21,7 +21,7 @@ def get_model(args, logger=None):
         if not hasattr(args, 'stress_weight'):
             setattr(args, 'stress_weight', 0.0)
 
-        wrapper_name = str(getattr(args, 'model_wrapper', '')).strip().lower()
+        wrapper_name = str(getattr(args, 'model_wrapper', '') or '').strip().lower()
         if wrapper_name == 'ani':
             model = _torch_wrappers.AniWrapper(args, model)
         elif wrapper_name == 'mace':

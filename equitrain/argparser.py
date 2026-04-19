@@ -197,28 +197,54 @@ def add_model_checkpoint_args(
     return parser
 
 
-def add_checkpoint_args(
+def _add_checkpoint_args_common(
     parser: argparse.ArgumentParser,
+    *,
+    best_help: str,
+    last_help: str,
+    direct_help: str,
 ) -> argparse.ArgumentParser:
     parser.add_argument(
         '--load-best-checkpoint',
-        help='Load model, optimizer, and scheduler states from best checkpoint',
+        help=best_help,
         action='store_true',
         default=False,
     )
     parser.add_argument(
         '--load-last-checkpoint',
-        help='Load model, optimizer, and scheduler states from last checkpoint',
+        help=last_help,
         action='store_true',
         default=False,
     )
     parser.add_argument(
         '--load-checkpoint',
-        help='Load model, optimizer, and scheduler states from given checkpoint directory',
+        help=direct_help,
         type=str,
         default=None,
     )
     return parser
+
+
+def add_checkpoint_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    return _add_checkpoint_args_common(
+        parser,
+        best_help='Load model, optimizer, and scheduler states from best checkpoint',
+        last_help='Load model, optimizer, and scheduler states from last checkpoint',
+        direct_help='Load model, optimizer, and scheduler states from given checkpoint directory',
+    )
+
+
+def add_export_checkpoint_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    return _add_checkpoint_args_common(
+        parser,
+        best_help='Load model weights from the best checkpoint directory before export',
+        last_help='Load model weights from the last checkpoint directory before export',
+        direct_help='Load model weights from the given checkpoint directory before export',
+    )
 
 
 def add_loss_weights_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -466,6 +492,7 @@ def add_inspect_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
 def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser = add_model_args(parser)
     parser = add_model_checkpoint_args(parser)
+    parser = add_export_checkpoint_args(parser)
 
     parser.add_argument(
         '--model-export', help='Export model to given file', type=str, default=None
