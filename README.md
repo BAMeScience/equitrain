@@ -532,6 +532,16 @@ Equitrain ships adapter-style fine-tuning helpers in `equitrain.finetune`. They
 are currently exposed through the Python API and are designed to keep the
 original model frozen while training only a small set of additional parameters.
 
+Adapter parameters can still overfit quickly, especially for delta fine-tuning
+where each selected parameter gets a full-size residual. The key idea behind
+delta weights is to learn only the residual needed for the new data while
+keeping the combined parameter `base_parameter + delta` close to the
+pre-trained parameter. Set a non-zero optimizer weight decay with
+`args.weight_decay` or `--weight-decay` so that the residual is regularized
+toward zero, and tune it on validation data. Small values such as `1e-6` to
+`1e-4` are typical starting points, depending on dataset size and adapter
+capacity.
+
 #### Delta Fine-Tuning
 
 Delta fine-tuning is the simplest adapter method in the repository:
@@ -563,6 +573,7 @@ args = get_args_parser_train().parse_args([])
 args.train_file = 'data/train.h5'
 args.valid_file = 'data/valid.h5'
 args.output_dir = 'runs/mace-delta'
+args.weight_decay = 1e-6
 
 base_model = MaceWrapper(args, filename_model='path/to/mace.model')
 args.model = TorchDeltaFineTuneWrapper(base_model)
@@ -618,6 +629,7 @@ args = get_args_parser_train().parse_args([])
 args.train_file = 'data/train.h5'
 args.valid_file = 'data/valid.h5'
 args.output_dir = 'runs/mace-lora'
+args.weight_decay = 1e-6
 
 base_model = MaceWrapper(args, filename_model='path/to/mace.model')
 args.model = TorchLoRAFineTuneWrapper(
