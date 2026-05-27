@@ -60,3 +60,33 @@ def test_get_wrapper_builder_uses_normalized_name(monkeypatch):
     monkeypatch.setattr(jax_wrappers, 'import_module', fake_import_module)
 
     assert jax_wrappers.get_wrapper_builder('ANI') == 'builder'
+
+
+def test_create_wrapper_dispatches_mixed_case_m3gnet_class(monkeypatch):
+    class FakeM3GNetWrapper:
+        def __init__(self, *, module, config, compute_force, compute_stress):
+            self.module = module
+            self.config = config
+            self.compute_force = compute_force
+            self.compute_stress = compute_stress
+
+    def fake_import_module(name: str, package: str):
+        assert name == '.m3gnet'
+        assert package == 'equitrain.backends.jax_wrappers'
+        return SimpleNamespace(M3GNetWrapper=FakeM3GNetWrapper)
+
+    monkeypatch.setattr(jax_wrappers, 'import_module', fake_import_module)
+
+    wrapper = jax_wrappers.create_wrapper(
+        'm3gnet',
+        module='module-object',
+        config={'model_wrapper': 'm3gnet'},
+        compute_force=True,
+        compute_stress=True,
+    )
+
+    assert isinstance(wrapper, FakeM3GNetWrapper)
+    assert wrapper.module == 'module-object'
+    assert wrapper.config == {'model_wrapper': 'm3gnet'}
+    assert wrapper.compute_force is True
+    assert wrapper.compute_stress is True
