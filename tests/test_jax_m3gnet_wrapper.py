@@ -146,6 +146,19 @@ def test_jax_m3gnet_wrapper_rejects_missing_model_elements():
         wrapper.apply({}, _data_dict())
 
 
+def test_jax_m3gnet_wrapper_requires_cell_for_stress():
+    wrapper = M3GNetWrapper(
+        module=_EnergyOnlyGraphModule(),
+        config={'atomic_numbers': [11, 17], 'r_max': 5.0},
+        compute_stress=True,
+    )
+    data = _data_dict()
+    data.pop('cell')
+
+    with pytest.raises(ValueError, match='requires `cell`'):
+        wrapper.apply({}, data)
+
+
 def test_jax_m3gnet_wrapper_flattens_dense_forces():
     wrapper = M3GNetWrapper(
         module=_DenseForceModule(),

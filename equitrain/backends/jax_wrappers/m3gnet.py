@@ -28,6 +28,21 @@ def _voigt6_to_full3x3(stress: jnp.ndarray) -> jnp.ndarray:
     )
 
 
+def _cell_volume(cell: jnp.ndarray) -> jnp.ndarray:
+    return jnp.einsum(
+        'gi,gi->g', cell[:, 0, :], jnp.cross(cell[:, 1, :], cell[:, 2, :])
+    )
+
+
+def _apply_displacement(
+    positions: jnp.ndarray,
+    batch: jnp.ndarray,
+    displacement: jnp.ndarray,
+) -> jnp.ndarray:
+    symmetric = 0.5 * (displacement + jnp.swapaxes(displacement, -1, -2))
+    return positions + jnp.einsum('ni,nij->nj', positions, symmetric[batch])
+
+
 def _import_symbol(path: str):
     module_name, _, attr_name = path.replace(':', '.').rpartition('.')
     if not module_name or not attr_name:
@@ -70,6 +85,61 @@ class M3GNetWrapper:
         self.compute_force = compute_force
         self.compute_stress = compute_stress
 
+    def _model_atomic_numbers(self) -> list[int] | None:
+        for key in (
+            'model_atomic_numbers',
+            'supported_atomic_numbers',
+            'm3gnet_atomic_numbers',
+        ):
+            numbers = self.config.get(key)
+            if numbers is not None:
+                return [int(z) for z in numbers]
+
+        element_types = self.config.get('element_types')
+        if element_types is None:
+            return None
+
+        resolved = []
+        for symbol in element_types:
+            if symbol not in ASE_ATOMIC_NUMBERS:
+                raise ValueError(f'Unknown chemical symbol: {symbol}')
+            resolved.append(int(ASE_ATOMIC_NUMBERS[symbol]))
+        return resolved
+
+    def _species_index_remap(self) -> jnp.ndarray | None:
+        dataset_numbers = self.config.get('atomic_numbers')
+        model_numbers = self._model_atomic_numbers()
+
+        if dataset_numbers is None or model_numbers is None:
+            return None
+
+        dataset_numbers = [int(z) for z in dataset_numbers]
+        model_numbers = [int(z) for z in model_numbers]
+        if dataset_numbers == model_numbers:
+            return None
+
+        index_by_number = {int(z): idx for idx, z in enumerate(model_numbers)}
+        remap = []
+        for number in dataset_numbers:
+            if number not in index_by_number:
+                raise ValueError(
+                    'M3GNet model element set does not cover every atomic number '
+                    f'in config.atomic_numbers: missing Z={number}.'
+                )
+            remap.append(index_by_number[number])
+        return jnp.asarray(remap, dtype=jnp.int32)
+
+    def _remap_species(self, species: jnp.ndarray) -> jnp.ndarray:
+        remap = self._species_index_remap()
+        if remap is None:
+            return species
+
+        valid = species >= 0
+        in_range = species < remap.shape[0]
+        safe_species = jnp.where(valid & in_range, species, 0)
+        remapped = remap[safe_species]
+        return jnp.where(valid & in_range, remapped, -1)
+
     def _node_mask_from_data(self, data_dict: dict[str, jnp.ndarray]) -> jnp.ndarray:
         if 'node_mask' in data_dict:
             return jnp.asarray(data_dict['node_mask'], dtype=bool)
@@ -96,7 +166,9 @@ class M3GNetWrapper:
             if positions is None
             else jnp.asarray(positions)
         )
-        node_type = jnp.asarray(data_dict['node_attrs_index'], dtype=jnp.int32)
+        node_type = self._remap_species(
+            jnp.asarray(data_dict['node_attrs_index'], dtype=jnp.int32)
+        )
         edge_index = jnp.asarray(data_dict['edge_index'], dtype=jnp.int32)
         senders = edge_index[0]
         receivers = edge_index[1]
@@ -283,10 +355,27 @@ class M3GNetWrapper:
         force_flag = self.compute_force if compute_force is None else compute_force
         stress_flag = self.compute_stress if compute_stress is None else compute_stress
 
+        if stress_flag and 'cell' not in data_dict:
+            raise ValueError(
+                'M3GNet JAX wrapper requires `cell` in the input data when '
+                'stress computation is requested.'
+            )
+
         base_inputs, positions, node_mask = self._prepare_inputs(data_dict)
 
-        def _forward(coords):
-            inputs, _, active_node_mask = self._prepare_inputs(data_dict, coords)
+        def _forward(coords, displacement=None):
+            if displacement is None:
+                model_positions = coords
+            else:
+                model_positions = _apply_displacement(
+                    coords,
+                    base_inputs['batch'],
+                    displacement,
+                )
+            inputs, _, active_node_mask = self._prepare_inputs(
+                data_dict,
+                model_positions,
+            )
             outputs = self._call_module(
                 variables,
                 inputs,
@@ -316,10 +405,19 @@ class M3GNetWrapper:
 
         if stress_flag and result['stress'] is None:
             n_graphs = base_inputs['ptr'].shape[0] - 1
-            result['stress'] = jnp.zeros(
-                (n_graphs, 3, 3),
-                dtype=positions.dtype,
+            displacement = jnp.zeros((n_graphs, 3, 3), dtype=positions.dtype)
+
+            def _total_energy_for_displacement(disp):
+                return jnp.sum(_forward(positions, disp)['energy'])
+
+            virials = jax.grad(_total_energy_for_displacement)(displacement)
+            volume = _cell_volume(base_inputs['cell'])
+            safe_volume = jnp.where(
+                jnp.abs(volume) > jnp.finfo(positions.dtype).eps,
+                volume,
+                1.0,
             )
+            result['stress'] = virials / safe_volume[:, None, None]
 
         return result
 
@@ -329,16 +427,10 @@ class M3GNetWrapper:
         if numbers is not None:
             return AtomicNumberTable([int(z) for z in numbers])
 
-        element_types = self.config.get('element_types')
-        if element_types is None:
+        model_numbers = self._model_atomic_numbers()
+        if model_numbers is None:
             return None
-
-        resolved = []
-        for symbol in element_types:
-            if symbol not in ASE_ATOMIC_NUMBERS:
-                raise ValueError(f'Unknown chemical symbol: {symbol}')
-            resolved.append(int(ASE_ATOMIC_NUMBERS[symbol]))
-        return AtomicNumberTable(resolved)
+        return AtomicNumberTable(model_numbers)
 
     @property
     def atomic_energies(self):
@@ -394,8 +486,14 @@ def build_module(config: dict[str, Any]):
             '`module_builder`, or `module_class`.'
         )
 
-    if isinstance(module, tuple) and len(module) == 2:
-        return module
+    if isinstance(module, tuple):
+        if len(module) == 2:
+            return module
+        raise ValueError(
+            'M3GNet JAX module factory must return either `module` or '
+            '`(module, params_template)`. '
+            f'Got a tuple with {len(module)} entries.'
+        )
 
     return module, None
 

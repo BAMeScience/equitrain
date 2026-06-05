@@ -112,7 +112,15 @@ def load_model_bundle(
         params_template = template
         module = jax_module
     else:
-        graphdef, state = nnx.split(jax_module)
+        try:
+            graphdef, state = nnx.split(jax_module)
+        except Exception as exc:
+            raise TypeError(
+                f'JAX wrapper "{wrapper_name}" returned no params template and '
+                'the module could not be split with flax.nnx. Its build_module(config) '
+                'helper must return either an NNX-splittable module or '
+                '`(module, params_template)` for Flax/custom apply modules.'
+            ) from exc
         params_template = serialization.to_state_dict(state)
         module = graphdef
 
