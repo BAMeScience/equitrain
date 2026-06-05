@@ -48,6 +48,17 @@ class _DenseForceModule:
         return {'energy': energy, 'forces': forces}
 
 
+class _SpeciesCaptureModule:
+    def __init__(self):
+        self.node_type = None
+
+    def apply(self, variables, inputs):
+        del variables
+        self.node_type = inputs['node_type']
+        energy = jnp.zeros((inputs['ptr'].shape[0] - 1,), dtype=jnp.float32)
+        return {'energy': energy}
+
+
 def _data_dict():
     return {
         'positions': jnp.array(
@@ -92,8 +103,47 @@ def test_jax_m3gnet_wrapper_computes_forces_and_aliases_graph_inputs():
             dtype=np.float32,
         ),
     )
-    np.testing.assert_allclose(outputs['stress'], np.zeros((2, 3, 3)))
+    np.testing.assert_allclose(
+        outputs['stress'],
+        np.array(
+            [
+                [[2.0, 0.0, 0.0], [0.0, 8.0, 0.0], [0.0, 0.0, 0.0]],
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            ],
+            dtype=np.float32,
+        ),
+    )
     assert {'node_type', 'pos', 'pbc_offshift', 'pbc_offset'} <= module.captured_keys
+
+
+def test_jax_m3gnet_wrapper_remaps_species_to_model_element_order():
+    module = _SpeciesCaptureModule()
+    wrapper = M3GNetWrapper(
+        module=module,
+        config={
+            'atomic_numbers': [11, 17],
+            'element_types': ['Cl', 'Na'],
+            'r_max': 5.0,
+        },
+    )
+
+    wrapper.apply({}, _data_dict())
+
+    np.testing.assert_array_equal(module.node_type, np.array([1, 0, -1]))
+
+
+def test_jax_m3gnet_wrapper_rejects_missing_model_elements():
+    wrapper = M3GNetWrapper(
+        module=_SpeciesCaptureModule(),
+        config={
+            'atomic_numbers': [11, 17],
+            'element_types': ['Na'],
+            'r_max': 5.0,
+        },
+    )
+
+    with pytest.raises(ValueError, match='missing Z=17'):
+        wrapper.apply({}, _data_dict())
 
 
 def test_jax_m3gnet_wrapper_flattens_dense_forces():
@@ -157,7 +207,7 @@ def test_m3gnet_build_module_accepts_factory_returning_template(monkeypatch):
     monkeypatch.setattr(
         m3gnet,
         '_import_symbol',
-        lambda path: (lambda **kwargs: (module, params_template)),
+        lambda path: lambda **kwargs: (module, params_template),
     )
 
     built_module, built_template = m3gnet.build_module(
@@ -166,3 +216,16 @@ def test_m3gnet_build_module_accepts_factory_returning_template(monkeypatch):
 
     assert built_module is module
     assert built_template is params_template
+
+
+def test_m3gnet_build_module_rejects_invalid_factory_tuple(monkeypatch):
+    from equitrain.backends.jax_wrappers import m3gnet
+
+    monkeypatch.setattr(
+        m3gnet,
+        '_import_symbol',
+        lambda path: lambda **kwargs: (object(), {}, 'extra'),
+    )
+
+    with pytest.raises(ValueError, match='tuple with 3 entries'):
+        m3gnet.build_module({'module_factory': 'pkg:create_model'})
