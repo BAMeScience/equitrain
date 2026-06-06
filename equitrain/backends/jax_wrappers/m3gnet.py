@@ -86,6 +86,7 @@ class M3GNetWrapper:
         self.compute_stress = compute_stress
 
     def _model_atomic_numbers(self) -> list[int] | None:
+        """Return the element order expected by the wrapped module, if declared."""
         for key in (
             'model_atomic_numbers',
             'supported_atomic_numbers',
@@ -107,6 +108,15 @@ class M3GNetWrapper:
         return resolved
 
     def _species_index_remap(self) -> jnp.ndarray | None:
+        """
+        Build a dataset-index -> model-index map.
+
+        Equitrain graph construction encodes atoms according to
+        ``config.atomic_numbers``. A JAX M3GNet module may have been trained with
+        a different element order, usually expressed as ``element_types``. The
+        remap keeps the graph loader independent from the model's internal
+        embedding order.
+        """
         dataset_numbers = self.config.get('atomic_numbers')
         model_numbers = self._model_atomic_numbers()
 
@@ -130,6 +140,7 @@ class M3GNetWrapper:
         return jnp.asarray(remap, dtype=jnp.int32)
 
     def _remap_species(self, species: jnp.ndarray) -> jnp.ndarray:
+        """Translate Equitrain species indices to the wrapped module's order."""
         remap = self._species_index_remap()
         if remap is None:
             return species
@@ -141,6 +152,13 @@ class M3GNetWrapper:
         return jnp.where(valid & in_range, remapped, -1)
 
     def _node_mask_from_data(self, data_dict: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        """
+        Recover the real-node mask for padded JAX batches.
+
+        The JAX data loader may pad graph batches to satisfy static shape and
+        multi-device requirements. Downstream modules should not receive active
+        species or nonzero coordinates for padded nodes.
+        """
         if 'node_mask' in data_dict:
             return jnp.asarray(data_dict['node_mask'], dtype=bool)
         if 'node_attrs' in data_dict:
@@ -153,6 +171,14 @@ class M3GNetWrapper:
         data_dict: dict[str, jnp.ndarray],
         positions: jnp.ndarray | None = None,
     ) -> tuple[dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray]:
+        """
+        Convert Equitrain's graph dictionary into a MatGL-like JAX input dict.
+
+        Torch M3GNet gets a DGL graph with ``ndata['node_type']``,
+        ``ndata['pos']``, ``edata['pbc_offshift']``, and ``edata['pbc_offset']``.
+        The JAX wrapper cannot construct DGL graphs, so it exposes those same
+        concepts as flat arrays while preserving Equitrain's original keys.
+        """
         if not isinstance(data_dict, dict):
             raise ValueError('M3GNet JAX wrapper expects a data dictionary input.')
         for key in ('positions', 'node_attrs_index', 'edge_index', 'ptr'):
@@ -236,6 +262,14 @@ class M3GNetWrapper:
         compute_force: bool,
         compute_stress: bool,
     ):
+        """
+        Call either a Flax-style module, an NNX graphdef, or a light custom module.
+
+        This mirrors the flexibility in the ANI wrapper: some modules accept
+        ``compute_force``/``compute_stress`` flags, while simpler energy-only
+        modules just accept the input mapping. If the module already returns
+        forces/stress we pass them through; otherwise the wrapper derives them.
+        """
         apply = getattr(self.module, 'apply')
 
         if hasattr(self.module, 'init'):
@@ -283,6 +317,13 @@ class M3GNetWrapper:
         data_dict: dict[str, jnp.ndarray],
         node_mask: jnp.ndarray,
     ) -> jnp.ndarray:
+        """
+        Convert dense ``[graphs, max_atoms, 3]`` forces to Equitrain's flat layout.
+
+        Equitrain losses expect node quantities in the same flat node order as
+        ``positions``. Some molecule-style modules return padded dense batches,
+        so we gather by graph/local atom index and zero padded nodes.
+        """
         if forces.ndim != 3:
             return forces
 
@@ -299,6 +340,13 @@ class M3GNetWrapper:
         data_dict: dict[str, jnp.ndarray],
         node_mask: jnp.ndarray,
     ) -> dict[str, jnp.ndarray]:
+        """
+        Normalize common model return styles to Equitrain's output contract.
+
+        The backend expects ``energy`` per graph, optional flat ``forces`` per
+        node, and optional ``stress`` as full 3x3 matrices. This function accepts
+        dicts, small tuples, or objects with ``energy``/``energies`` attributes.
+        """
         n_graphs = jnp.asarray(data_dict['ptr']).shape[0] - 1
 
         if isinstance(outputs, dict):
@@ -364,6 +412,10 @@ class M3GNetWrapper:
         base_inputs, positions, node_mask = self._prepare_inputs(data_dict)
 
         def _forward(coords, displacement=None):
+            # Stress follows the Torch wrapper's strain-displacement route:
+            # perturb positions by a symmetric per-graph displacement tensor,
+            # differentiate energy with respect to that tensor, then divide by
+            # cell volume.
             if displacement is None:
                 model_positions = coords
             else:
@@ -400,6 +452,8 @@ class M3GNetWrapper:
             def _total_energy(coords):
                 return jnp.sum(_forward(coords)['energy'])
 
+            # Forces are the negative position gradient of total batch energy,
+            # matching the Torch wrapper's autograd fallback.
             forces = -jax.grad(_total_energy)(positions)
             result['forces'] = jnp.where(node_mask[:, None], forces, 0.0)
 
@@ -470,6 +524,13 @@ class M3GNetWrapper:
 
 
 def build_module(config: dict[str, Any]):
+    """
+    Build the wrapped JAX module from a bundle config.
+
+    A factory/class may return just an NNX-splittable module, or
+    ``(module, params_template)`` for custom/Flax modules whose parameter tree
+    cannot be inferred with ``nnx.split`` by the generic bundle loader.
+    """
     factory_path = config.get('module_factory') or config.get('module_builder')
     class_path = config.get('module_class')
     kwargs = dict(config.get('model_kwargs', {}))
