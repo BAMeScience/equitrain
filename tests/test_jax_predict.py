@@ -1,11 +1,17 @@
 from types import SimpleNamespace
 
-import jax.numpy as jnp
-import jraph
 import numpy as np
+import pytest
 import torch.serialization
 
-torch.serialization.add_safe_globals([slice])
+pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
+pytest.importorskip('jraph', reason='jraph is required for JAX backend tests.')
+
+if hasattr(torch.serialization, 'add_safe_globals'):
+    torch.serialization.add_safe_globals([slice])
+
+import jax.numpy as jnp
+import jraph
 
 from equitrain import get_args_parser_predict
 from equitrain.backends import jax_predict

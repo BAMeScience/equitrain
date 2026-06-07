@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pytest
 import torch.serialization
 
-torch.serialization.add_safe_globals([slice])
+if hasattr(torch.serialization, 'add_safe_globals'):
+    torch.serialization.add_safe_globals([slice])
 
 from equitrain import get_args_parser_evaluate
 

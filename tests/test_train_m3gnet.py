@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
-pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
 
 from equitrain import get_args_parser_train, train
 from equitrain.utility_test import M3GNetWrapper

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import os
 import re
@@ -243,7 +242,7 @@ def save_checkpoint(
     if model_ema is not None:
         torch.save(model_ema.state_dict(), ema_path)
 
-    args_dict = copy.deepcopy(vars(args))
+    args_dict = dict(vars(args))
     args_dict = {key: sanitize_for_json(value) for key, value in args_dict.items()}
     with open(output_dir / 'args.json', 'w') as f:
         json.dump(args_dict, f, indent=4)

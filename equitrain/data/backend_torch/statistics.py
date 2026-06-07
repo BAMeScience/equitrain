@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from e3nn.util.jit import compile_mode
+
+try:  # pragma: no cover - optional acceleration/decorator dependency
+    from e3nn.util.jit import compile_mode
+except ImportError:  # pragma: no cover
+
+    def compile_mode(_mode):
+        return lambda cls: cls
+
 
 from ..atomic import AtomicNumberTable
 from ..format_hdf5 import HDF5Dataset

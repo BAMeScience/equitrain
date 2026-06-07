@@ -1,5 +1,10 @@
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
+pytest.importorskip('flax', reason='Flax is required for JAX backend tests.')
+
 import jax.numpy as jnp
 from flax import traverse_util
 from flax.core import freeze

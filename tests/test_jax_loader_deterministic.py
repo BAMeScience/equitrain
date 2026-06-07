@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
+
+pytest.importorskip('jax', reason='JAX runtime is required for JAX backend tests.')
+pytest.importorskip('jraph', reason='jraph is required for JAX backend tests.')
 
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_jax.loaders import get_dataloader

@@ -82,8 +82,7 @@ m3gnet = [
   "torch_geometric>=2.4.0",
   "torch_ema>=0.3.0",
   "accelerate>=0.28.0",
-  "matgl>=1.0.0",  # Materials Graph Library for M3GNet models
-  "dgl>=1.0.0",    # Deep Graph Library required by MatGL
+  "matgl>=4.0.0",  # Materials Graph Library for M3GNet models
 ]
 mace = [
   "torch>=2.0.0",
