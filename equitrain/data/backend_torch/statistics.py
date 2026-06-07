@@ -3,14 +3,6 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-try:  # pragma: no cover - optional acceleration/decorator dependency
-    from e3nn.util.jit import compile_mode
-except ImportError:  # pragma: no cover
-
-    def compile_mode(_mode):
-        return lambda cls: cls
-
-
 from ..atomic import AtomicNumberTable
 from ..format_hdf5 import HDF5Dataset
 from ..statistics_data import (
@@ -20,7 +12,6 @@ from .scatter import scatter_sum
 from .utility import compute_one_hot, to_numpy
 
 
-@compile_mode('script')
 class AtomicEnergiesBlock(torch.nn.Module):
     atomic_energies: torch.Tensor
 
