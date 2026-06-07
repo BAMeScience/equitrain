@@ -19,7 +19,6 @@ import numpy as np
 import optax
 from flax import serialization, struct
 from jax import tree_util as jtu
-from mace_jax.nnx_config import ConfigDict
 
 from equitrain.argparser import (
     ArgsFormatter,
@@ -31,7 +30,10 @@ from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
 from equitrain.backends.jax_loss_metrics import LossMetrics
-from equitrain.backends.jax_nnx_compat import pure_to_serializable_dict
+from equitrain.backends.jax_nnx_compat import (
+    is_config_dict,
+    pure_to_serializable_dict,
+)
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
     ModelBundle,
@@ -72,11 +74,11 @@ ensure_multiprocessing_spawn()
 
 
 def _is_config_leaf(value):
-    return isinstance(value, ConfigDict)
+    return is_config_dict(value)
 
 
 def _select_restored_value(new_val, old_val, mask_val):
-    if isinstance(new_val, ConfigDict) or isinstance(old_val, ConfigDict):
+    if is_config_dict(new_val) or is_config_dict(old_val):
         return new_val if bool(np.asarray(mask_val)) else old_val
     return jnp.where(mask_val, new_val, old_val)
 

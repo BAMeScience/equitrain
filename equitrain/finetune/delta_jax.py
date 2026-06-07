@@ -4,7 +4,8 @@ import jax
 import jax.numpy as jnp
 from flax import core as flax_core
 from flax import nnx, traverse_util
-from mace_jax.nnx_utils import state_to_pure_dict
+
+from equitrain.backends.jax_nnx_compat import state_to_pure_dict
 
 _DELTA_PARAM_SUFFIXES = frozenset({'weight', 'bias'})
 
