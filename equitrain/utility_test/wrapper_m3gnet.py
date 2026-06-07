@@ -15,7 +15,7 @@ try:  # pragma: no cover - optional dependency guard
     from matgl.models import M3GNet as MatGLM3GNet
 except Exception as exc:  # pragma: no cover
     raise ImportError(
-        'The test M3GNet wrapper requires `matgl` (and `dgl`) to be available.'
+        'The test M3GNet wrapper requires `matgl` to be available.'
     ) from exc
 
 

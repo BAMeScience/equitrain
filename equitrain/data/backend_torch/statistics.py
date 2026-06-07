@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-from e3nn.util.jit import compile_mode
 
 from ..atomic import AtomicNumberTable
 from ..format_hdf5 import HDF5Dataset
@@ -13,7 +12,6 @@ from .scatter import scatter_sum
 from .utility import compute_one_hot, to_numpy
 
 
-@compile_mode('script')
 class AtomicEnergiesBlock(torch.nn.Module):
     atomic_energies: torch.Tensor
 

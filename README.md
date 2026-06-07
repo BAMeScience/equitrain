@@ -28,7 +28,7 @@ wrappers:
 | `sevennet` | Torch | [`MDIL-SNU/SevenNet`](https://github.com/MDIL-SNU/SevenNet) | Torch wrapper around SevenNet checkpoints and models. |
 | `orb` | Torch | [`orbital-materials/orb-models`](https://github.com/orbital-materials/orb-models) | Torch wrapper around ORB force-field models. |
 | `ani` | Torch, JAX | [`aiqm/torchani`](https://github.com/aiqm/torchani) | Torch uses TorchANI directly; JAX uses a JAX-native ANI-like bundle interface. |
-| `m3gnet` | Torch | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | The Torch backend uses the MatGL-backed M3GNet implementation. |
+| `m3gnet` | Torch, JAX | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | Torch uses the MatGL-backed implementation; JAX uses a JAX-native M3GNet-like bundle interface. |
 
 For MACE specifically, the intended repository split is:
 
@@ -368,6 +368,27 @@ equitrain -v \
 
 Start by testing JAX ANI with `--forces-weight 0.0` for an energy-only smoke test. After the bundle loads and energy training works, enable force training to exercise the `jax.grad` force path.
 
+For JAX M3GNet, the bundle follows the same config-driven pattern as JAX ANI:
+it must define a JAX-native module factory/class, not a MatGL Torch checkpoint.
+The module receives a flat graph dictionary with `positions`, `node_type`,
+`edge_index`, `senders`, `receivers`, `shifts`, `unit_shifts`, `batch`, `ptr`,
+and `cell`. A minimal `config.json` looks like:
+
+```json
+{
+  "wrapper_name": "m3gnet",
+  "atomic_numbers": [11, 17],
+  "r_max": 5.0,
+  "module_factory": "my_package.my_m3gnet:create_model",
+  "model_kwargs": {}
+}
+```
+
+If the module returns only energy and `--forces-weight` is positive, the JAX
+M3GNet wrapper computes forces with `jax.grad`. Missing stress is returned as
+a zero `(batch, 3, 3)` tensor. The factory may return either an NNX module, or
+`(module, params_template)` when the module/state are not NNX-splittable.
+
 ---
 
 ### 3. Making Predictions
@@ -453,7 +474,7 @@ Important behavior:
 
 Supported wrappers:
 - Torch calculator: `mace`, `ani`, `orb`, `sevennet`, `m3gnet`
-- JAX calculator: wrappers available in `equitrain.backends.jax_wrappers` (currently `mace`, `ani`)
+- JAX calculator: wrappers available in `equitrain.backends.jax_wrappers` (currently `mace`, `ani`, `m3gnet`)
 
 #### Batched Structure Prediction
 

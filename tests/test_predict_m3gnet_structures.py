@@ -3,7 +3,6 @@ import pytest
 from pymatgen.io.ase import AseAtomsAdaptor
 
 pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
-pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
 
 from equitrain import get_args_parser_predict, predict_structures
 from equitrain.data.atomic import AtomicNumberTable

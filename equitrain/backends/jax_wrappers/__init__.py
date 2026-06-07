@@ -10,6 +10,7 @@ from types import MappingProxyType
 __all__ = [
     'MaceWrapper',
     'AniWrapper',
+    'M3GNetWrapper',
     'available_wrappers',
     'create_wrapper',
     'get_wrapper_builder',
@@ -19,6 +20,12 @@ __all__ = [
 _MODULE_MAP = {
     'MaceWrapper': 'mace',
     'AniWrapper': 'ani',
+    'M3GNetWrapper': 'm3gnet',
+}
+_WRAPPER_CLASS_MAP = {
+    'mace': 'MaceWrapper',
+    'ani': 'AniWrapper',
+    'm3gnet': 'M3GNetWrapper',
 }
 _CACHE = {}
 _ERRORS = {}
@@ -76,7 +83,7 @@ def infer_wrapper_name(config: dict | None, explicit: str | None = None) -> str:
 
 def _wrapper_class_name(name: str) -> str:
     normalized = infer_wrapper_name({}, name)
-    return f'{normalized.capitalize()}Wrapper'
+    return _WRAPPER_CLASS_MAP.get(normalized, f'{normalized.capitalize()}Wrapper')
 
 
 def create_wrapper(

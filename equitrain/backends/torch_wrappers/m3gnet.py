@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable
+from types import SimpleNamespace
 
 warnings.filterwarnings('ignore', message='cuaev not installed', category=UserWarning)
 warnings.filterwarnings(
@@ -25,7 +26,6 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-import dgl
 import torch
 from ase.data import atomic_numbers as ASE_ATOMIC_NUMBERS
 
@@ -39,11 +39,12 @@ from equitrain.data.atomic import AtomicNumberTable
 from .base import AbstractWrapper
 
 try:  # pragma: no cover - optional dependency resolution
+    import matgl
     from matgl.config import DEFAULT_ELEMENTS
     from matgl.models import M3GNet as MatGLM3GNet
 except Exception as exc:  # pragma: no cover - import guard
     raise ImportError(
-        'The MatGL-backed M3GNet wrapper requires the `matgl` package together with a functional `dgl` install.'
+        'The MatGL-backed M3GNet wrapper requires the `matgl` package.'
     ) from exc
 
 
@@ -156,53 +157,23 @@ class M3GNetWrapper(AbstractWrapper):
         atomic_numbers = data.atomic_numbers
         species_indices = self._map_atomic_numbers(atomic_numbers)
 
-        ptr = data.ptr
-        edge_src = data.edge_index[0]
-        edge_dst = data.edge_index[1]
-        edge_batch = batch[edge_src]
         shifts = data.shifts.to(dtype=target_dtype)
-        unit_shifts = data.unit_shifts.to(dtype=target_dtype)
-
-        graphs: list[dgl.DGLGraph] = []
-        for graph_idx in range(num_graphs):
-            start = int(ptr[graph_idx].item())
-            end = int(ptr[graph_idx + 1].item())
-            node_slice = slice(start, end)
-            node_count = end - start
-            mask = edge_batch == graph_idx
-
-            local_src = edge_src[mask] - start
-            local_dst = edge_dst[mask] - start
-
-            graph = dgl.graph(
-                (local_src, local_dst),
-                num_nodes=node_count,
-                device=positions.device,
-            )
-            graph.ndata['node_type'] = species_indices[node_slice]
-            graph.ndata['pos'] = positions[node_slice]
-            graph.edata['pbc_offshift'] = shifts[mask]
-            graph.edata['pbc_offset'] = unit_shifts[mask]
-            graphs.append(graph)
 
         displacement = None
         if self.compute_stress:
             positions, displacement = get_displacement(positions, num_graphs, batch)
-            cursor = 0
-            for graph in graphs:
-                count = graph.num_nodes()
-                graph.ndata['pos'] = positions[cursor : cursor + count]
-                cursor += count
 
-        batched_graph = dgl.batch(graphs)
-        try:  # pragma: no cover - optional dependency guard
-            import matgl
-
-            if getattr(matgl, 'float_th', None) != target_dtype:
-                matgl.float_th = target_dtype  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        energy = self.model(batched_graph)
+        graph = SimpleNamespace(
+            node_type=species_indices,
+            pos=positions,
+            edge_index=data.edge_index,
+            pbc_offshift=shifts,
+            batch=batch,
+            num_graphs=num_graphs,
+        )
+        if getattr(matgl, 'float_th', None) != target_dtype:
+            matgl.float_th = target_dtype  # type: ignore[attr-defined]
+        energy = self.model(graph)
 
         y_pred: dict[str, torch.Tensor | None] = {
             'energy': energy,

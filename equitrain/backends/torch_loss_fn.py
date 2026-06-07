@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-
 import torch
 
 from equitrain.data.backend_torch.scatter import scatter_mean
@@ -74,7 +72,7 @@ class ErrorFn(torch.nn.Module):
 class LossFnEnergy(torch.nn.Module):
     def __init__(self, **args):
         super().__init__()
-        args = copy.deepcopy(args)
+        args = dict(args)
         if args.get('loss_type_energy') is not None:
             args['loss_type'] = args['loss_type_energy']
         if args.get('loss_weight_type_energy') is not None:

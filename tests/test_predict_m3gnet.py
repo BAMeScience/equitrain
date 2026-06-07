@@ -5,7 +5,6 @@ Test script for making predictions with a M3GNet model using Equitrain.
 import pytest
 
 pytest.importorskip('matgl', reason='matgl package is required for M3GNet tests')
-pytest.importorskip('dgl', reason='dgl package is required for M3GNet tests')
 
 from equitrain import get_args_parser_predict, predict
 from equitrain.utility_test import M3GNetWrapper
