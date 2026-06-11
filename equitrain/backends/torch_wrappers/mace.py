@@ -4,6 +4,8 @@ MACE-specific torch wrapper.
 
 from __future__ import annotations
 
+import math
+
 import torch
 
 from equitrain.data.atomic import AtomicNumberTable
@@ -89,42 +91,83 @@ class MaceWrapper(AbstractWrapper):
 
     @r_max.setter
     def r_max(self, r_max):
+        r_max = float(r_max)
+        if math.isclose(self.r_max, r_max, rel_tol=0.0, abs_tol=1e-6):
+            return
+
         if hasattr(self.model, 'radial_embedding'):
             if not _HAS_MACE:
                 raise ImportError(
                     "Optional dependency 'mace' is required for MaceWrapper."
                 )
 
-            num_bessel = self.model.radial_embedding.out_dim
-            num_polynomial_cutoff = self.model.radial_embedding.cutoff_fn.p.item()
+            radial_embedding = self.model.radial_embedding
+            num_bessel = radial_embedding.out_dim
+            num_polynomial_cutoff = radial_embedding.cutoff_fn.p.item()
 
-            if isinstance(self.model.radial_embedding.bessel_fn, BesselBasis):
+            if isinstance(radial_embedding.bessel_fn, BesselBasis):
                 radial_type = 'bessel'
-            elif isinstance(self.model.radial_embedding.bessel_fn, ChebychevBasis):
-                radial_type = 'chebychev'
-            elif isinstance(self.model.radial_embedding.bessel_fn, GaussianBasis):
+                basis_attr = 'bessel_weights'
+            elif isinstance(radial_embedding.bessel_fn, ChebychevBasis):
+                radial_type = 'chebyshev'
+                basis_attr = None
+            elif isinstance(radial_embedding.bessel_fn, GaussianBasis):
                 radial_type = 'gaussian'
+                basis_attr = 'gaussian_weights'
             else:
                 return
 
-            if isinstance(
-                self.model.radial_embedding.distance_transform, AgnesiTransform
-            ):
-                distance_transform = 'Agnesi'
-            elif isinstance(
-                self.model.radial_embedding.distance_transform, SoftTransform
-            ):
-                distance_transform = 'Soft'
+            if hasattr(radial_embedding, 'distance_transform'):
+                if isinstance(radial_embedding.distance_transform, AgnesiTransform):
+                    distance_transform = 'Agnesi'
+                elif isinstance(radial_embedding.distance_transform, SoftTransform):
+                    distance_transform = 'Soft'
+                else:
+                    return
             else:
-                return
+                distance_transform = 'None'
 
-            self.model.radial_embedding = RadialEmbeddingBlock(
+            trainable_basis = False
+            basis_requires_grad = False
+            if basis_attr is not None:
+                basis = getattr(radial_embedding.bessel_fn, basis_attr)
+                trainable_basis = isinstance(basis, torch.nn.Parameter)
+                basis_requires_grad = bool(getattr(basis, 'requires_grad', False))
+
+            new_radial_embedding = RadialEmbeddingBlock(
                 r_max=r_max,
                 num_bessel=num_bessel,
                 num_polynomial_cutoff=num_polynomial_cutoff,
                 radial_type=radial_type,
                 distance_transform=distance_transform,
+                apply_cutoff=getattr(radial_embedding, 'apply_cutoff', True),
             )
+            if trainable_basis and basis_attr is not None:
+                new_basis = getattr(new_radial_embedding.bessel_fn, basis_attr)
+                setattr(
+                    new_radial_embedding.bessel_fn,
+                    basis_attr,
+                    torch.nn.Parameter(
+                        new_basis,
+                        requires_grad=basis_requires_grad,
+                    ),
+                )
+
+            reference = next(radial_embedding.parameters(), None)
+            if reference is None:
+                reference = next(radial_embedding.buffers(), None)
+            if reference is not None:
+                if reference.dtype.is_floating_point:
+                    new_radial_embedding = new_radial_embedding.to(
+                        device=reference.device,
+                        dtype=reference.dtype,
+                    )
+                else:
+                    new_radial_embedding = new_radial_embedding.to(
+                        device=reference.device
+                    )
+            new_radial_embedding.train(radial_embedding.training)
+            self.model.radial_embedding = new_radial_embedding
 
         if hasattr(self.model, 'pair_repulsion'):
             if not _HAS_MACE:

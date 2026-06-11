@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 
 from . import torch_wrappers as _torch_wrappers
@@ -39,9 +41,31 @@ def get_model(args, logger=None):
             )
 
     if hasattr(args, 'r_max') and args.r_max is not None:
-        if logger is not None:
-            logger.log(1, f'Overwriting r_max model parameter with r_max={args.r_max}')
-        model.r_max = args.r_max
+        requested_r_max = float(args.r_max)
+        current_r_max = getattr(model, 'r_max', None)
+        same_r_max = False
+        if current_r_max is not None:
+            same_r_max = math.isclose(
+                float(current_r_max),
+                requested_r_max,
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+        if same_r_max:
+            if logger is not None:
+                logger.log(1, f'Keeping existing r_max={requested_r_max}')
+        else:
+            if logger is not None:
+                current_text = (
+                    'unknown' if current_r_max is None else f'{float(current_r_max)}'
+                )
+                logger.log(
+                    1,
+                    'Overriding r_max from '
+                    f'{current_text} to {requested_r_max}. This changes '
+                    'cutoff-dependent model parameters.',
+                )
+            model.r_max = requested_r_max
 
     return model
 
