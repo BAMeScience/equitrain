@@ -469,6 +469,38 @@ available prediction arrays (`energy`, `forces`, and `stress`) and
 dtypes. If `--output-dir` is omitted, `equitrain-predict` prints the returned
 arrays to stdout and the Python API returns them directly.
 
+#### Prediction with Fine-Tuned Torch Checkpoints
+
+Torch fine-tuning runs save checkpoint directories named
+`best_val_epochs@<epoch>_e@<loss>` below the training `--output-dir`. These
+directories contain model weights plus training state; they are not the same
+artifact type as the full model file expected by `--model`.
+
+To use a fine-tuned checkpoint for prediction or calculators, export a full
+model artifact first:
+
+```bash
+equitrain-export -v \
+    --model path/to/base-mace.model \
+    --model-wrapper mace \
+    --output-dir runs/mace-finetune \
+    --load-best-checkpoint \
+    --model-export runs/mace-finetune/mace-finetuned.model
+```
+
+Then pass the exported model to prediction:
+
+```bash
+equitrain-predict \
+    --model runs/mace-finetune/mace-finetuned.model \
+    --model-wrapper mace \
+    --predict-file data/valid.h5 \
+    --output-dir predictions_mace
+```
+
+For a specific checkpoint directory, replace `--load-best-checkpoint` with
+`--load-checkpoint runs/mace-finetune/best_val_epochs@...`.
+
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
 
@@ -639,6 +671,17 @@ pre-trained parameter. Set a non-zero optimizer weight decay with
 toward zero, and tune it on validation data. Small values such as `1e-6` to
 `1e-4` are typical starting points, depending on dataset size and adapter
 capacity.
+
+Fine-tuning uses the same stopping behavior as normal training: it runs for the
+configured number of `--epochs`; there is no separate early-stopping criterion.
+Equitrain evaluates the validation set before training and after every epoch,
+logs train/validation losses to `trainer.log`, and saves a new best checkpoint
+whenever the validation total loss improves. Convergence is usually checked from
+the validation loss curve and from the best checkpoint names
+`best_val_epochs@<epoch>_e@<loss>`. If the validation loss has flattened or
+starts increasing while the training loss still decreases, the run has stopped
+improving or is beginning to overfit. Use the best validation checkpoint, not
+necessarily the final epoch.
 
 #### Delta Fine-Tuning
 
