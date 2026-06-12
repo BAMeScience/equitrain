@@ -391,7 +391,66 @@ a zero `(batch, 3, 3)` tensor. The factory may return either an NNX module, or
 
 ---
 
-### 3. Making Predictions
+### 3. Evaluating a Model
+
+Evaluate a trained model on an HDF5 test set and optionally write the results to
+an output directory:
+
+```bash
+equitrain-evaluate -v \
+    --test-file data/test.h5 \
+    --model path/to/mace.model \
+    --model-wrapper mace \
+    --batch-size 64 \
+    --output-dir evaluation_mace
+```
+
+When `--output-dir` is set, Equitrain writes aggregate metrics to
+`test_metrics.json`. The file records the backend, input dataset, primary loss
+type, and one metrics block per monitored loss type. Each metric component
+(`total`, `energy`, `forces`, `stress` when enabled) contains `avg`, `sum`, and
+`count` values. For the Torch backend, evaluation also writes
+`test_errors.csv`, with one `index,error` row per configuration in the test set.
+The JAX backend currently writes aggregate metrics only and sets `errors_file`
+to `null` in `test_metrics.json`.
+
+If `--output-dir` is omitted, evaluation still logs the aggregate test metrics
+and returns the metric object from the Python API, but no files are written.
+
+Python example:
+
+```python
+from equitrain import evaluate, get_args_parser_evaluate
+
+
+def evaluate_mace():
+    args = get_args_parser_evaluate().parse_args([])
+    args.test_file = 'data/test.h5'
+    args.model = 'path/to/mace.model'
+    args.model_wrapper = 'mace'
+    args.batch_size = 64
+    args.output_dir = 'evaluation_mace'
+    args.verbose = 1
+
+    metrics = evaluate(args)
+    return metrics
+```
+
+For JAX evaluation, select the JAX backend and provide the graph-packing limit:
+
+```bash
+equitrain-evaluate -v \
+    --backend jax \
+    --test-file data/test.h5 \
+    --model path/to/jax_bundle \
+    --model-wrapper mace \
+    --batch-max-edges 200000 \
+    --output-dir evaluation_jax
+```
+
+---
+
+### 4. Making Predictions
 
 Use a trained model to make predictions on new data:
 
@@ -444,7 +503,7 @@ equitrain-predict \
 
 ---
 
-### 4. ASE Calculators and Relaxation
+### 5. ASE Calculators and Relaxation
 
 `equitrain` also exposes a small calculator API for structure-level inference
 and geometry optimization with ASE:
