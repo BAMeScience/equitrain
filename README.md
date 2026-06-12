@@ -454,6 +454,21 @@ equitrain-evaluate -v \
 
 Use a trained model to make predictions on new data:
 
+```bash
+equitrain-predict \
+    --model path/to/mace.model \
+    --model-wrapper mace \
+    --predict-file data/valid.h5 \
+    --batch-size 64 \
+    --output-dir predictions_mace
+```
+
+When `--output-dir` is set, Equitrain writes `predictions.npz` with the
+available prediction arrays (`energy`, `forces`, and `stress`) and
+`predictions.json` with the backend, input dataset, array file name, shapes, and
+dtypes. If `--output-dir` is omitted, `equitrain-predict` prints the returned
+arrays to stdout and the Python API returns them directly.
+
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
 
@@ -467,6 +482,7 @@ def predict_with_mace():
     args.batch_size = 64
     args.model = 'path/to/mace.model'
     args.model_wrapper = 'mace'
+    args.output_dir = 'predictions_mace'
 
     energy_pred, forces_pred, stress_pred = predict(args)
     print(energy_pred)
@@ -487,7 +503,8 @@ The same backend/model distinction applies for prediction. Torch ANI uses a Torc
 equitrain-predict \
     --model path/to/ani.model \
     --model-wrapper ani \
-    --predict-file data/valid.h5
+    --predict-file data/valid.h5 \
+    --output-dir predictions_ani
 ```
 
 JAX ANI uses the JAX bundle described above:
@@ -498,7 +515,8 @@ equitrain-predict \
     --model path/to/jax_ani_bundle \
     --model-wrapper ani \
     --predict-file data/valid.h5 \
-    --batch-max-edges 10000
+    --batch-max-edges 10000 \
+    --output-dir predictions_jax_ani
 ```
 
 ---

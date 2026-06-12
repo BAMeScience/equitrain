@@ -653,6 +653,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             type=str,
             default=None,
         )
+        parser.add_argument(
+            '--output-dir',
+            help='Optional directory where prediction arrays are written',
+            type=str,
+            default='',
+        )
 
     elif script_type == 'evaluate':
         add_common_data_args(parser)

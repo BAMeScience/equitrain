@@ -8,10 +8,13 @@ def main():
     parser = get_args_parser_predict()
 
     try:
-        predictions = predict(parser.parse_args())
+        args = parser.parse_args()
+        predictions = predict(args)
 
-        # TODO: Do something more useful with the result
-        print(predictions)
+        if getattr(args, 'output_dir', None):
+            print(f'Predictions written to {args.output_dir}')
+        else:
+            print(predictions)
 
     except ValueError as v:
         print(v, file=sys.stderr)
