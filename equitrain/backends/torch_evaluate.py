@@ -1,5 +1,8 @@
+import csv
+import json
 import warnings
 from collections.abc import Iterable
+from pathlib import Path
 
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
@@ -16,6 +19,58 @@ from .torch_model import get_model
 from .torch_utils import set_dtype
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
+
+
+def _metric_to_dict(metric) -> dict[str, dict[str, float]]:
+    result = {}
+    for name, meter in metric.items():
+        if meter is None:
+            continue
+        result[name] = {
+            'avg': float(meter.avg),
+            'sum': float(meter.sum),
+            'count': float(meter.count),
+        }
+    return result
+
+
+def _loss_metrics_to_dict(loss_metrics: LossMetrics) -> dict[str, dict]:
+    result = {loss_metrics.main_type: _metric_to_dict(loss_metrics.main)}
+    for loss_type, metric in loss_metrics.items():
+        result[loss_type] = _metric_to_dict(metric)
+    return result
+
+
+def _write_evaluation_results(
+    args,
+    loss_metrics: LossMetrics,
+    errors: torch.Tensor,
+    logger,
+) -> None:
+    output_dir = getattr(args, 'output_dir', None)
+    if not output_dir:
+        return
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    errors_path = output_path / 'test_errors.csv'
+    with errors_path.open('w', newline='') as handle:
+        writer = csv.writer(handle)
+        writer.writerow(['index', 'error'])
+        for index, error in enumerate(errors.detach().cpu().tolist()):
+            writer.writerow([index, float(error)])
+
+    metrics_path = output_path / 'test_metrics.json'
+    payload = {
+        'backend': 'torch',
+        'dataset': args.test_file,
+        'loss_type': loss_metrics.main_type,
+        'metrics': _loss_metrics_to_dict(loss_metrics),
+        'errors_file': errors_path.name,
+    }
+    metrics_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    logger.log(1, f'Wrote evaluation metrics to `{metrics_path}`')
 
 
 def evaluate_main(
@@ -104,7 +159,7 @@ def _evaluate_with_accelerator(args, accelerator: Accelerator):
     # Prepare all components with accelerate
     model = accelerator.prepare(model)
 
-    test_loss, _ = evaluate_main(
+    test_loss, errors = evaluate_main(
         args,
         model=model,
         accelerator=accelerator,
@@ -113,6 +168,7 @@ def _evaluate_with_accelerator(args, accelerator: Accelerator):
 
     if accelerator.is_main_process:
         test_loss.log(logger, 'test', epoch=None, force=True)
+        _write_evaluation_results(args, test_loss, errors, logger)
 
     return test_loss
 

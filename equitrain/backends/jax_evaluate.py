@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 
@@ -25,6 +28,41 @@ from equitrain.data.backend_jax import get_dataloader, make_apply_fn
 from equitrain.logger import init_logger
 
 ensure_multiprocessing_spawn()
+
+
+def _jax_metric_to_dict(metric) -> dict[str, dict[str, float]]:
+    result = {}
+    for name, meter in metric.main.meters.items():
+        if meter is None:
+            continue
+        result[name] = {
+            'avg': float(meter.avg),
+            'sum': float(meter.sum),
+            'count': float(meter.count),
+        }
+    return result
+
+
+def _write_evaluation_results(
+    args, metric: LossMetrics, loss_type: str, logger
+) -> None:
+    output_dir = getattr(args, 'output_dir', None)
+    if not output_dir:
+        return
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    metrics_path = output_path / 'test_metrics.json'
+    payload = {
+        'backend': 'jax',
+        'dataset': args.test_file,
+        'loss_type': loss_type,
+        'metrics': {loss_type: _jax_metric_to_dict(metric)},
+        'errors_file': None,
+    }
+    metrics_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    logger.log(1, f'Wrote evaluation metrics to `{metrics_path}`')
 
 
 def evaluate(args):
@@ -134,6 +172,7 @@ def evaluate(args):
     total = loss_collection.components['total'].value
     if loss_collection.components['total'].count and jnp.isfinite(total):
         metric.log(logger, 'test')
+        _write_evaluation_results(args, metric, loss_settings.loss_type, logger)
     else:
         logger.log(1, 'No test loss computed')
 

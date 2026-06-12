@@ -659,6 +659,12 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
         add_model_args(parser)
         add_loss_args(parser)
         parser.add_argument(
+            '--output-dir',
+            help='Optional directory where evaluation metrics are written',
+            type=str,
+            default='',
+        )
+        parser.add_argument(
             '--test-file', help='File with test data', type=str, default=None
         )
         parser.add_argument(
