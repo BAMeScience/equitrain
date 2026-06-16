@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import json
 import multiprocessing as mp
@@ -15,12 +16,24 @@ import jraph
 import numpy as np
 from flax import nnx, serialization
 from jax import tree_util as jtu
+from jax.sharding import Mesh, PartitionSpec
+
+try:  # pragma: no cover - exercised only with older JAX releases
+    from jax import shard_map as _shard_map
+except (ImportError, AttributeError):  # pragma: no cover
+    try:
+        from jax.experimental.shard_map import shard_map as _shard_map
+    except (ImportError, AttributeError, ModuleNotFoundError):
+        _shard_map = None
 
 from equitrain.argparser import ArgumentError
 from equitrain.backends.jax_wrappers import get_wrapper_builder, infer_wrapper_name
 
 DEFAULT_CONFIG_NAME = 'config.json'
 DEFAULT_PARAMS_NAME = 'params.msgpack'
+DEVICE_AXIS_NAME = 'device'
+DEVICE_AXIS_SPEC = PartitionSpec(DEVICE_AXIS_NAME)
+REPLICATED_SPEC = PartitionSpec()
 
 
 @dataclass(frozen=True)
@@ -138,6 +151,68 @@ def _none_leaf(value):
     return value is None
 
 
+def local_device_mesh(devices=None) -> Mesh:
+    """Build a one-dimensional mesh over local devices."""
+    if devices is None:
+        devices = jax.local_devices()
+    return Mesh(np.asarray(list(devices), dtype=object), (DEVICE_AXIS_NAME,))
+
+
+def remove_local_device_axis(tree):
+    """Remove the size-one local shard axis exposed inside ``jax.shard_map``."""
+
+    def _squeeze(leaf):
+        if leaf is None:
+            return None
+        arr = jnp.asarray(leaf)
+        if arr.ndim > 0 and arr.shape[0] == 1:
+            return jnp.squeeze(arr, axis=0)
+        return arr
+
+    return jtu.tree_map(_squeeze, tree, is_leaf=_none_leaf)
+
+
+def add_local_device_axis(tree):
+    """Add the local shard axis expected by ``jax.shard_map`` outputs."""
+
+    def _expand(leaf):
+        if leaf is None:
+            return None
+        return jnp.expand_dims(jnp.asarray(leaf), axis=0)
+
+    return jtu.tree_map(_expand, tree, is_leaf=_none_leaf)
+
+
+def shard_map_over_local_devices(
+    fn,
+    *,
+    in_specs,
+    out_specs=DEVICE_AXIS_SPEC,
+    devices=None,
+):
+    """Compile ``fn`` with ``jax.shard_map`` over the local device axis."""
+    if _shard_map is None:
+        raise RuntimeError(
+            'JAX multi-device execution requires jax.shard_map. Upgrade JAX or '
+            'install a JAX release exposing jax.experimental.shard_map.'
+        )
+    mesh = local_device_mesh(devices)
+    shard_map_kwargs = {
+        'mesh': mesh,
+        'in_specs': in_specs,
+        'out_specs': out_specs,
+    }
+    shard_map_params = inspect.signature(_shard_map).parameters
+    if 'axis_names' in shard_map_params:
+        shard_map_kwargs['axis_names'] = {DEVICE_AXIS_NAME}
+    if 'check_vma' in shard_map_params:
+        shard_map_kwargs['check_vma'] = False
+    elif 'check_rep' in shard_map_params:
+        shard_map_kwargs['check_rep'] = False
+    mapped = _shard_map(fn, **shard_map_kwargs)
+    return jax.jit(mapped)
+
+
 def replicate_to_local_devices(tree):
     """Broadcast a pytree so the leading axis matches local device count."""
     device_count = jax.local_device_count()
@@ -212,7 +287,10 @@ def split_graphs_for_devices(graph, num_devices: int) -> list[jraph.GraphsTuple]
             globals_dict = globals_attr.__class__()
             for key, value in globals_attr.items():
                 pad_shape = (pad_graphs,) + value.shape[1:]
-                pad_vals = np.zeros(pad_shape, dtype=value.dtype)
+                if key == 'graph_id':
+                    pad_vals = -np.ones(pad_shape, dtype=value.dtype)
+                else:
+                    pad_vals = np.zeros(pad_shape, dtype=value.dtype)
                 globals_dict[key] = np.concatenate([value, pad_vals], axis=0)
         else:
             pad_shape = (pad_graphs,) + globals_attr.shape[1:]
@@ -235,8 +313,87 @@ def split_graphs_for_devices(graph, num_devices: int) -> list[jraph.GraphsTuple]
     return [_slice_graph(graph, i * per_device, per_device) for i in range(num_devices)]
 
 
+def _graph_leaf_shapes(graph: jraph.GraphsTuple):
+    shape_tree = jtu.tree_map(
+        lambda x: None if x is None else np.shape(x),
+        graph,
+        is_leaf=_none_leaf,
+    )
+    return jtu.tree_leaves(shape_tree, is_leaf=_none_leaf)
+
+
+def _mark_padding_graph_ids(
+    graph: jraph.GraphsTuple, first_padding_graph: int
+) -> jraph.GraphsTuple:
+    globals_attr = getattr(graph, 'globals', None)
+    if globals_attr is None:
+        return graph
+    if hasattr(globals_attr, 'items'):
+        graph_ids = globals_attr.get('graph_id')
+    else:
+        graph_ids = getattr(globals_attr, 'graph_id', None)
+    if graph_ids is None:
+        return graph
+
+    graph_ids = np.asarray(graph_ids)
+    if graph_ids.ndim == 0 or graph_ids.shape[0] <= first_padding_graph:
+        return graph
+    graph_ids = graph_ids.copy()
+    graph_ids[first_padding_graph:] = -1
+
+    if hasattr(globals_attr, '_replace'):
+        globals_attr = globals_attr._replace(graph_id=graph_ids)
+    elif hasattr(globals_attr, 'items'):
+        globals_attr = globals_attr.__class__(globals_attr)
+        globals_attr['graph_id'] = graph_ids
+    else:
+        return graph
+    return graph._replace(globals=globals_attr)
+
+
+def _pad_graphs_for_device_stack(
+    graphs: list[jraph.GraphsTuple],
+    *,
+    ensure_padding_graph: bool = False,
+) -> list[jraph.GraphsTuple]:
+    if len(graphs) <= 1 and not ensure_padding_graph:
+        return graphs
+
+    first_shapes = _graph_leaf_shapes(graphs[0])
+    if not ensure_padding_graph and all(
+        _graph_leaf_shapes(graph) == first_shapes for graph in graphs[1:]
+    ):
+        return graphs
+
+    max_nodes = max(int(np.asarray(graph.n_node).sum()) for graph in graphs)
+    max_edges = max(int(np.asarray(graph.n_edge).sum()) for graph in graphs)
+    max_graphs = max(int(np.asarray(graph.n_node).shape[0]) for graph in graphs)
+
+    padded_graphs = []
+    for graph in graphs:
+        graph_count = int(np.asarray(graph.n_node).shape[0])
+        padded = jraph.pad_with_graphs(
+            graph,
+            n_node=max_nodes + 1,
+            n_edge=max_edges + 1,
+            n_graph=max_graphs + 1,
+        )
+        padded_graphs.append(_mark_padding_graph_ids(padded, graph_count))
+    return padded_graphs
+
+
+def shard_graphs_for_devices(
+    graph: jraph.GraphsTuple, num_devices: int
+) -> list[jraph.GraphsTuple]:
+    """Split and pad a graph batch into stackable per-device chunks."""
+    return _pad_graphs_for_device_stack(
+        split_graphs_for_devices(graph, num_devices),
+        ensure_padding_graph=True,
+    )
+
+
 def prepare_sharded_batch(graph, num_devices: int):
-    """Prepare a micro-batch for ``jax.pmap`` execution."""
+    """Prepare a micro-batch for mapped local-device execution."""
 
     def _ensure_graphs_tuple(item):
         if isinstance(item, jraph.GraphsTuple):
@@ -245,7 +402,6 @@ def prepare_sharded_batch(graph, num_devices: int):
             return item[0] if len(item) == 1 else jraph.batch_np(item)
         raise TypeError('Expected a GraphsTuple or sequence of GraphsTuples.')
 
-    device_batches = []
     if isinstance(graph, Sequence) and not isinstance(graph, jraph.GraphsTuple):
         filtered = [g for g in graph if g is not None]
         if len(filtered) != num_devices:
@@ -253,12 +409,15 @@ def prepare_sharded_batch(graph, num_devices: int):
                 f'Expected {num_devices} micro-batches for multi-device execution, '
                 f'got {len(filtered)}.'
             )
-        for item in filtered:
-            device_batches.append(prepare_single_batch(_ensure_graphs_tuple(item)))
+        device_graphs = [_ensure_graphs_tuple(item) for item in filtered]
     else:
-        chunks = split_graphs_for_devices(graph, num_devices)
-        for chunk in chunks:
-            device_batches.append(prepare_single_batch(_ensure_graphs_tuple(chunk)))
+        device_graphs = [
+            _ensure_graphs_tuple(chunk)
+            for chunk in shard_graphs_for_devices(graph, num_devices)
+        ]
+
+    device_graphs = _pad_graphs_for_device_stack(device_graphs)
+    device_batches = [prepare_single_batch(chunk) for chunk in device_graphs]
 
     def _stack_or_none(*values):
         first = values[0]
@@ -366,11 +525,19 @@ __all__ = [
     'resolve_model_paths',
     'load_model_bundle',
     'is_multi_device',
+    'DEVICE_AXIS_NAME',
+    'DEVICE_AXIS_SPEC',
+    'REPLICATED_SPEC',
+    'local_device_mesh',
+    'remove_local_device_axis',
+    'add_local_device_axis',
+    'shard_map_over_local_devices',
     'replicate_to_local_devices',
     'unreplicate_from_local_devices',
     'prepare_single_batch',
     'prepare_sharded_batch',
     'split_graphs_for_devices',
+    'shard_graphs_for_devices',
     'stack_or_none',
     'split_device_outputs',
     'iter_micro_batches',

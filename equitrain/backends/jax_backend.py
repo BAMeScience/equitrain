@@ -36,12 +36,18 @@ from equitrain.backends.jax_nnx_compat import (
 )
 from equitrain.backends.jax_runtime import ensure_multiprocessing_spawn
 from equitrain.backends.jax_utils import (
+    DEVICE_AXIS_NAME,
+    DEVICE_AXIS_SPEC,
+    REPLICATED_SPEC,
     ModelBundle,
+    add_local_device_axis,
     batched_iterator,
     iter_micro_batches,
     load_model_bundle,
+    remove_local_device_axis,
     replicate_to_local_devices,
     set_jax_platform,
+    shard_map_over_local_devices,
     supports_multiprocessing_workers,
     take_chunk,
     unreplicate_from_local_devices,
@@ -400,7 +406,7 @@ def _unreplicate(tree):
 
 
 def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logger):
-    """Group per-device micro-batches to feed into ``jax.pmap`` calls."""
+    """Group per-device micro-batches for mapped local-device calls."""
     micro_iter = iter_micro_batches(loader)
     first_chunk = take_chunk(micro_iter, device_count)
     if len(first_chunk) < device_count:
@@ -493,20 +499,28 @@ def _build_train_functions(
         local_devices = jax.local_devices()
 
         def grad_step(params, batch):
+            params = remove_local_device_axis(params)
+            batch = remove_local_device_axis(batch)
             (loss, aux), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True
             )(params, batch)
             grads = _sanitize_grads(grads, clip_value)
-            grads = jax.lax.pmean(grads, axis_name='device')
-            loss = jax.lax.pmean(loss, axis_name='device')
-            aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
-            return loss, aux, grads
+            grads = jax.lax.pmean(grads, axis_name=DEVICE_AXIS_NAME)
+            loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
+            aux = jtu.tree_map(
+                lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
+            )
+            return add_local_device_axis((loss, aux, grads))
 
-        grad_step_fn = jax.pmap(
-            grad_step, axis_name='device', in_axes=(0, 0), devices=local_devices
+        grad_step_fn = shard_map_over_local_devices(
+            grad_step,
+            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC),
+            devices=local_devices,
         )
 
         def apply_updates(state: TrainState, grads, ema_factor):
+            state = remove_local_device_axis(state)
+            grads = remove_local_device_axis(grads)
             updates, new_opt_state = optimizer.update(
                 grads, state.opt_state, state.params
             )
@@ -520,16 +534,15 @@ def _build_train_functions(
                 )
             else:
                 new_ema = state.ema_params
-            return (
+            return add_local_device_axis(
                 TrainState(
                     params=new_params, opt_state=new_opt_state, ema_params=new_ema
-                ),
+                )
             )
 
-        apply_updates_fn = jax.pmap(
+        apply_updates_fn = shard_map_over_local_devices(
             apply_updates,
-            axis_name='device',
-            in_axes=(0, 0, None),
+            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC, REPLICATED_SPEC),
             devices=local_devices,
         )
         return grad_step_fn, apply_updates_fn
@@ -565,12 +578,20 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
         local_devices = jax.local_devices()
 
         def step(params, batch):
+            params = remove_local_device_axis(params)
+            batch = remove_local_device_axis(batch)
             loss, aux = loss_fn(params, batch)
-            loss = jax.lax.pmean(loss, axis_name='device')
-            aux = jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name='device'), aux)
-            return loss, aux
+            loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
+            aux = jtu.tree_map(
+                lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
+            )
+            return add_local_device_axis((loss, aux))
 
-        return jax.pmap(step, axis_name='device', in_axes=(0, 0), devices=local_devices)
+        return shard_map_over_local_devices(
+            step,
+            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC),
+            devices=local_devices,
+        )
 
     return jax.jit(loss_fn)
 

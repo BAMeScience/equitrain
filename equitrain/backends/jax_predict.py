@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import logging
 import pickle
 import threading
@@ -17,9 +16,15 @@ from tqdm import tqdm
 
 from equitrain.argparser import check_args_complete
 from equitrain.backends.jax_utils import (
+    DEVICE_AXIS_SPEC,
+    REPLICATED_SPEC,
+    add_local_device_axis,
     prepare_sharded_batch,
+    remove_local_device_axis,
     set_jax_platform,
-    split_graphs_for_devices,
+    shard_graphs_for_devices,
+    shard_map_over_local_devices,
+    split_device_outputs,
     stack_or_none,
     supports_multiprocessing_workers,
 )
@@ -46,6 +51,14 @@ _EDGE_OUTPUT_KEYS: set[str] = set()
 _SKIP_OUTPUT_KEYS: set[str] = {
     'lammps_natoms',
 }
+
+
+def _get_global_value(globals_attr, key: str):
+    if globals_attr is None:
+        return None
+    if hasattr(globals_attr, 'items') and key in globals_attr:
+        return globals_attr[key]
+    return getattr(globals_attr, key, None)
 
 
 def _prefetch_to_device(iterator, capacity: int, device_put_fn: Callable[[Any], Any]):
@@ -97,7 +110,7 @@ def _split_prediction_outputs(
     outputs: dict[str, Any],
     graph: jraph.GraphsTuple,
 ) -> tuple[list[int], dict[str, list[Any]]]:
-    graph_ids = getattr(graph.globals, 'graph_id', None)
+    graph_ids = _get_global_value(graph.globals, 'graph_id')
     if graph_ids is None:
         raise ValueError(
             'Streaming prediction requires graph.globals.graph_id to be set.'
@@ -197,32 +210,39 @@ def predict_streaming(
             except Exception:  # pragma: no cover - defensive fallback
                 total_hint = 0
 
-    _predict_step = functools.partial(
-        jax.pmap,
-        in_axes=(None, 0),
-        out_axes=0,
-        axis_name='devices',
-        devices=local_devices,
-    )(predictor)
+    def _mapped_predictor(params, batch):
+        batch = remove_local_device_axis(batch)
+        return add_local_device_axis(predictor(params, batch))
+
+    if local_device_count <= 1:
+        _predict_step = jax.jit(_mapped_predictor)
+    else:
+        _predict_step = shard_map_over_local_devices(
+            _mapped_predictor,
+            in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
+            devices=local_devices,
+        )
 
     def _prepare_device_graphs(graph):
         if local_device_count <= 1:
             if graph.n_node.ndim == 1:
                 device_batch = jax.tree_util.tree_map(lambda x: x[None, ...], graph)
-            else:
-                device_batch = graph
-            return device_batch, [graph]
+                return device_batch, [graph]
+            device_batch = graph
+            device_graphs = split_device_outputs(graph, local_device_count)
+            return device_batch, device_graphs
         if graph.n_node.ndim == 1:
             device_batch = prepare_sharded_batch(graph, local_device_count)
-        else:
-            if graph.n_node.shape[0] != local_device_count:
-                raise ValueError(
-                    'Expected microbatches with leading axis equal to the number of '
-                    f'local devices ({local_device_count}), got axis size '
-                    f'{graph.n_node.shape[0]}.'
-                )
-            device_batch = graph
-        device_graphs = split_graphs_for_devices(graph, local_device_count)
+            device_graphs = shard_graphs_for_devices(graph, local_device_count)
+            return device_batch, device_graphs
+        if graph.n_node.shape[0] != local_device_count:
+            raise ValueError(
+                'Expected microbatches with leading axis equal to the number of '
+                f'local devices ({local_device_count}), got axis size '
+                f'{graph.n_node.shape[0]}.'
+            )
+        device_batch = graph
+        device_graphs = split_device_outputs(graph, local_device_count)
         return device_batch, device_graphs
 
     host_prefetch_cap = int(getattr(data_loader, '_prefetch_batches', 0) or 0)
