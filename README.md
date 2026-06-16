@@ -477,7 +477,8 @@ directories contain model weights plus training state; they are not the same
 artifact type as the full model file expected by `--model`.
 
 To use a fine-tuned checkpoint for prediction or calculators, export a full
-model artifact first:
+model artifact first. Equitrain detects delta and LoRA adapter checkpoints by
+default and merges the adapter weights during export:
 
 ```bash
 equitrain-export -v \
@@ -487,6 +488,9 @@ equitrain-export -v \
     --load-best-checkpoint \
     --model-export runs/mace-finetune/mace-finetuned.model
 ```
+
+The checkpoint must have been created with current Equitrain so its `args.json`
+contains the adapter export metadata.
 
 Then pass the exported model to prediction:
 

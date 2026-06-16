@@ -365,7 +365,13 @@ def _train_with_accelerator(args, accelerator: Accelerator):
 
             if update_val_result:
                 save_checkpoint(
-                    args, epoch, valid_loss.main, model_ema, accelerator, logger
+                    args,
+                    epoch,
+                    valid_loss.main,
+                    model_ema,
+                    accelerator,
+                    logger,
+                    model=model,
                 )
 
         if lr_scheduler is not None:

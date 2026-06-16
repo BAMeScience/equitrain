@@ -179,6 +179,15 @@ class LoRAFineTuneWrapper(AbstractWrapper):
                 ):
                     base_param.copy_(original)
 
+    def get_fine_tune_export_config(self):
+        return {
+            'wrapper': 'lora',
+            'rank_fraction': self.rank_fraction,
+            'rank_reduction': self.rank_reduction,
+            'min_rank': self.min_rank,
+            'alpha': self.alpha,
+        }
+
     def __getattr__(self, item):
         if item in {
             'base_wrapper',

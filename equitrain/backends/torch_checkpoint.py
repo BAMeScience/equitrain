@@ -30,6 +30,17 @@ def sanitize_for_json(obj):
         return None
 
 
+def _fine_tune_export_config(model):
+    if model is None:
+        return None
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        model = model.module
+    config_fn = getattr(model, 'get_fine_tune_export_config', None)
+    if callable(config_fn):
+        return config_fn()
+    return None
+
+
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
     pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
     regex = re.compile(pattern)
@@ -226,6 +237,7 @@ def save_checkpoint(
     model_ema,
     accelerator: Accelerator,
     logger: FileLogger = None,
+    model: torch.nn.Module | None = None,
 ):
     output_dir = 'best_val_epochs@{}_e@{:0.4g}'.format(epoch, valid_loss['total'].avg)
     logger.log(
@@ -244,6 +256,10 @@ def save_checkpoint(
 
     args_dict = dict(vars(args))
     args_dict = {key: sanitize_for_json(value) for key, value in args_dict.items()}
+    unwrapped_model = accelerator.unwrap_model(model) if model is not None else None
+    fine_tune_export = _fine_tune_export_config(unwrapped_model)
+    if fine_tune_export is not None:
+        args_dict['fine_tune_export'] = sanitize_for_json(fine_tune_export)
     with open(output_dir / 'args.json', 'w') as f:
         json.dump(args_dict, f, indent=4)
 

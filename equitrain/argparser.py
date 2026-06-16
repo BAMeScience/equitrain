@@ -247,6 +247,23 @@ def add_export_checkpoint_args(
     )
 
 
+def add_export_finetune_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    parser.add_argument(
+        '--fine-tune-wrapper',
+        '--finetune-wrapper',
+        dest='fine_tune_wrapper',
+        choices=['auto', 'none', 'delta', 'lora'],
+        default='auto',
+        help=(
+            'Fine-tune adapter wrapper to reconstruct before loading an export '
+            'checkpoint. auto detects supported adapter checkpoints when possible.'
+        ),
+    )
+    return parser
+
+
 def add_loss_weights_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--energy-weight', help='Weight for energy loss', type=float, default=1.0
@@ -493,6 +510,7 @@ def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser = add_model_args(parser)
     parser = add_model_checkpoint_args(parser)
     parser = add_export_checkpoint_args(parser)
+    parser = add_export_finetune_args(parser)
 
     parser.add_argument(
         '--model-export', help='Export model to given file', type=str, default=None

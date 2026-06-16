@@ -85,6 +85,9 @@ class DeltaFineTuneWrapper(AbstractWrapper):
                 for (_, base_param, _), original in zip(self._delta_entries, originals):
                     base_param.copy_(original)
 
+    def get_fine_tune_export_config(self):
+        return {'wrapper': 'delta'}
+
     # --------------------------------------------------------------------- proxies
     def __getattr__(self, item):
         if item in {'base_wrapper', 'model', '_delta_params', '_delta_entries'}:
