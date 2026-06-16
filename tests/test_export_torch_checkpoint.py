@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 import torch
 
 from equitrain import get_args_parser_export
+from equitrain.backends.torch_checkpoint import save_checkpoint
 from equitrain.backends.torch_wrappers.base import AbstractWrapper
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 from equitrain.finetune.lora_torch import LoRAFineTuneWrapper
+from equitrain.logger import FileLogger
 from equitrain.scripts.equitrain_export import export
 
 
@@ -38,6 +41,17 @@ class _WrappedLinear(AbstractWrapper):
     @r_max.setter
     def r_max(self, value):
         self._r_max = value
+
+
+class _FakeAccelerator:
+    def __init__(self, model):
+        self.model = model
+
+    def save_state(self, output_dir):
+        torch.save(self.model.state_dict(), output_dir / 'pytorch_model.bin')
+
+    def unwrap_model(self, model):
+        return model
 
 
 def _build_wrapper(weight: float) -> _WrappedLinear:
@@ -216,6 +230,52 @@ def test_export_auto_loads_lora_checkpoint_with_metadata(tmp_path):
     exported = torch.load(export_path, weights_only=False)
     expected = torch.tensor([[3.0, 5.0]], dtype=exported.weight.dtype)
     torch.testing.assert_close(exported.weight, expected)
+
+
+@pytest.mark.parametrize(
+    ('adapter', 'expected'),
+    [
+        ('delta', {'wrapper': 'delta'}),
+        (
+            'lora',
+            {
+                'wrapper': 'lora',
+                'rank_fraction': None,
+                'rank_reduction': 75,
+                'min_rank': 1,
+                'alpha': 16,
+            },
+        ),
+    ],
+)
+def test_save_checkpoint_writes_fine_tune_export_metadata(tmp_path, adapter, expected):
+    if adapter == 'delta':
+        model = DeltaFineTuneWrapper(_build_wrapper(1.0))
+    elif adapter == 'lora':
+        model = LoRAFineTuneWrapper(
+            _build_wrapper(1.0),
+            rank_reduction=75,
+            alpha=16,
+        )
+    else:  # pragma: no cover - defensive guard for parametrized values
+        raise ValueError(adapter)
+
+    args = SimpleNamespace(output_dir=str(tmp_path), verbose=0)
+    valid_loss = {'total': SimpleNamespace(avg=0.2)}
+    logger = FileLogger(enable_logging=False, stream=False)
+
+    checkpoint_dir = save_checkpoint(
+        args,
+        epoch=4,
+        valid_loss=valid_loss,
+        model_ema=None,
+        accelerator=_FakeAccelerator(model),
+        logger=logger,
+        model=model,
+    )
+
+    args_payload = json.loads((checkpoint_dir / 'args.json').read_text())
+    assert args_payload['fine_tune_export'] == expected
 
 
 def test_export_rejects_adapter_checkpoint_without_metadata(tmp_path):

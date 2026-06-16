@@ -202,4 +202,10 @@ filterwarnings = [
     "ignore:`torch_geometric.distributed` has been deprecated since 2.7.0:DeprecationWarning",
     "ignore:This process \\(pid=.*\\) is multi-threaded, use of fork\\(\\):DeprecationWarning",
     "ignore:Creating NamedTuple classes using keyword arguments is deprecated:DeprecationWarning",
+    "ignore:`torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.:DeprecationWarning",
+    "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`.:DeprecationWarning",
+    "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`.:DeprecationWarning",
+    "ignore:jax.core.Effect is deprecated. Use jax.extend.core.Effect.:DeprecationWarning",
+    "ignore:jax.core.get_opaque_trace_state is deprecated. Use jax.extend.core.get_opaque_trace_state.:DeprecationWarning",
+    "ignore:To copy construct from a tensor, it is recommended to use sourceTensor.*:UserWarning",
 ]

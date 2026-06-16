@@ -38,7 +38,9 @@ def test_m3gnet_predict():
     print('\nStress predictions (shape):')
     print(stress_pred.shape)
 
-    return energy_pred, forces_pred, stress_pred
+    assert energy_pred.shape[0] > 0
+    assert forces_pred.shape[-1] == 3
+    assert stress_pred.shape[-2:] == (3, 3)
 
 
 if __name__ == '__main__':
