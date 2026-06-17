@@ -40,12 +40,10 @@ from equitrain.backends.jax_utils import (
     DEVICE_AXIS_SPEC,
     REPLICATED_SPEC,
     ModelBundle,
-    add_local_device_axis,
     batched_iterator,
     iter_micro_batches,
     load_model_bundle,
     remove_local_device_axis,
-    replicate_to_local_devices,
     set_jax_platform,
     shard_map_over_local_devices,
     supports_multiprocessing_workers,
@@ -397,10 +395,6 @@ def _sanitize_grads(grads, clip_value: float | None):
     return jtu.tree_map(_sanitize, grads)
 
 
-def _replicate_state(state: TrainState) -> TrainState:
-    return replicate_to_local_devices(state)
-
-
 def _unreplicate(tree):
     return unreplicate_from_local_devices(tree)
 
@@ -499,7 +493,6 @@ def _build_train_functions(
         local_devices = jax.local_devices()
 
         def grad_step(params, batch):
-            params = remove_local_device_axis(params)
             batch = remove_local_device_axis(batch)
             (loss, aux), grads = jax.value_and_grad(
                 loss_fn, has_aux=True, allow_int=True
@@ -510,17 +503,17 @@ def _build_train_functions(
             aux = jtu.tree_map(
                 lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
             )
-            return add_local_device_axis((loss, aux, grads))
+            return loss, aux, grads
 
         grad_step_fn = shard_map_over_local_devices(
             grad_step,
-            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC),
+            in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
+            out_specs=REPLICATED_SPEC,
             devices=local_devices,
+            check_vma=False,
         )
 
         def apply_updates(state: TrainState, grads, ema_factor):
-            state = remove_local_device_axis(state)
-            grads = remove_local_device_axis(grads)
             updates, new_opt_state = optimizer.update(
                 grads, state.opt_state, state.params
             )
@@ -534,15 +527,14 @@ def _build_train_functions(
                 )
             else:
                 new_ema = state.ema_params
-            return add_local_device_axis(
-                TrainState(
-                    params=new_params, opt_state=new_opt_state, ema_params=new_ema
-                )
+            return TrainState(
+                params=new_params, opt_state=new_opt_state, ema_params=new_ema
             )
 
         apply_updates_fn = shard_map_over_local_devices(
             apply_updates,
-            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC, REPLICATED_SPEC),
+            in_specs=(REPLICATED_SPEC, REPLICATED_SPEC, REPLICATED_SPEC),
+            out_specs=REPLICATED_SPEC,
             devices=local_devices,
         )
         return grad_step_fn, apply_updates_fn
@@ -578,18 +570,18 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
         local_devices = jax.local_devices()
 
         def step(params, batch):
-            params = remove_local_device_axis(params)
             batch = remove_local_device_axis(batch)
             loss, aux = loss_fn(params, batch)
             loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
             aux = jtu.tree_map(
                 lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
             )
-            return add_local_device_axis((loss, aux))
+            return loss, aux
 
         return shard_map_over_local_devices(
             step,
-            in_specs=(DEVICE_AXIS_SPEC, DEVICE_AXIS_SPEC),
+            in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
+            out_specs=REPLICATED_SPEC,
             devices=local_devices,
         )
 
@@ -994,8 +986,6 @@ def train(args):
     train_state = TrainState(
         params=bundle.params, opt_state=opt_state, ema_params=ema_params
     )
-    if multi_device:
-        train_state = _replicate_state(train_state)
 
     grad_clip_value = getattr(args, 'gradient_clipping', None)
     train_max_steps = _normalize_max_steps(getattr(args, 'train_max_steps', None))
@@ -1261,11 +1251,7 @@ def train(args):
     if is_primary and getattr(args, 'test_file', None):
         test_loader = _build_streaming_loader(args.test_file, shuffle=False)
         if test_loader is not None:
-            eval_params = (
-                replicate_to_local_devices(final_params_host)
-                if multi_device
-                else final_params_host
-            )
+            eval_params = final_params_host
             epoch_test_loader = _iter_loader_for_epoch(
                 test_loader,
                 epoch=start_epoch + num_epochs,

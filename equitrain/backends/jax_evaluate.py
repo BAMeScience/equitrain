@@ -19,7 +19,6 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_utils import (
     load_model_bundle,
-    replicate_to_local_devices,
     supports_multiprocessing_workers,
 )
 from equitrain.backends.jax_wrappers import create_wrapper
@@ -149,9 +148,7 @@ def evaluate(args):
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_eval_loss(apply_fn, loss_settings)
     eval_step_fn = _build_eval_step(loss_fn, multi_device=multi_device)
-    eval_params = (
-        replicate_to_local_devices(bundle.params) if multi_device else bundle.params
-    )
+    eval_params = bundle.params
     _, loss_collection = _run_eval_loop(
         eval_params,
         test_loader,

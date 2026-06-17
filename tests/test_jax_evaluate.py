@@ -101,10 +101,6 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
         captured['run_eval_loop_loader'] = list(loader)
         return 0.5, JaxLossCollection()
 
-    def fake_replicate(params):
-        captured['replicate_called_with'] = params
-        return ({'weights': 1.0}, {'weights': 1.0})
-
     args = _default_args()
 
     monkeypatch.setattr(jax_evaluate, 'validate_evaluate_args', lambda *a, **k: None)
@@ -119,7 +115,6 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     monkeypatch.setattr(jax_evaluate, '_is_multi_device', lambda: True)
     monkeypatch.setattr(jax_evaluate.jax, 'local_device_count', lambda: 2)
     monkeypatch.setattr(jax_evaluate.jax, 'local_devices', lambda: ('d0', 'd1'))
-    monkeypatch.setattr(jax_evaluate, 'replicate_to_local_devices', fake_replicate)
 
     result = jax_evaluate.evaluate(args)
 
@@ -128,8 +123,7 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     assert captured['run_eval_loop_multi_device'] is True
     assert captured['run_eval_loop_loader'] == ['g0', 'g1', 'g2', 'g3']
     assert captured['loader_kwargs']['niggli_reduce'] is False
-    assert captured['run_eval_loop_params'] == ({'weights': 1.0}, {'weights': 1.0})
-    assert captured['replicate_called_with'] == {'weights': 1.0}
+    assert captured['run_eval_loop_params'] == {'weights': 1.0}
     assert captured['wrapper_kwargs']['compute_force'] is False
     assert captured['wrapper_kwargs']['compute_stress'] is False
 

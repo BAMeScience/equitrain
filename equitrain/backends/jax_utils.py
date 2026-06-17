@@ -189,6 +189,7 @@ def shard_map_over_local_devices(
     in_specs,
     out_specs=DEVICE_AXIS_SPEC,
     devices=None,
+    check_vma: bool | None = True,
 ):
     """Compile ``fn`` with ``jax.shard_map`` over the local device axis."""
     if _shard_map is None:
@@ -205,10 +206,10 @@ def shard_map_over_local_devices(
     shard_map_params = inspect.signature(_shard_map).parameters
     if 'axis_names' in shard_map_params:
         shard_map_kwargs['axis_names'] = {DEVICE_AXIS_NAME}
-    if 'check_vma' in shard_map_params:
-        shard_map_kwargs['check_vma'] = False
-    elif 'check_rep' in shard_map_params:
-        shard_map_kwargs['check_rep'] = False
+    if check_vma is not None and 'check_vma' in shard_map_params:
+        shard_map_kwargs['check_vma'] = check_vma
+    elif check_vma is not None and 'check_rep' in shard_map_params:
+        shard_map_kwargs['check_rep'] = check_vma
     mapped = _shard_map(fn, **shard_map_kwargs)
     return jax.jit(mapped)
 
