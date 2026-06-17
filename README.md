@@ -655,7 +655,9 @@ print(atoms.get_potential_energy())
 
 ### JAX Backend Multi-Device Notes
 
-- When the JAX backend detects more than one local accelerator, it automatically switches to a multi-device (`shard_map`) execution. In that mode the training and evaluation batch size must be divisible by `jax.local_device_count()` so that each device processes an identical number of graphs.
+- When JAX training or evaluation detects more than one global JAX device, it automatically switches to multi-device (`shard_map`) execution. After `jax.distributed.initialize()`, the device mesh spans `jax.devices()`, so gradient and metric collectives synchronize across nodes as well as devices on one node.
+- Each process only has to provide local micro-batches for `jax.local_device_count()` devices; Equitrain converts those process-local batches into globally sharded arrays before calling `shard_map`.
+- For multi-node train/evaluate jobs, launch one Equitrain process per JAX process with `--distributed --launcher none --process-count <global-processes> --process-index <rank> --coordinator-address <host:port>`. A process may own one or more local devices; the local launcher remains intended for single-node multi-GPU runs.
 - On single-device machines no extra configuration is required; the backend falls back to the same single-device behaviour that existing scripts expect.
 
 ---

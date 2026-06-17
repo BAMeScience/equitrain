@@ -9,7 +9,10 @@ import jax.numpy as jnp
 from equitrain.argparser import ArgsFormatter, validate_evaluate_args
 from equitrain.backends.jax_backend import (
     _build_eval_step,
+    _initialize_distributed,
+    _launch_local_processes,
     _run_eval_loop,
+    _shutdown_distributed,
 )
 from equitrain.backends.jax_loss_fn import LossSettings, build_eval_loss
 from equitrain.backends.jax_loss_metrics import LossMetrics
@@ -19,6 +22,7 @@ from equitrain.backends.jax_utils import (
 )
 from equitrain.backends.jax_utils import (
     load_model_bundle,
+    set_jax_platform,
     supports_multiprocessing_workers,
 )
 from equitrain.backends.jax_wrappers import create_wrapper
@@ -65,7 +69,22 @@ def _write_evaluation_results(
 
 
 def evaluate(args):
+    exit_code = _launch_local_processes(args)
+    if exit_code is not None:
+        raise SystemExit(exit_code)
+
     validate_evaluate_args(args, 'jax')
+    set_jax_platform(getattr(args, 'jax_platform', None))
+    _initialize_distributed(args)
+    try:
+        return _evaluate_initialized(args)
+    finally:
+        _shutdown_distributed()
+
+
+def _evaluate_initialized(args):
+    process_index = getattr(jax, 'process_index', lambda: 0)()
+    is_primary = process_index == 0
 
     logger = init_logger(
         args,
@@ -73,6 +92,7 @@ def evaluate(args):
         enable_logging=True,
         log_to_file=False,
         output_dir=None,
+        stream=is_primary,
     )
     logger.log(1, ArgsFormatter(args))
 
@@ -168,9 +188,10 @@ def evaluate(args):
 
     total = loss_collection.components['total'].value
     if loss_collection.components['total'].count and jnp.isfinite(total):
-        metric.log(logger, 'test')
-        _write_evaluation_results(args, metric, loss_settings.loss_type, logger)
-    else:
+        if is_primary:
+            metric.log(logger, 'test')
+            _write_evaluation_results(args, metric, loss_settings.loss_type, logger)
+    elif is_primary:
         logger.log(1, 'No test loss computed')
 
     return total

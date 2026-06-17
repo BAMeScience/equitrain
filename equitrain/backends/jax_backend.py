@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import os
 import signal
 import subprocess
@@ -40,9 +39,9 @@ from equitrain.backends.jax_utils import (
     DEVICE_AXIS_SPEC,
     REPLICATED_SPEC,
     ModelBundle,
-    batched_iterator,
     iter_micro_batches,
     load_model_bundle,
+    process_local_sharded_to_global,
     remove_local_device_axis,
     set_jax_platform,
     shard_map_over_local_devices,
@@ -399,16 +398,55 @@ def _unreplicate(tree):
     return unreplicate_from_local_devices(tree)
 
 
-def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logger):
-    """Group per-device micro-batches for mapped local-device calls."""
-    micro_iter = iter_micro_batches(loader)
-    first_chunk = take_chunk(micro_iter, device_count)
-    if len(first_chunk) < device_count:
-        raise RuntimeError(
-            f'[{phase}] Need at least {device_count} micro-batches to utilize all '
-            'available devices. Increase --batch-max-edges/--batch-max-nodes or '
-            'reduce the device count.'
+def _aux_has_metrics(aux) -> bool:
+    return isinstance(aux, dict) and isinstance(aux.get('metrics'), dict)
+
+
+def _aggregate_metric_value(value, count):
+    value = jnp.asarray(value)
+    count = jnp.asarray(count, dtype=value.dtype)
+    total_count = jax.lax.psum(count, axis_name=DEVICE_AXIS_NAME)
+    weighted_sum = jax.lax.psum(value * count, axis_name=DEVICE_AXIS_NAME)
+    mean_value = jnp.where(
+        total_count > 0.0,
+        weighted_sum / jnp.maximum(total_count, 1.0),
+        jnp.zeros_like(value),
+    )
+    return mean_value, total_count
+
+
+def _aggregate_aux_metrics(aux):
+    aggregated = dict(aux)
+    aggregated['metrics'] = {
+        key: _aggregate_metric_value(value, count)
+        for key, (value, count) in aux['metrics'].items()
+    }
+    if 'per_graph_error' in aggregated:
+        aggregated['per_graph_error'] = jax.lax.pmean(
+            aggregated['per_graph_error'], axis_name=DEVICE_AXIS_NAME
         )
+    return aggregated
+
+
+def _pmean_tree(tree):
+    return jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), tree)
+
+
+def _multi_device_chunk_iterator(
+    loader,
+    device_count: int,
+    *,
+    phase: str,
+    logger,
+    sync_processes: bool = False,
+):
+    """Group per-device micro-batches for mapped device calls.
+
+    When ``sync_processes`` is true, all distributed JAX processes keep calling
+    collectives until every process has exhausted its loader. Processes that run
+    out of local data first contribute empty padding batches.
+    """
+    micro_iter = iter_micro_batches(loader)
 
     def _warn(count, expected):
         message = (
@@ -448,35 +486,59 @@ def _multi_device_chunk_iterator(loader, device_count: int, *, phase: str, logge
             n_edge=np.zeros_like(graph.n_edge),
         )
 
-    template_graph = next((g for g in first_chunk if g is not None), None)
+    def _any_process_has_data(local_has_data: bool) -> bool:
+        if not sync_processes:
+            return bool(local_has_data)
+        try:
+            from jax.experimental import multihost_utils  # noqa: PLC0415
 
-    def _pad_chunk(chunk):
+            gathered = multihost_utils.process_allgather(
+                np.asarray(int(bool(local_has_data)), dtype=np.int32),
+                tiled=False,
+            )
+        except Exception as exc:  # pragma: no cover - requires distributed runtime
+            raise RuntimeError(
+                f'[{phase}] Failed to synchronize distributed loader state.'
+            ) from exc
+        return bool(np.any(np.asarray(gathered, dtype=np.int32)))
+
+    template_graph = None
+    first_chunk = True
+
+    while True:
+        chunk = take_chunk(micro_iter, device_count)
         filtered = [g for g in chunk if g is not None]
+        local_has_data = bool(filtered)
+        if not _any_process_has_data(local_has_data):
+            break
+
+        if template_graph is None:
+            template_graph = next((g for g in filtered if g is not None), None)
+
+        if not sync_processes and first_chunk and len(filtered) < device_count:
+            raise RuntimeError(
+                f'[{phase}] Need at least {device_count} micro-batches to utilize all '
+                'available devices. Increase --batch-max-edges/--batch-max-nodes or '
+                'reduce the device count.'
+            )
+        first_chunk = False
+
         if len(filtered) >= device_count:
-            return filtered
-        if not filtered:
-            return filtered
-        _warn(len(filtered), device_count)
+            yield filtered
+            continue
+
         if template_graph is None:
             raise RuntimeError(
-                f'[{phase}] Unable to build padding graphs without a template batch.'
+                f'[{phase}] This distributed process has no local batch to use as a '
+                'padding template while another process still has data. Reduce the '
+                'process count or increase the dataset size.'
             )
+
+        _warn(len(filtered), device_count)
         padded = list(filtered)
         for _ in range(device_count - len(filtered)):
             padded.append(_empty_graph_like(template_graph))
-        return padded
-
-    first_chunk = _pad_chunk(first_chunk)
-
-    remainder = batched_iterator(
-        micro_iter,
-        device_count,
-        remainder_action=None,
-        drop_remainder=False,
-    )
-    return itertools.chain(
-        [first_chunk], (_pad_chunk(chunk) for chunk in remainder if chunk)
-    )
+        yield padded
 
 
 def _build_train_functions(
@@ -490,7 +552,7 @@ def _build_train_functions(
     clip_value = None if grad_clip_value is None else float(grad_clip_value)
 
     if multi_device:
-        local_devices = jax.local_devices()
+        devices = jax.devices()
 
         def grad_step(params, batch):
             batch = remove_local_device_axis(batch)
@@ -498,18 +560,30 @@ def _build_train_functions(
                 loss_fn, has_aux=True, allow_int=True
             )(params, batch)
             grads = _sanitize_grads(grads, clip_value)
-            grads = jax.lax.pmean(grads, axis_name=DEVICE_AXIS_NAME)
-            loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
-            aux = jtu.tree_map(
-                lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
-            )
+            if _aux_has_metrics(aux):
+                local_count = jnp.asarray(aux['metrics']['total'][1], dtype=loss.dtype)
+                active = jnp.asarray(local_count > 0.0, dtype=loss.dtype)
+                active_count = jax.lax.psum(active, axis_name=DEVICE_AXIS_NAME)
+                grads = jtu.tree_map(
+                    lambda grad: (
+                        jax.lax.psum(grad * active, axis_name=DEVICE_AXIS_NAME)
+                        / jnp.maximum(active_count, 1.0)
+                    ),
+                    grads,
+                )
+                aux = _aggregate_aux_metrics(aux)
+                loss = aux['metrics']['total'][0]
+            else:
+                grads = jax.lax.pmean(grads, axis_name=DEVICE_AXIS_NAME)
+                loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
+                aux = _pmean_tree(aux)
             return loss, aux, grads
 
         grad_step_fn = shard_map_over_local_devices(
             grad_step,
             in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
             out_specs=REPLICATED_SPEC,
-            devices=local_devices,
+            devices=devices,
             check_vma=False,
         )
 
@@ -535,7 +609,7 @@ def _build_train_functions(
             apply_updates,
             in_specs=(REPLICATED_SPEC, REPLICATED_SPEC, REPLICATED_SPEC),
             out_specs=REPLICATED_SPEC,
-            devices=local_devices,
+            devices=devices,
         )
         return grad_step_fn, apply_updates_fn
 
@@ -567,22 +641,24 @@ def _build_train_functions(
 
 def _build_eval_step(loss_fn, *, multi_device: bool):
     if multi_device:
-        local_devices = jax.local_devices()
+        devices = jax.devices()
 
         def step(params, batch):
             batch = remove_local_device_axis(batch)
             loss, aux = loss_fn(params, batch)
-            loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
-            aux = jtu.tree_map(
-                lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), aux
-            )
+            if _aux_has_metrics(aux):
+                aux = _aggregate_aux_metrics(aux)
+                loss = aux['metrics']['total'][0]
+            else:
+                loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
+                aux = _pmean_tree(aux)
             return loss, aux
 
         return shard_map_over_local_devices(
             step,
             in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
             out_specs=REPLICATED_SPEC,
-            devices=local_devices,
+            devices=devices,
         )
 
     return jax.jit(loss_fn)
@@ -611,7 +687,8 @@ def _run_train_epoch(
     ema_count = ema_count_start
     local_devices = jax.local_devices()
     device_count = len(local_devices) if multi_device else 1
-    use_chunked_multi = multi_device and device_count > 1
+    sync_processes = getattr(jax, 'process_count', lambda: 1)() > 1
+    use_chunked_multi = multi_device
     total_steps = None
     if hasattr(train_loader, 'total_batches_hint'):
         approx_batches = int(getattr(train_loader, 'total_batches_hint', 0))
@@ -637,7 +714,11 @@ def _run_train_epoch(
     use_tqdm = bool(getattr(args, 'tqdm', False) and tqdm is not None)
     if use_chunked_multi:
         chunk_iter = _multi_device_chunk_iterator(
-            train_loader, device_count, phase='Training', logger=logger
+            train_loader,
+            device_count,
+            phase='Training',
+            logger=logger,
+            sync_processes=sync_processes,
         )
         iterator = enumerate(chunk_iter)
     else:
@@ -683,6 +764,7 @@ def _run_train_epoch(
 
         if use_chunked_multi:
             prepared_batch = _prepare_sharded_batch(micro_batches, device_count)
+            prepared_batch = process_local_sharded_to_global(prepared_batch)
             try:
                 _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
             except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
@@ -790,11 +872,16 @@ def _run_eval_loop(
     loss_collection = JaxLossCollection()
     local_devices = jax.local_devices()
     device_count = len(local_devices) if multi_device else 1
+    sync_processes = getattr(jax, 'process_count', lambda: 1)() > 1
     mean_loss = None
 
-    if multi_device and device_count > 1:
+    if multi_device:
         data_iter = _multi_device_chunk_iterator(
-            loader, device_count, phase='Eval', logger=logger
+            loader,
+            device_count,
+            phase='Eval',
+            logger=logger,
+            sync_processes=sync_processes,
         )
     else:
         data_iter = loader
@@ -802,9 +889,10 @@ def _run_eval_loop(
     for step_index, graph in enumerate(data_iter):
         if max_steps is not None and step_index >= max_steps:
             break
-        if multi_device and device_count > 1:
+        if multi_device:
             micro_batches = graph
             batch = _prepare_sharded_batch(micro_batches, device_count)
+            batch = process_local_sharded_to_global(batch)
             loss, aux = eval_step_fn(params, batch)
             loss = _unreplicate(loss)
             aux = _unreplicate(aux)
@@ -1248,7 +1336,7 @@ def train(args):
         _save_parameters(Path(args.output_dir), final_params_host)
 
     test_metrics = None
-    if is_primary and getattr(args, 'test_file', None):
+    if getattr(args, 'test_file', None):
         test_loader = _build_streaming_loader(args.test_file, shuffle=False)
         if test_loader is not None:
             eval_params = final_params_host
@@ -1274,7 +1362,8 @@ def train(args):
                 loss_label=loss_settings.loss_type,
             )
             test_metrics.update(test_metric_collection)
-            test_metrics.log(logger, 'test', epoch=start_epoch + num_epochs - 1)
+            if is_primary:
+                test_metrics.log(logger, 'test', epoch=start_epoch + num_epochs - 1)
 
     if process_count > 1:
         try:

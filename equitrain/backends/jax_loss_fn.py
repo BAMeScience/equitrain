@@ -190,8 +190,6 @@ def _energy_component(outputs, graph, mask, settings, error_fn, dtype):
         )
 
     mask = jnp.asarray(mask, dtype=dtype)
-    mask_sum = jnp.sum(mask)
-    mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
 
     pred = jnp.asarray(outputs['energy'], dtype=dtype)
     if pred.ndim == 0:
@@ -251,8 +249,6 @@ def _forces_component(outputs, graph, mask, error_fn, dtype):
     target = jnp.asarray(getattr(graph.nodes, 'forces'), dtype=dtype)
 
     node_mask = _node_padding_mask(graph, mask).astype(dtype)
-    node_mask_sum = jnp.sum(node_mask)
-    node_mask = jnp.where(node_mask_sum > 0.0, node_mask, jnp.ones_like(node_mask))
     node_batch = _node_batch_indices(graph)
 
     error = error_fn(pred, target)
@@ -303,11 +299,6 @@ def _stress_component(outputs, graph, mask, error_fn, dtype):
         )
 
     mask_expanded = mask[:, None, None]
-    mask_sum = jnp.sum(mask_expanded)
-    mask_expanded = jnp.where(
-        mask_sum > 0.0, mask_expanded, jnp.ones_like(mask_expanded)
-    )
-    mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
 
     error = error_fn(pred, target)
     masked_error = error * mask_expanded
@@ -356,8 +347,6 @@ def build_loss_fn(apply_fn, settings: LossSettings):
 
     def loss_fn(variables, graph: jraph.GraphsTuple):
         mask = _graph_mask(graph)
-        mask_sum = jnp.sum(mask)
-        mask = jnp.where(mask_sum > 0.0, mask, jnp.ones_like(mask))
         outputs = apply_fn(variables, graph)
 
         dtype = jnp.asarray(graph.nodes.positions).dtype

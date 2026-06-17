@@ -131,14 +131,14 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         '--distributed',
         action='store_true',
-        help='Initialize jax.distributed for multi-process training.',
+        help='Initialize jax.distributed for JAX backends that support multi-process execution.',
     )
     parser.add_argument(
         '--launcher',
         choices=['none', 'local', 'auto'],
         default='auto',
         help=(
-            'Launch strategy for distributed training. '
+            'Launch strategy for supported distributed JAX execution. '
             'auto enables local multi-process when multiple GPUs are visible.'
         ),
     )

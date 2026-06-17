@@ -16,7 +16,7 @@ import jraph
 import numpy as np
 from flax import nnx, serialization
 from jax import tree_util as jtu
-from jax.sharding import Mesh, PartitionSpec
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 try:  # pragma: no cover - exercised only with older JAX releases
     from jax import shard_map as _shard_map
@@ -143,8 +143,8 @@ def load_model_bundle(
 
 
 def is_multi_device() -> bool:
-    """Return ``True`` if more than one local JAX device is available."""
-    return jax.local_device_count() > 1
+    """Return ``True`` if more than one global JAX device is available."""
+    return len(jax.devices()) > 1
 
 
 def _none_leaf(value):
@@ -156,6 +156,40 @@ def local_device_mesh(devices=None) -> Mesh:
     if devices is None:
         devices = jax.local_devices()
     return Mesh(np.asarray(list(devices), dtype=object), (DEVICE_AXIS_NAME,))
+
+
+def global_device_mesh(devices=None) -> Mesh:
+    """Build a one-dimensional mesh over all global JAX devices."""
+    if devices is None:
+        devices = jax.devices()
+    return Mesh(np.asarray(list(devices), dtype=object), (DEVICE_AXIS_NAME,))
+
+
+def process_local_sharded_to_global(tree, *, devices=None):
+    """Convert process-local device-axis batches into a global sharded array tree."""
+    mesh = global_device_mesh(devices)
+    sharding = NamedSharding(mesh, DEVICE_AXIS_SPEC)
+    global_device_count = int(np.asarray(mesh.devices).size)
+    local_device_count = int(jax.local_device_count())
+
+    def _convert(leaf):
+        if leaf is None:
+            return None
+        arr = jnp.asarray(leaf)
+        if arr.ndim == 0 or arr.shape[0] != local_device_count:
+            raise ValueError(
+                'Expected a process-local sharded batch leaf with leading axis '
+                f'equal to the local device count ({local_device_count}), got '
+                f'shape {arr.shape}.'
+            )
+        global_shape = (global_device_count,) + tuple(arr.shape[1:])
+        return jax.make_array_from_process_local_data(
+            sharding,
+            arr,
+            global_shape=global_shape,
+        )
+
+    return jtu.tree_map(_convert, tree, is_leaf=_none_leaf)
 
 
 def remove_local_device_axis(tree):
@@ -191,7 +225,7 @@ def shard_map_over_local_devices(
     devices=None,
     check_vma: bool | None = True,
 ):
-    """Compile ``fn`` with ``jax.shard_map`` over the local device axis."""
+    """Compile ``fn`` with ``jax.shard_map`` over the provided device axis."""
     if _shard_map is None:
         raise RuntimeError(
             'JAX multi-device execution requires jax.shard_map. Upgrade JAX or '
@@ -530,6 +564,8 @@ __all__ = [
     'DEVICE_AXIS_SPEC',
     'REPLICATED_SPEC',
     'local_device_mesh',
+    'global_device_mesh',
+    'process_local_sharded_to_global',
     'remove_local_device_axis',
     'add_local_device_axis',
     'shard_map_over_local_devices',

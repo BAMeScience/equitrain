@@ -118,6 +118,38 @@ def test_build_loss_fn_energy_component():
     np.testing.assert_allclose(np.asarray(total_count), 1.0)
 
 
+def test_build_loss_fn_zero_weight_batch_contributes_zero_loss():
+    graph = _make_graph(
+        energy=1.0,
+        weight=0.0,
+        forces=jnp.zeros((2, 3), dtype=jnp.float32),
+        stress=jnp.zeros((3, 3), dtype=jnp.float32),
+    )
+
+    def apply_fn(_, _graph):
+        total_nodes = graph.nodes.positions.shape[0]
+        return {
+            'energy': jnp.asarray([5.0, 0.0], dtype=jnp.float32),
+            'forces': jnp.ones((total_nodes, 3), dtype=jnp.float32),
+            'stress': jnp.ones((2, 3, 3), dtype=jnp.float32),
+        }
+
+    settings = _loss_settings(
+        energy_weight=1.0,
+        forces_weight=1.0,
+        stress_weight=1.0,
+        loss_energy_per_atom=False,
+    )
+    loss_fn = build_loss_fn(apply_fn, settings)
+    loss_value, aux = loss_fn(None, graph)
+
+    assert pytest.approx(float(loss_value)) == 0.0
+    for value, count in aux['metrics'].values():
+        np.testing.assert_allclose(np.asarray(value), 0.0)
+        np.testing.assert_allclose(np.asarray(count), 0.0)
+    np.testing.assert_allclose(np.asarray(aux['per_graph_error']), 0.0)
+
+
 def test_build_loss_fn_forces_component():
     graph = _make_graph(forces=jnp.zeros((2, 3)))
 
