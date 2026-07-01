@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import warnings
 from pathlib import Path
 
@@ -42,7 +43,8 @@ def _fine_tune_export_config(model):
 
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
-    pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
+    float_pattern = r'([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)'
+    pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@{float_pattern}$'
     regex = re.compile(pattern)
 
     matching_dirs = []
@@ -73,6 +75,31 @@ def _find_last_checkpoint(base_path: Path | str, monitor_target: str):
         return None, None
     max_index = epochs.index(max(epochs))
     return dirs[max_index], epochs[max_index]
+
+
+def _prune_best_checkpoints(
+    base_path: Path | str,
+    monitor_target: str,
+    keep: int | None,
+    logger: FileLogger | None = None,
+) -> None:
+    if keep is None or int(keep) <= 0:
+        return
+    dirs, vals, epochs = _list_checkpoint_directories(base_path, monitor_target)
+    if len(dirs) <= int(keep):
+        return
+
+    ranked = sorted(
+        zip(dirs, vals, epochs, strict=True), key=lambda item: (item[1], item[2])
+    )
+    keep_dirs = {Path(path).resolve() for path, _, _ in ranked[: int(keep)]}
+    for path, _, _ in ranked[int(keep) :]:
+        path = Path(path)
+        if path.resolve() in keep_dirs:
+            continue
+        if logger is not None:
+            logger.log(1, f'Removing old checkpoint {path}')
+        shutil.rmtree(path)
 
 
 def _resolve_model_path(base_dir: Path | str):
@@ -262,6 +289,13 @@ def save_checkpoint(
         args_dict['fine_tune_export'] = sanitize_for_json(fine_tune_export)
     with open(output_dir / 'args.json', 'w') as f:
         json.dump(args_dict, f, indent=4)
+
+    _prune_best_checkpoints(
+        args.output_dir,
+        'val',
+        getattr(args, 'keep_best_checkpoints', 0),
+        logger,
+    )
 
     return output_dir
 

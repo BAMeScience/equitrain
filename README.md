@@ -682,12 +682,14 @@ Fine-tuning uses the same stopping behavior as normal training: it runs for the
 configured number of `--epochs`; there is no separate early-stopping criterion.
 Equitrain evaluates the validation set before training and after every epoch,
 logs train/validation losses to `trainer.log`, and saves a new best checkpoint
-whenever the validation total loss improves. Convergence is usually checked from
-the validation loss curve and from the best checkpoint names
-`best_val_epochs@<epoch>_e@<loss>`. If the validation loss has flattened or
-starts increasing while the training loss still decreases, the run has stopped
-improving or is beginning to overfit. Use the best validation checkpoint, not
-necessarily the final epoch.
+whenever the validation total loss improves. By default all best checkpoints are
+kept; set `--keep-best-checkpoints N` to retain only the N checkpoints with the
+lowest validation total loss, or leave it at `0` to keep all best checkpoints.
+Convergence is usually checked from the validation loss curve and from the best
+checkpoint names `best_val_epochs@<epoch>_e@<loss>`. If the validation loss has
+flattened or starts increasing while the training loss still decreases, the run
+has stopped improving or is beginning to overfit. Use the best validation
+checkpoint, not necessarily the final epoch.
 
 #### Delta Fine-Tuning
 

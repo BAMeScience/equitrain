@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,8 @@ def _sanitize_for_json(obj):
 
 def _list_checkpoint_directories(base_path: Path | str, monitor_target: str):
     base = Path(base_path)
-    pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@([0-9]*\.[0-9]+)$'
+    float_pattern = r'([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)'
+    pattern = rf'^.*best_{monitor_target}_epochs@([0-9]+)_e@{float_pattern}$'
     regex = re.compile(pattern)
 
     matching_dirs: list[Path] = []
@@ -64,6 +66,31 @@ def _find_last_checkpoint(base_path: Path | str, monitor_target: str):
         return None, None
     max_index = epochs.index(max(epochs))
     return dirs[max_index], epochs[max_index]
+
+
+def _prune_best_checkpoints(
+    base_path: Path | str,
+    monitor_target: str,
+    keep: int | None,
+    logger: FileLogger | None = None,
+) -> None:
+    if keep is None or int(keep) <= 0:
+        return
+    dirs, vals, epochs = _list_checkpoint_directories(base_path, monitor_target)
+    if len(dirs) <= int(keep):
+        return
+
+    ranked = sorted(
+        zip(dirs, vals, epochs, strict=True), key=lambda item: (item[1], item[2])
+    )
+    keep_dirs = {Path(path).resolve() for path, _, _ in ranked[: int(keep)]}
+    for path, _, _ in ranked[int(keep) :]:
+        path = Path(path)
+        if path.resolve() in keep_dirs:
+            continue
+        if logger is not None:
+            logger.log(1, f'Removing old checkpoint {path}')
+        shutil.rmtree(path)
 
 
 def _resolve_model_path(base_dir: Path):
@@ -234,6 +261,13 @@ def save_checkpoint(
     args_path = output_dir / 'args.json'
     args_dict = {k: _sanitize_for_json(v) for k, v in vars(args).items()}
     args_path.write_text(json.dumps(args_dict, default=_sanitize_for_json))
+
+    _prune_best_checkpoints(
+        args.output_dir,
+        'val',
+        getattr(args, 'keep_best_checkpoints', 0),
+        logger,
+    )
 
 
 __all__ = ['load_model_state', 'load_checkpoint', 'save_checkpoint']

@@ -596,6 +596,15 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             '--epochs-start', help='Number of starting epoch', type=int, default=1
         )
         parser.add_argument(
+            '--keep-best-checkpoints',
+            help=(
+                'Keep only the N best validation checkpoints; '
+                'set to 0 to keep all best checkpoints (default: 0)'
+            ),
+            type=int,
+            default=0,
+        )
+        parser.add_argument(
             '--train-max-steps',
             help='Maximum number of steps within each training epoch (default: None)',
             type=int,
