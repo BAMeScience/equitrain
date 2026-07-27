@@ -9,6 +9,7 @@ import torch
 from equitrain import get_args_parser_export
 from equitrain.backends.torch_checkpoint import save_checkpoint
 from equitrain.backends.torch_wrappers.base import AbstractWrapper
+from equitrain.finetune._torch_common import uniquify_empty_tensor_storage
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 from equitrain.finetune.lora_torch import LoRAFineTuneWrapper
 from equitrain.logger import FileLogger
@@ -21,6 +22,71 @@ class _WrappedLinear(AbstractWrapper):
         with torch.no_grad():
             model.weight.fill_(weight)
         super().__init__(model)
+        self._r_max = 1.0
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError('Forward is not used by the export checkpoint tests.')
+
+    @property
+    def atomic_numbers(self):
+        return torch.tensor([1])
+
+    @property
+    def atomic_energies(self):
+        return None
+
+    @property
+    def r_max(self):
+        return self._r_max
+
+    @r_max.setter
+    def r_max(self, value):
+        self._r_max = value
+
+
+class _ViewTensorModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        base = torch.nn.Parameter(torch.arange(4.0))
+        self.register_parameter('base', base)
+        self.register_buffer('view', base[:2])
+
+
+class _WrappedViewTensorModel(AbstractWrapper):
+    def __init__(self) -> None:
+        super().__init__(_ViewTensorModel())
+        self._r_max = 1.0
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError('Forward is not used by the export checkpoint tests.')
+
+    @property
+    def atomic_numbers(self):
+        return torch.tensor([1])
+
+    @property
+    def atomic_energies(self):
+        return None
+
+    @property
+    def r_max(self):
+        return self._r_max
+
+    @r_max.setter
+    def r_max(self, value):
+        self._r_max = value
+
+
+class _EmptyTensorModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.first = torch.nn.Parameter(torch.empty(0))
+        self.second = torch.nn.Parameter(torch.empty(0))
+
+
+class _WrappedEmptyTensorModel(AbstractWrapper):
+    def __init__(self) -> None:
+        super().__init__(_EmptyTensorModel())
         self._r_max = 1.0
 
     def forward(self, *args, **kwargs):
@@ -59,6 +125,116 @@ def _build_wrapper(weight: float) -> _WrappedLinear:
     with torch.no_grad():
         model.model.weight.fill_(weight)
     return model
+
+
+def _shared_tensor_groups(state_dict):
+    groups = {}
+    for name, tensor in state_dict.items():
+        if isinstance(tensor, torch.Tensor):
+            groups.setdefault(tensor.untyped_storage().data_ptr(), []).append(name)
+    return [names for names in groups.values() if len(names) > 1]
+
+
+def test_delta_state_dict_registers_base_model_once():
+    model = DeltaFineTuneWrapper(_build_wrapper(1.0))
+    state_dict = model.state_dict()
+
+    assert 'model.weight' not in state_dict
+    assert 'base_wrapper.model.weight' in state_dict
+    assert '_delta_params.model__DOT__weight' in state_dict
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_lora_state_dict_registers_base_model_once():
+    model = LoRAFineTuneWrapper(_build_wrapper(1.0), rank_reduction=75, alpha=16)
+    state_dict = model.state_dict()
+
+    assert 'model.weight' not in state_dict
+    assert 'base_wrapper.model.weight' in state_dict
+    assert '_lora_a_params.model__DOT__weight__LORA_A__' in state_dict
+    assert '_lora_b_params.model__DOT__weight__LORA_B__' in state_dict
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_delta_checkpoint_state_dict_uniquifies_empty_tensor_storage():
+    model = DeltaFineTuneWrapper(_WrappedEmptyTensorModel())
+    state_dict = model.state_dict()
+    uniquify_empty_tensor_storage(state_dict)
+
+    assert {
+        'base_wrapper.model.first',
+        'base_wrapper.model.second',
+        '_delta_params.model__DOT__first',
+        '_delta_params.model__DOT__second',
+    }.issubset(state_dict)
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_lora_checkpoint_state_dict_uniquifies_empty_tensor_storage():
+    model = LoRAFineTuneWrapper(_WrappedEmptyTensorModel(), rank_reduction=75, alpha=16)
+    state_dict = model.state_dict()
+    uniquify_empty_tensor_storage(state_dict)
+
+    assert {'base_wrapper.model.first', 'base_wrapper.model.second'}.issubset(
+        state_dict
+    )
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_delta_state_dict_clones_non_complete_tensor_views():
+    model = DeltaFineTuneWrapper(_WrappedViewTensorModel())
+    state_dict = model.state_dict()
+
+    assert 'base_wrapper.model.view' in state_dict
+    view = state_dict['base_wrapper.model.view']
+    assert view.untyped_storage().nbytes() == view.numel() * view.element_size()
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_lora_state_dict_clones_non_complete_tensor_views():
+    model = LoRAFineTuneWrapper(_WrappedViewTensorModel(), rank_reduction=75, alpha=16)
+    state_dict = model.state_dict()
+
+    assert 'base_wrapper.model.view' in state_dict
+    view = state_dict['base_wrapper.model.view']
+    assert view.untyped_storage().nbytes() == view.numel() * view.element_size()
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_delta_loads_legacy_top_level_model_keys():
+    model = DeltaFineTuneWrapper(_build_wrapper(1.0))
+    legacy_state = {
+        'model.weight': torch.full_like(model.model.weight, 4.0),
+        '_delta_params.model__DOT__weight': torch.full_like(
+            dict(model.named_delta_parameters())['model.weight'], 2.0
+        ),
+    }
+
+    model.load_state_dict(legacy_state)
+
+    torch.testing.assert_close(
+        model.model.weight, torch.full_like(model.model.weight, 4.0)
+    )
+
+
+def test_lora_loads_legacy_top_level_model_keys():
+    model = LoRAFineTuneWrapper(_build_wrapper(1.0), rank_reduction=75, alpha=16)
+    named_lora = dict(model.named_lora_parameters())
+    legacy_state = {
+        'model.weight': torch.full_like(model.model.weight, 4.0),
+        '_lora_a_params.model__DOT__weight__LORA_A__': torch.full_like(
+            named_lora['model.weight.lora_a'], 0.25
+        ),
+        '_lora_b_params.model__DOT__weight__LORA_B__': torch.full_like(
+            named_lora['model.weight.lora_b'], 0.5
+        ),
+    }
+
+    model.load_state_dict(legacy_state)
+
+    torch.testing.assert_close(
+        model.model.weight, torch.full_like(model.model.weight, 4.0)
+    )
 
 
 def _save_export_inputs(tmp_path, *, checkpoint_name: str):

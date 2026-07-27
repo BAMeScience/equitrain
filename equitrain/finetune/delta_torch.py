@@ -11,6 +11,10 @@ except ModuleNotFoundError:  # pragma: no cover
     from torch.nn.utils.stateless import functional_call as _functional_call
 
 from equitrain.backends.torch_wrappers import AbstractWrapper
+from equitrain.finetune._torch_common import (
+    clone_non_complete_tensor_storage,
+    remap_legacy_model_prefix,
+)
 
 _SANITIZE_TOKEN = '__DOT__'
 
@@ -31,7 +35,8 @@ class DeltaFineTuneWrapper(AbstractWrapper):
     """
 
     def __init__(self, base_wrapper: AbstractWrapper):
-        super().__init__(base_wrapper.model)
+        # The base wrapper is the sole registered owner of the underlying model.
+        torch.nn.Module.__init__(self)
         self.base_wrapper = base_wrapper
 
         # Freeze original parameters.
@@ -88,9 +93,22 @@ class DeltaFineTuneWrapper(AbstractWrapper):
     def get_fine_tune_export_config(self):
         return {'wrapper': 'delta'}
 
+    @property
+    def model(self):
+        return self.base_wrapper.model
+
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        clone_non_complete_tensor_storage(state_dict)
+        return state_dict
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        remap_legacy_model_prefix(state_dict, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
     # --------------------------------------------------------------------- proxies
     def __getattr__(self, item):
-        if item in {'base_wrapper', 'model', '_delta_params', '_delta_entries'}:
+        if item in {'base_wrapper', '_delta_params', '_delta_entries'}:
             return super().__getattr__(item)
         return getattr(self.base_wrapper, item)
 

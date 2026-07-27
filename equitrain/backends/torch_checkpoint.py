@@ -11,6 +11,7 @@ import torch
 from accelerate import Accelerator
 from torch_ema import ExponentialMovingAverage
 
+from equitrain.finetune._torch_common import uniquify_empty_tensor_storage
 from equitrain.logger import FileLogger
 
 warnings.filterwarnings(
@@ -140,6 +141,30 @@ def load_model_state(model, state_dict_path):
     load_target.load_state_dict(state_dict, strict=False)
 
 
+def _module_device(model):
+    load_target = (
+        model.module
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel)
+        else model
+    )
+    try:
+        return next(load_target.parameters()).device
+    except StopIteration:
+        return torch.device('cpu')
+
+
+def _load_ema_state(model_ema, ema_path: Path, model):
+    if not model_ema or not ema_path.exists():
+        return
+    model_ema.load_state_dict(
+        torch.load(
+            ema_path,
+            weights_only=True,
+            map_location=_module_device(model),
+        )
+    )
+
+
 def load_checkpoint(
     args,
     model: torch.nn.Module,
@@ -205,8 +230,7 @@ def load_checkpoint(
                 )
             load_model_state(model, model_path)
             ema_path = Path(load_checkpoint) / 'ema.bin'
-            if model_ema and ema_path.exists():
-                model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+            _load_ema_state(model_ema, ema_path, model)
             result = True
         else:
             try:
@@ -224,13 +248,11 @@ def load_checkpoint(
                     )
                 load_model_state(model, model_path)
                 ema_path = Path(load_checkpoint) / 'ema.bin'
-                if model_ema and ema_path.exists():
-                    model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+                _load_ema_state(model_ema, ema_path, model)
                 result = True
             else:
                 ema_path = Path(load_checkpoint) / 'ema.bin'
-                if model_ema and ema_path.exists():
-                    model_ema.load_state_dict(torch.load(ema_path, weights_only=True))
+                _load_ema_state(model_ema, ema_path, model)
                 result = True
 
     if load_checkpoint_model is not None:
@@ -275,7 +297,20 @@ def save_checkpoint(
     output_dir = Path(args.output_dir) / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    accelerator.save_state(output_dir)
+    def prepare_state_dicts_for_safetensors(_models, weights, _output_dir):
+        for state_dict in weights:
+            uniquify_empty_tensor_storage(state_dict)
+
+    hook = None
+    if hasattr(accelerator, 'register_save_state_pre_hook'):
+        hook = accelerator.register_save_state_pre_hook(
+            prepare_state_dicts_for_safetensors
+        )
+    try:
+        accelerator.save_state(output_dir)
+    finally:
+        if hook is not None:
+            hook.remove()
 
     ema_path = output_dir / 'ema.bin'
     if model_ema is not None:

@@ -18,6 +18,10 @@ from equitrain.finetune._lora_common import (
     resolve_rank,
     resolve_retained_fraction,
 )
+from equitrain.finetune._torch_common import (
+    clone_non_complete_tensor_storage,
+    remap_legacy_model_prefix,
+)
 
 _SANITIZE_TOKEN = '__DOT__'
 _LORA_A_SUFFIX = '__LORA_A__'
@@ -60,7 +64,8 @@ class LoRAFineTuneWrapper(AbstractWrapper):
         min_rank: int = 1,
         alpha: float | None = None,
     ):
-        super().__init__(base_wrapper.model)
+        # The base wrapper is the sole registered owner of the underlying model.
+        torch.nn.Module.__init__(self)
         self.base_wrapper = base_wrapper
         self.rank_fraction = rank_fraction
         self.rank_reduction = rank_reduction
@@ -188,10 +193,22 @@ class LoRAFineTuneWrapper(AbstractWrapper):
             'alpha': self.alpha,
         }
 
+    @property
+    def model(self):
+        return self.base_wrapper.model
+
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        clone_non_complete_tensor_storage(state_dict)
+        return state_dict
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        remap_legacy_model_prefix(state_dict, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
     def __getattr__(self, item):
         if item in {
             'base_wrapper',
-            'model',
             '_lora_a_params',
             '_lora_b_params',
             '_lora_entries',
