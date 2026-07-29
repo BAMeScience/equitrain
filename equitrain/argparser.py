@@ -254,11 +254,11 @@ def add_export_finetune_args(
         '--fine-tune-wrapper',
         '--finetune-wrapper',
         dest='fine_tune_wrapper',
-        choices=['auto', 'none', 'delta', 'lora'],
+        choices=['auto', 'none', 'delta', 'lora', 'freeze'],
         default='auto',
         help=(
-            'Fine-tune adapter wrapper to reconstruct before loading an export '
-            'checkpoint. auto detects supported adapter checkpoints when possible.'
+            'Fine-tune wrapper to reconstruct before loading an export '
+            'checkpoint. auto detects supported fine-tune checkpoints when possible.'
         ),
     )
     return parser

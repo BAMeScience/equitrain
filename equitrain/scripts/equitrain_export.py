@@ -84,33 +84,41 @@ def _checkpoint_fine_tune_config(args) -> dict | None:
     return config if isinstance(config, dict) else None
 
 
-def _checkpoint_adapter_keys(state_dict) -> set[str]:
+def _checkpoint_wrapper_keys(state_dict) -> set[str]:
     if state_dict is None:
         return set()
 
     keys = {_strip_module_prefix(str(key)) for key in state_dict}
-    adapters = set()
-    if any(
+    wrappers = set()
+    has_lora = any(
         key.startswith('_lora_a_params.') or key.startswith('_lora_b_params.')
         for key in keys
-    ):
-        adapters.add('lora')
-    if any(key.startswith('_delta_params.') for key in keys):
-        adapters.add('delta')
-    return adapters
+    )
+    has_delta = any(key.startswith('_delta_params.') for key in keys)
+    has_base_wrapper = any(key.startswith('base_wrapper.model.') for key in keys)
+
+    if has_lora:
+        wrappers.add('lora')
+    if has_delta:
+        wrappers.add('delta')
+    if not wrappers and has_base_wrapper:
+        wrappers.add('freeze')
+    return wrappers
 
 
 def _detect_fine_tune_wrapper(state_dict, config: dict | None) -> str | None:
     if config is not None:
         wrapper_name = config.get('wrapper')
-        if wrapper_name in {'delta', 'lora'}:
+        if wrapper_name in {'delta', 'lora', 'freeze'}:
             return str(wrapper_name)
 
-    adapters = _checkpoint_adapter_keys(state_dict)
+    adapters = _checkpoint_wrapper_keys(state_dict)
+    if adapters == {'freeze'}:
+        return 'freeze'
     if adapters:
         adapter_list = ', '.join(sorted(adapters))
         raise ValueError(
-            'Checkpoint contains fine-tune adapter parameters '
+            'Checkpoint contains fine-tune wrapper parameters '
             f'({adapter_list}) but no fine_tune_export metadata. '
             'Re-train the adapter checkpoint with the current Equitrain version '
             'before using equitrain-export.'
@@ -137,7 +145,7 @@ def _wrap_for_fine_tune_export(args, model, state_dict, logger):
         if detected is not None:
             logger.log(
                 1,
-                'Checkpoint contains fine-tune adapter parameters, but '
+                'Checkpoint contains fine-tune wrapper state, but '
                 '--fine-tune-wrapper=none was requested. Exporting base model only.',
             )
         return model
@@ -149,16 +157,23 @@ def _wrap_for_fine_tune_export(args, model, state_dict, logger):
         logger.log(1, f'Detected {requested} fine-tune wrapper in checkpoint')
     elif detected is not None and detected != requested:
         raise ValueError(
-            f'Checkpoint contains {detected} adapter parameters, but '
+            f'Checkpoint contains {detected} wrapper state, but '
             f'--fine-tune-wrapper={requested} was requested.'
         )
 
     if requested == 'delta':
         from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 
-        logger.log(1, 'Wrapping base model with delta fine-tune adapter for export')
+        logger.log(1, 'Wrapping base model with delta fine-tune wrapper for export')
         freeze_layers = config.get('freeze_layers') if config is not None else None
         return DeltaFineTuneWrapper(model, freeze_layers=freeze_layers)
+
+    if requested == 'freeze':
+        from equitrain.finetune.freeze_torch import FreezeFineTuneWrapper
+
+        logger.log(1, 'Wrapping base model with freeze fine-tune wrapper for export')
+        freeze_layers = config.get('freeze_layers') if config is not None else None
+        return FreezeFineTuneWrapper(model, freeze_layers=freeze_layers)
 
     if requested == 'lora':
         if config is None:
@@ -170,7 +185,7 @@ def _wrap_for_fine_tune_export(args, model, state_dict, logger):
         from equitrain.finetune.lora_torch import LoRAFineTuneWrapper
 
         kwargs = _lora_kwargs(config)
-        logger.log(1, 'Wrapping base model with LoRA fine-tune adapter for export')
+        logger.log(1, 'Wrapping base model with LoRA fine-tune wrapper for export')
         return LoRAFineTuneWrapper(model, **kwargs)
 
     return model

@@ -11,6 +11,7 @@ from importlib import import_module
 
 _EXPORTS = {
     'TorchDeltaFineTuneWrapper': ('.delta_torch', 'DeltaFineTuneWrapper'),
+    'TorchFreezeFineTuneWrapper': ('.freeze_torch', 'FreezeFineTuneWrapper'),
     'JaxDeltaFineTuneModule': ('.delta_jax', 'DeltaFineTuneModule'),
     'ensure_jax_delta_params': ('.delta_jax', 'ensure_delta_params'),
     'wrap_jax_module_with_deltas': ('.delta_jax', 'wrap_with_deltas'),

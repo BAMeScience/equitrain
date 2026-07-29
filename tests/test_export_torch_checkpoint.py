@@ -11,6 +11,7 @@ from equitrain.backends.torch_checkpoint import save_checkpoint
 from equitrain.backends.torch_wrappers.base import AbstractWrapper
 from equitrain.finetune._torch_common import uniquify_empty_tensor_storage
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
+from equitrain.finetune.freeze_torch import FreezeFineTuneWrapper
 from equitrain.finetune.lora_torch import LoRAFineTuneWrapper
 from equitrain.logger import FileLogger
 from equitrain.scripts.equitrain_export import export
@@ -156,6 +157,15 @@ def test_lora_state_dict_registers_base_model_once():
     assert _shared_tensor_groups(state_dict) == []
 
 
+def test_freeze_state_dict_registers_base_model_once():
+    model = FreezeFineTuneWrapper(_build_wrapper(1.0))
+    state_dict = model.state_dict()
+
+    assert 'model.weight' not in state_dict
+    assert 'base_wrapper.model.weight' in state_dict
+    assert _shared_tensor_groups(state_dict) == []
+
+
 def test_delta_checkpoint_state_dict_uniquifies_empty_tensor_storage():
     model = DeltaFineTuneWrapper(_WrappedEmptyTensorModel())
     state_dict = model.state_dict()
@@ -181,6 +191,17 @@ def test_lora_checkpoint_state_dict_uniquifies_empty_tensor_storage():
     assert _shared_tensor_groups(state_dict) == []
 
 
+def test_freeze_checkpoint_state_dict_uniquifies_empty_tensor_storage():
+    model = FreezeFineTuneWrapper(_WrappedEmptyTensorModel())
+    state_dict = model.state_dict()
+    uniquify_empty_tensor_storage(state_dict)
+
+    assert {'base_wrapper.model.first', 'base_wrapper.model.second'}.issubset(
+        state_dict
+    )
+    assert _shared_tensor_groups(state_dict) == []
+
+
 def test_delta_state_dict_clones_non_complete_tensor_views():
     model = DeltaFineTuneWrapper(_WrappedViewTensorModel())
     state_dict = model.state_dict()
@@ -193,6 +214,16 @@ def test_delta_state_dict_clones_non_complete_tensor_views():
 
 def test_lora_state_dict_clones_non_complete_tensor_views():
     model = LoRAFineTuneWrapper(_WrappedViewTensorModel(), rank_reduction=75, alpha=16)
+    state_dict = model.state_dict()
+
+    assert 'base_wrapper.model.view' in state_dict
+    view = state_dict['base_wrapper.model.view']
+    assert view.untyped_storage().nbytes() == view.numel() * view.element_size()
+    assert _shared_tensor_groups(state_dict) == []
+
+
+def test_freeze_state_dict_clones_non_complete_tensor_views():
+    model = FreezeFineTuneWrapper(_WrappedViewTensorModel())
     state_dict = model.state_dict()
 
     assert 'base_wrapper.model.view' in state_dict
@@ -229,6 +260,17 @@ def test_lora_loads_legacy_top_level_model_keys():
             named_lora['model.weight.lora_b'], 0.5
         ),
     }
+
+    model.load_state_dict(legacy_state)
+
+    torch.testing.assert_close(
+        model.model.weight, torch.full_like(model.model.weight, 4.0)
+    )
+
+
+def test_freeze_loads_legacy_top_level_model_keys():
+    model = FreezeFineTuneWrapper(_build_wrapper(1.0))
+    legacy_state = {'model.weight': torch.full_like(model.model.weight, 4.0)}
 
     model.load_state_dict(legacy_state)
 
@@ -346,6 +388,10 @@ def _save_adapter_export_inputs(tmp_path, adapter, *, include_config: bool = Tru
         with torch.no_grad():
             named_lora['model.weight.lora_a'].copy_(torch.tensor([[0.25, 0.5]]))
             named_lora['model.weight.lora_b'].copy_(torch.tensor([[0.5]]))
+    elif adapter == 'freeze':
+        trained_model = FreezeFineTuneWrapper(_build_wrapper(1.0), freeze_layers='0')
+        with torch.no_grad():
+            trained_model.model.weight.fill_(4.0)
     else:  # pragma: no cover - defensive guard for test helper use
         raise ValueError(adapter)
 
@@ -408,10 +454,57 @@ def test_export_auto_loads_lora_checkpoint_with_metadata(tmp_path):
     torch.testing.assert_close(exported.weight, expected)
 
 
+def test_export_auto_loads_freeze_checkpoint_with_metadata(tmp_path):
+    base_model_path, export_path, output_dir, _checkpoint_dir = (
+        _save_adapter_export_inputs(tmp_path, 'freeze')
+    )
+
+    args = get_args_parser_export().parse_args(
+        [
+            '--model',
+            str(base_model_path),
+            '--output-dir',
+            str(output_dir),
+            '--load-best-checkpoint',
+            '--model-export',
+            str(export_path),
+        ]
+    )
+
+    export(args)
+
+    exported = torch.load(export_path, weights_only=False)
+    torch.testing.assert_close(exported.weight, torch.full_like(exported.weight, 4.0))
+
+
+def test_export_auto_detects_freeze_checkpoint_without_metadata(tmp_path):
+    base_model_path, export_path, output_dir, _checkpoint_dir = (
+        _save_adapter_export_inputs(tmp_path, 'freeze', include_config=False)
+    )
+
+    args = get_args_parser_export().parse_args(
+        [
+            '--model',
+            str(base_model_path),
+            '--output-dir',
+            str(output_dir),
+            '--load-best-checkpoint',
+            '--model-export',
+            str(export_path),
+        ]
+    )
+
+    export(args)
+
+    exported = torch.load(export_path, weights_only=False)
+    torch.testing.assert_close(exported.weight, torch.full_like(exported.weight, 4.0))
+
+
 @pytest.mark.parametrize(
     ('adapter', 'expected'),
     [
         ('delta', {'wrapper': 'delta'}),
+        ('freeze', {'wrapper': 'freeze'}),
         (
             'lora',
             {
@@ -427,6 +520,8 @@ def test_export_auto_loads_lora_checkpoint_with_metadata(tmp_path):
 def test_save_checkpoint_writes_fine_tune_export_metadata(tmp_path, adapter, expected):
     if adapter == 'delta':
         model = DeltaFineTuneWrapper(_build_wrapper(1.0))
+    elif adapter == 'freeze':
+        model = FreezeFineTuneWrapper(_build_wrapper(1.0))
     elif adapter == 'lora':
         model = LoRAFineTuneWrapper(
             _build_wrapper(1.0),
@@ -473,6 +568,29 @@ def test_save_checkpoint_writes_delta_freeze_layers_metadata(tmp_path):
     args_payload = json.loads((checkpoint_dir / 'args.json').read_text())
     assert args_payload['fine_tune_export'] == {
         'wrapper': 'delta',
+        'freeze_layers': '0',
+    }
+
+
+def test_save_checkpoint_writes_freeze_layers_metadata(tmp_path):
+    model = FreezeFineTuneWrapper(_build_wrapper(1.0), freeze_layers='0')
+    args = SimpleNamespace(output_dir=str(tmp_path), verbose=0)
+    valid_loss = {'total': SimpleNamespace(avg=0.2)}
+    logger = FileLogger(enable_logging=False, stream=False)
+
+    checkpoint_dir = save_checkpoint(
+        args,
+        epoch=4,
+        valid_loss=valid_loss,
+        model_ema=None,
+        accelerator=_FakeAccelerator(model),
+        logger=logger,
+        model=model,
+    )
+
+    args_payload = json.loads((checkpoint_dir / 'args.json').read_text())
+    assert args_payload['fine_tune_export'] == {
+        'wrapper': 'freeze',
         'freeze_layers': '0',
     }
 

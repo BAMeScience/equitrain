@@ -738,6 +738,24 @@ zero-based layer indices or ranges. For MACE models, Equitrain groups deltas as
 `TorchDeltaFineTuneWrapper(base_model, freeze_layers="2-")` keeps only the
 node embedding and first interaction block trainable.
 
+#### Freeze Fine-Tuning
+
+For Torch models, `TorchFreezeFineTuneWrapper` provides the same semantic layer
+selection interface without adding adapter tensors. It freezes selected base
+model layers and trains the remaining base weights directly, so exported models
+already contain the fine-tuned weights and do not require a delta merge.
+
+```python
+from equitrain.finetune import TorchFreezeFineTuneWrapper
+
+args.model = TorchFreezeFineTuneWrapper(base_model, freeze_layers="2-")
+```
+
+For MACE, the layer order is the same as delta fine-tuning:
+`0:node_embedding`, `1:interactions.0`, `2:interactions.1`, `3:products.0`,
+`4:products.1`, and `5:readouts`. Thus `freeze_layers="2-"` keeps the node
+embedding and first interaction block trainable and freezes later blocks.
+
 #### LoRA Fine-Tuning
 
 Equitrain also provides LoRA adapters for both backends:
