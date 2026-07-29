@@ -157,7 +157,8 @@ def _wrap_for_fine_tune_export(args, model, state_dict, logger):
         from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 
         logger.log(1, 'Wrapping base model with delta fine-tune adapter for export')
-        return DeltaFineTuneWrapper(model)
+        freeze_layers = config.get('freeze_layers') if config is not None else None
+        return DeltaFineTuneWrapper(model, freeze_layers=freeze_layers)
 
     if requested == 'lora':
         if config is None:

@@ -454,6 +454,29 @@ def test_save_checkpoint_writes_fine_tune_export_metadata(tmp_path, adapter, exp
     assert args_payload['fine_tune_export'] == expected
 
 
+def test_save_checkpoint_writes_delta_freeze_layers_metadata(tmp_path):
+    model = DeltaFineTuneWrapper(_build_wrapper(1.0), freeze_layers='0')
+    args = SimpleNamespace(output_dir=str(tmp_path), verbose=0)
+    valid_loss = {'total': SimpleNamespace(avg=0.2)}
+    logger = FileLogger(enable_logging=False, stream=False)
+
+    checkpoint_dir = save_checkpoint(
+        args,
+        epoch=4,
+        valid_loss=valid_loss,
+        model_ema=None,
+        accelerator=_FakeAccelerator(model),
+        logger=logger,
+        model=model,
+    )
+
+    args_payload = json.loads((checkpoint_dir / 'args.json').read_text())
+    assert args_payload['fine_tune_export'] == {
+        'wrapper': 'delta',
+        'freeze_layers': '0',
+    }
+
+
 def test_export_rejects_adapter_checkpoint_without_metadata(tmp_path):
     base_model_path, export_path, output_dir, _checkpoint_dir = (
         _save_adapter_export_inputs(tmp_path, 'lora', include_config=False)

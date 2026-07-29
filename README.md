@@ -730,6 +730,14 @@ args.model = TorchDeltaFineTuneWrapper(base_model)
 train(args)
 ```
 
+By default, `TorchDeltaFineTuneWrapper` trains one delta tensor per base
+parameter. To freeze selected semantic delta layers, pass `freeze_layers` using
+zero-based layer indices or ranges. For MACE models, Equitrain groups deltas as
+`0:node_embedding`, `1:interactions.0`, `2:interactions.1`, `3:products.0`,
+`4:products.1`, and `5:readouts`. Therefore
+`TorchDeltaFineTuneWrapper(base_model, freeze_layers="2-")` keeps only the
+node embedding and first interaction block trainable.
+
 #### LoRA Fine-Tuning
 
 Equitrain also provides LoRA adapters for both backends:
