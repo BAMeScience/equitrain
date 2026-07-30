@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import random
@@ -17,6 +18,8 @@ from equitrain.data.format_xyz import XYZReader
 from equitrain.data.statistics_data import Statistics, get_atomic_energies
 from equitrain.logger import FileLogger
 
+_TARGET_FIELDS = ('energy', 'forces', 'stress')
+
 
 def _collect_atomic_numbers(filename_hdf5: Path) -> AtomicNumberTable | None:
     with HDF5Dataset(filename_hdf5, 'r') as dataset:
@@ -26,6 +29,99 @@ def _collect_atomic_numbers(filename_hdf5: Path) -> AtomicNumberTable | None:
         for idx in range(len(dataset)):
             numbers.update(int(z) for z in dataset[idx].get_atomic_numbers())
     return AtomicNumberTable(sorted(numbers))
+
+
+def _is_xyz_source(source_filename) -> bool:
+    source_name = str(source_filename).lower()
+    return source_name.endswith('.xyz') or source_name.endswith('.xyz.gz')
+
+
+def _target_key_mapping(
+    args,
+    source_filename,
+    *,
+    keys_applied: bool,
+) -> dict[str, str | None]:
+    if keys_applied and _is_xyz_source(source_filename):
+        return {
+            'energy': args.energy_key,
+            'forces': args.forces_key,
+            'stress': args.stress_key,
+        }
+    return {field: None for field in _TARGET_FIELDS}
+
+
+def _target_presence_summary(
+    filename_hdf5: Path,
+    *,
+    split: str,
+    source_filename,
+    args,
+    keys_applied: bool = False,
+) -> dict:
+    with HDF5Dataset(filename_hdf5, 'r') as dataset:
+        structures = dataset.file[dataset.STRUCTURES_DATASET]
+        total = len(dataset)
+        keys = _target_key_mapping(args, source_filename, keys_applied=keys_applied)
+
+        targets = {}
+        for field in _TARGET_FIELDS:
+            weight_field = f'{field}_weight'
+            if total == 0:
+                present = 0
+            elif weight_field in structures.dtype.names:
+                present = int(np.count_nonzero(structures[weight_field][:] > 0.0))
+            else:
+                present = total
+            missing = total - present
+            fraction = float(present / total) if total else 0.0
+            targets[field] = {
+                'key': keys[field],
+                'present': present,
+                'missing': missing,
+                'fraction': fraction,
+            }
+
+    return {
+        'split': split,
+        'source_file': str(source_filename),
+        'hdf5_file': str(filename_hdf5),
+        'configurations': total,
+        'keys_applied': keys_applied,
+        'targets': targets,
+    }
+
+
+def _format_target_presence_summary(summary: dict) -> str:
+    total = summary['configurations']
+    key_note = ''
+    if not summary['keys_applied']:
+        key_note = ', existing HDF5/keys not applied'
+    lines = [
+        f'Target availability for {summary["split"]} '
+        f'({Path(summary["hdf5_file"]).name}, {total} configurations{key_note}):'
+    ]
+    for field in _TARGET_FIELDS:
+        target = summary['targets'][field]
+        label = field
+        key = target['key']
+        if key is not None:
+            label = f'{field} key {key!r}'
+        percent = 100.0 * target['fraction']
+        present = target['present']
+        missing = target['missing']
+        lines.append(
+            f'  - {label}: present {present}/{total} ({percent:.1f}%), '
+            f'missing {missing}'
+        )
+    return '\n'.join(lines)
+
+
+def _write_preprocess_summary(args, summaries: list[dict]) -> None:
+    output_dir = Path(args.output_dir) if args.output_dir else Path('.')
+    summary_path = output_dir / 'preprocess_summary.json'
+    payload = {'splits': summaries}
+    summary_path.write_text(json.dumps(payload, indent=2) + '\n')
 
 
 def _convert_to_hdf5(
@@ -130,6 +226,10 @@ def _preprocess(args):
     filename_test = os.path.join(args.output_dir, 'test.h5')
 
     statistics = Statistics(r_max=args.r_max)
+    target_summaries = []
+    train_keys_applied = False
+    valid_keys_applied = False
+    test_keys_applied = False
 
     # Read atomic numbers from arguments if available
     if args.atomic_numbers is not None:
@@ -139,7 +239,10 @@ def _preprocess(args):
     # Convert training file and obtain z_table and atomit_energies if required
     if args.train_file:
         if Path(filename_train).exists():
-            logger.log(1, 'Train file exists. Skipping...')
+            logger.log(
+                1,
+                'Train file exists. Skipping conversion; target keys were not applied.',
+            )
 
         else:
             logger.log(1, 'Converting train file')
@@ -155,6 +258,7 @@ def _preprocess(args):
                 ),
                 niggli_reduce=args.niggli_reduce,
             )
+            train_keys_applied = _is_xyz_source(args.train_file)
 
             if statistics.atomic_numbers is None:
                 statistics.atomic_numbers = atomic_numbers
@@ -162,10 +266,23 @@ def _preprocess(args):
             if statistics.atomic_energies is None:
                 statistics.atomic_energies = atomic_energies
 
+        target_summaries.append(
+            _target_presence_summary(
+                Path(filename_train),
+                split='train',
+                source_filename=args.train_file,
+                args=args,
+                keys_applied=train_keys_applied,
+            )
+        )
+
     # Convert validation file
     if args.valid_file:
         if Path(filename_valid).exists():
-            logger.log(1, 'Validation file exists. Skipping...')
+            logger.log(
+                1,
+                'Validation file exists. Skipping conversion; target keys were not applied.',
+            )
 
         else:
             logger.log(1, 'Converting valid file')
@@ -175,11 +292,25 @@ def _preprocess(args):
                 filename_valid,
                 niggli_reduce=args.niggli_reduce,
             )
+            valid_keys_applied = _is_xyz_source(args.valid_file)
+
+        target_summaries.append(
+            _target_presence_summary(
+                Path(filename_valid),
+                split='valid',
+                source_filename=args.valid_file,
+                args=args,
+                keys_applied=valid_keys_applied,
+            )
+        )
 
     # Convert test file
     if args.test_file:
         if Path(filename_test).exists():
-            logger.log(1, 'Test file exists. Skipping...')
+            logger.log(
+                1,
+                'Test file exists. Skipping conversion; target keys were not applied.',
+            )
 
         else:
             logger.log(1, 'Converting test file')
@@ -189,6 +320,22 @@ def _preprocess(args):
                 filename_test,
                 niggli_reduce=args.niggli_reduce,
             )
+            test_keys_applied = _is_xyz_source(args.test_file)
+
+        target_summaries.append(
+            _target_presence_summary(
+                Path(filename_test),
+                split='test',
+                source_filename=args.test_file,
+                args=args,
+                keys_applied=test_keys_applied,
+            )
+        )
+
+    if target_summaries:
+        _write_preprocess_summary(args, target_summaries)
+        for summary in target_summaries:
+            logger.log(1, _format_target_presence_summary(summary))
 
     if Path(filename_train).exists() and args.compute_statistics:
         logger.log(1, 'Computing statistics')
