@@ -33,9 +33,8 @@ class _ToyMaceLikeModel(torch.nn.Module):
 
     def forward(self, x):
         x = self.node_embedding(x)
-        for interaction in self.interactions:
+        for interaction, product in zip(self.interactions, self.products, strict=True):
             x = interaction(x)
-        for product in self.products:
             x = product(x)
         for readout in self.readouts:
             x = readout(x)
@@ -88,8 +87,8 @@ def test_freeze_wrapper_defaults_to_all_layers_trainable():
     assert wrapper.freeze_layer_names == (
         'node_embedding',
         'interactions.0',
-        'interactions.1',
         'products.0',
+        'interactions.1',
         'products.1',
         'readouts',
     )
@@ -114,6 +113,22 @@ def test_freeze_wrapper_freezes_semantic_layer_range():
         'wrapper': 'freeze',
         'freeze_layers': '2-',
     }
+
+
+def test_freeze_wrapper_freezes_from_forward_order_index():
+    wrapper = FreezeFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='3-')
+
+    assert _named_trainable_params(wrapper) == [
+        'model.node_embedding.weight',
+        'model.interactions.0.weight',
+        'model.products.0.weight',
+    ]
+    assert _named_frozen_params(wrapper) == [
+        'model.interactions.1.weight',
+        'model.products.1.weight',
+        'model.readouts.0.weight',
+        'model.readouts.1.weight',
+    ]
 
 
 def test_freeze_wrapper_can_update_frozen_layer_selection():

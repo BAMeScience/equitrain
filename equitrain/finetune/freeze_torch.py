@@ -32,16 +32,20 @@ class FreezeFineTuneWrapper(AbstractWrapper):
 
         self._fine_tune_entries = list(self.base_wrapper.named_parameters())
         parameter_names = [name for name, _ in self._fine_tune_entries]
-        self._freeze_layer_names = infer_semantic_layer_names(parameter_names)
+        self._freeze_layer_names = infer_semantic_layer_names(
+            parameter_names,
+            model=self.base_wrapper.model,
+        )
         self._freeze_layer_by_name = semantic_layer_indices(
             parameter_names,
             self._freeze_layer_names,
+            model=self.base_wrapper.model,
         )
         self.freeze_model_layers(freeze_layers)
 
     @property
     def freeze_layer_names(self) -> tuple[str, ...]:
-        """Return semantic layer names in optimizer traversal order."""
+        """Return semantic layer names in MACE forward order."""
         return self._freeze_layer_names
 
     def freeze_model_layers(self, freeze_layers=None) -> None:

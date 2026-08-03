@@ -14,7 +14,7 @@ from equitrain.backends.torch_wrappers import AbstractWrapper
 from equitrain.finetune._layer_selection import (
     infer_semantic_layer_names,
     parse_layer_selection,
-    semantic_layer_name,
+    semantic_layer_indices,
 )
 from equitrain.finetune._torch_common import (
     clone_non_complete_tensor_storage,
@@ -59,15 +59,20 @@ class DeltaFineTuneWrapper(AbstractWrapper):
             sanitized = _sanitize(name)
             self._delta_params[sanitized] = delta
             self._delta_entries.append((name, param, delta))
+        parameter_names = [name for name, _, _ in self._delta_entries]
         self._delta_layer_names = self._infer_delta_layer_names()
-        self._delta_layer_by_name = {
-            name: self._delta_layer_names.index(semantic_layer_name(name))
-            for name, _, _ in self._delta_entries
-        }
+        self._delta_layer_by_name = semantic_layer_indices(
+            parameter_names,
+            self._delta_layer_names,
+            model=self.base_wrapper.model,
+        )
         self.freeze_delta_layers(freeze_layers)
 
     def _infer_delta_layer_names(self) -> tuple[str, ...]:
-        return infer_semantic_layer_names(name for name, _, _ in self._delta_entries)
+        return infer_semantic_layer_names(
+            (name for name, _, _ in self._delta_entries),
+            model=self.base_wrapper.model,
+        )
 
     # --------------------------------------------------------------------- helpers
     def delta_parameters(self) -> Iterator[torch.nn.Parameter]:
@@ -81,7 +86,7 @@ class DeltaFineTuneWrapper(AbstractWrapper):
 
     @property
     def delta_layer_names(self) -> tuple[str, ...]:
-        """Return semantic delta layer names in optimizer traversal order."""
+        """Return semantic delta layer names in MACE forward order."""
         return self._delta_layer_names
 
     def freeze_delta_layers(self, freeze_layers=None) -> None:

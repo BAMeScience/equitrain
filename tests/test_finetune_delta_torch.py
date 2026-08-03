@@ -5,6 +5,7 @@ import torch
 
 from equitrain.backends.torch_optimizer import create_optimizer_impl
 from equitrain.backends.torch_wrappers import AbstractWrapper
+from equitrain.finetune._layer_selection import infer_semantic_layer_names
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
 
 
@@ -33,12 +34,40 @@ class _ToyMaceLikeModel(torch.nn.Module):
 
     def forward(self, x):
         x = self.node_embedding(x)
-        for interaction in self.interactions:
+        for interaction, product in zip(self.interactions, self.products, strict=True):
             x = interaction(x)
-        for product in self.products:
             x = product(x)
         for readout in self.readouts:
             x = readout(x)
+        return x
+
+
+class _ToyMaceLikeModelWithAuxBlockList(_ToyMaceLikeModel):
+    def __init__(self):
+        super().__init__()
+        self.lr_source_maps = torch.nn.ModuleList(
+            [
+                torch.nn.Linear(1, 1, bias=False),
+                torch.nn.Linear(1, 1, bias=False),
+            ]
+        )
+        self.output_heads = torch.nn.ModuleList([torch.nn.Linear(1, 1, bias=False)])
+
+    def forward(self, x):
+        x = self.node_embedding(x)
+        for interaction, product, lr_source_map in zip(
+            self.interactions,
+            self.products,
+            self.lr_source_maps,
+            strict=True,
+        ):
+            x = interaction(x)
+            x = product(x)
+            x = lr_source_map(x)
+        for readout in self.readouts:
+            x = readout(x)
+        for output_head in self.output_heads:
+            x = output_head(x)
         return x
 
 
@@ -66,6 +95,11 @@ class _ToyMaceLikeWrapper(AbstractWrapper):
         del value
 
 
+class _ToyMaceLikeWrapperWithAuxBlockList(_ToyMaceLikeWrapper):
+    def __init__(self):
+        AbstractWrapper.__init__(self, _ToyMaceLikeModelWithAuxBlockList())
+
+
 def _named_trainable_deltas(wrapper: DeltaFineTuneWrapper) -> list[str]:
     return [
         name for name, delta in wrapper.named_delta_parameters() if delta.requires_grad
@@ -80,14 +114,55 @@ def _named_frozen_deltas(wrapper: DeltaFineTuneWrapper) -> list[str]:
     ]
 
 
+def test_semantic_layer_order_handles_variable_mace_depth():
+    parameter_names = ['model.node_embedding.weight']
+    parameter_names.extend(f'model.interactions.{index}.weight' for index in range(4))
+    parameter_names.extend(f'model.products.{index}.weight' for index in range(4))
+    parameter_names.extend(
+        [
+            'model.readouts.0.weight',
+            'model.readouts.1.weight',
+        ]
+    )
+
+    assert infer_semantic_layer_names(parameter_names) == (
+        'node_embedding',
+        'interactions.0',
+        'products.0',
+        'interactions.1',
+        'products.1',
+        'interactions.2',
+        'products.2',
+        'interactions.3',
+        'products.3',
+        'readouts',
+    )
+
+
+def test_delta_wrapper_orders_auxiliary_block_module_lists_with_backbone():
+    wrapper = DeltaFineTuneWrapper(_ToyMaceLikeWrapperWithAuxBlockList())
+
+    assert wrapper.delta_layer_names == (
+        'node_embedding',
+        'interactions.0',
+        'products.0',
+        'lr_source_maps.0',
+        'interactions.1',
+        'products.1',
+        'lr_source_maps.1',
+        'readouts',
+        'output_heads.0',
+    )
+
+
 def test_delta_wrapper_defaults_to_all_layers_trainable():
     wrapper = DeltaFineTuneWrapper(_ToyMaceLikeWrapper())
 
     assert wrapper.delta_layer_names == (
         'node_embedding',
         'interactions.0',
-        'interactions.1',
         'products.0',
+        'interactions.1',
         'products.1',
         'readouts',
     )
@@ -114,12 +189,28 @@ def test_delta_wrapper_freezes_semantic_layer_range():
     }
 
 
+def test_delta_wrapper_freezes_from_forward_order_index():
+    wrapper = DeltaFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='3-')
+
+    assert _named_trainable_deltas(wrapper) == [
+        'model.node_embedding.weight',
+        'model.interactions.0.weight',
+        'model.products.0.weight',
+    ]
+    assert _named_frozen_deltas(wrapper) == [
+        'model.interactions.1.weight',
+        'model.products.1.weight',
+        'model.readouts.0.weight',
+        'model.readouts.1.weight',
+    ]
+
+
 def test_delta_wrapper_freezes_comma_separated_layers():
     wrapper = DeltaFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='1,3-4')
 
     assert _named_frozen_deltas(wrapper) == [
         'model.interactions.0.weight',
-        'model.products.0.weight',
+        'model.interactions.1.weight',
         'model.products.1.weight',
     ]
 
