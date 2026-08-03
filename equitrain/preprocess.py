@@ -149,6 +149,12 @@ def _convert_to_hdf5(
             energy_key=args.energy_key,
             forces_key=args.forces_key,
             stress_key=args.stress_key,
+            virials_key=getattr(args, 'virials_key', 'virials'),
+            dipole_key=getattr(args, 'dipole_key', 'dipole'),
+            charges_key=getattr(args, 'charges_key', 'charges'),
+            total_charge_key=getattr(args, 'total_charge_key', 'charge'),
+            total_spin_key=getattr(args, 'total_spin_key', 'spin'),
+            external_field_key=getattr(args, 'external_field_key', 'external_field'),
             extract_atomic_numbers=extract_atomic_numbers,
             extract_atomic_energies=extract_atomic_energies,
         )

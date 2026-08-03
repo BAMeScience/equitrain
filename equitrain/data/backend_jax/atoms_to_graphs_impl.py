@@ -78,6 +78,17 @@ def graph_from_configuration(
         stress=_matrix_array(_voigt_to_full(config.stress)),
         virials=_matrix_array(config.virials),
         dipole=_vector_array(config.dipole),
+        total_charge=_scalar_array(
+            0.0 if config.total_charge is None else config.total_charge
+        ),
+        total_spin=_scalar_array(
+            1.0 if config.total_spin is None else config.total_spin
+        ),
+        external_field=_vector_array(
+            np.zeros(3, dtype=np.float32)
+            if config.external_field is None
+            else config.external_field
+        ),
     )
 
     nodes = _AttrDict(
@@ -269,6 +280,9 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
         'stress_weight',
         'virials_weight',
         'dipole_weight',
+        'total_charge',
+        'total_spin',
+        'external_field',
     ):
         value = getattr(graph.globals, field, None)
         if value is not None:

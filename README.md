@@ -176,9 +176,11 @@ equitrain-preprocess \
 
 The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed. XYZ files are parsed through ASE so that lattice vectors, species labels, and per-configuration metadata are retained. Precomputed statistics (means, standard deviations, cutoff radius, atomic energies) are stored alongside and reused by the training entry points.
 
+For MACE-POLAR/PolarMACE inputs, Equitrain preserves system-level `charge`, `spin`, and `external_field` metadata and maps them to the MACE graph keys `total_charge`, `total_spin`, and `external_field`; the XYZ key names can be changed with `--total-charge-key`, `--total-spin-key`, and `--external-field-key`.
+
 Under the hood, each processed file is organised as:
 
-- `/structures`: per-configuration metadata (cell, energy, stress, weights, etc.) and pointers into the per-atom arrays.
+- `/structures`: per-configuration metadata (cell, energy, stress, charge, spin, external field, weights, etc.) and pointers into the per-atom arrays.
 - `/positions`, `/forces`, `/atomic_numbers`: flat, chunked arrays sized by the total number of atoms across the dataset. Random reads only touch the slices required for a batch.
 
 This layout keeps the HDF5 file compact even for tens of millions of structures: chunked per-atom arrays avoid the pointer-chasing overhead of variable-length fields, enabling efficient multi-worker dataloaders that issue many small reads concurrently.

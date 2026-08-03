@@ -16,6 +16,9 @@ class XYZReader:
         virials_key: str = 'virials',
         dipole_key: str = 'dipole',
         charges_key: str = 'charges',
+        total_charge_key: str = 'charge',
+        total_spin_key: str = 'spin',
+        external_field_key: str = 'external_field',
         extract_atomic_numbers: bool = False,
         extract_atomic_energies: bool = False,
     ):
@@ -26,6 +29,9 @@ class XYZReader:
         self.virials_key = virials_key
         self.dipole_key = dipole_key
         self.charges_key = charges_key
+        self.total_charge_key = total_charge_key
+        self.total_spin_key = total_spin_key
+        self.external_field_key = external_field_key
         self.z_set = set()
         self.atomic_energies = {}
         self.extract_atomic_numbers = extract_atomic_numbers
@@ -54,6 +60,9 @@ class XYZReader:
                     virials_key=self.virials_key,
                     dipole_key=self.dipole_key,
                     charges_key=self.charges_key,
+                    total_charge_key=self.total_charge_key,
+                    total_spin_key=self.total_spin_key,
+                    external_field_key=self.external_field_key,
                 ).to_atoms()
 
                 yield atoms

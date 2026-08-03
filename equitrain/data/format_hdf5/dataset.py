@@ -15,8 +15,9 @@ class HDF5Dataset:
     Layout & performance
     --------------------
     - ``/structures``: per-configuration metadata (cell, PBC, energy, stress, weights,
-      etc.) plus the offset/length that point into the contiguous arrays below.
-      Structure-level quantities such as stress or dipole live here because they do
+      total charge/spin, external electric field, etc.) plus the offset/length that
+      point into the contiguous arrays below. Structure-level quantities such as
+      stress, dipole, charge, spin, or external field live here because they do
       not scale with atom count.
     - ``/positions``, ``/forces``, ``/atomic_numbers``: flat, chunked arrays that
       contain per-atom data. Random access only touches the slices required for a
@@ -68,6 +69,9 @@ class HDF5Dataset:
                 ('stress', np.float64, (6,)),
                 ('virials', np.float64, (3, 3)),
                 ('dipole', np.float64, (3,)),
+                ('total_charge', np.float64),
+                ('total_spin', np.float64),
+                ('external_field', np.float64, (3,)),
                 ('energy_weight', np.float32),
                 ('forces_weight', np.float32),
                 ('stress_weight', np.float32),
@@ -154,6 +158,7 @@ class HDF5Dataset:
 
     def __getitem__(self, i: int) -> Atoms:
         structures = self.file[self.STRUCTURES_DATASET]
+        field_names = structures.dtype.names or ()
         entry = structures[i]
         offset = int(entry['offset'])
         length = int(entry['length'])
@@ -176,6 +181,17 @@ class HDF5Dataset:
         )
         atoms.info['virials'] = entry['virials']
         atoms.info['dipole'] = entry['dipole']
+        total_charge = float(_entry_value(entry, field_names, 'total_charge', 0.0))
+        total_spin = float(_entry_value(entry, field_names, 'total_spin', 1.0))
+        external_field = np.asarray(
+            _entry_value(
+                entry, field_names, 'external_field', np.zeros(3, dtype=np.float64)
+            ),
+            dtype=np.float64,
+        ).reshape(3)
+        atoms.info['total_charge'] = atoms.info['charge'] = total_charge
+        atoms.info['total_spin'] = atoms.info['spin'] = total_spin
+        atoms.info['external_field'] = external_field
         atoms.info['energy_weight'] = entry['energy_weight']
         atoms.info['forces_weight'] = entry['forces_weight']
         atoms.info['stress_weight'] = entry['stress_weight']
@@ -209,6 +225,16 @@ class HDF5Dataset:
             atoms.info.get('dipole', np.zeros(3, dtype=np.float64)),
             dtype=np.float64,
         ).reshape(3)
+        total_charge = np.float64(
+            atoms.info.get('total_charge', atoms.info.get('charge', 0.0))
+        )
+        total_spin = np.float64(
+            atoms.info.get('total_spin', atoms.info.get('spin', 1.0))
+        )
+        external_field = np.asarray(
+            atoms.info.get('external_field', np.zeros(3, dtype=np.float64)),
+            dtype=np.float64,
+        ).reshape(3)
         energy_weight = np.float32(atoms.info.get('energy_weight', 1.0))
         forces_weight = np.float32(atoms.info.get('forces_weight', 1.0))
         stress_weight = np.float32(atoms.info.get('stress_weight', 1.0))
@@ -227,7 +253,8 @@ class HDF5Dataset:
             positions_ds[offset:end] = positions
             forces_ds[offset:end] = forces
             atomic_numbers_ds[offset:end] = numbers
-            structures[i] = (
+            structures[i] = _structure_values(
+                structures,
                 offset,
                 length,
                 cell,
@@ -236,6 +263,9 @@ class HDF5Dataset:
                 stress,
                 virials,
                 dipole,
+                total_charge,
+                total_spin,
+                external_field,
                 energy_weight,
                 forces_weight,
                 stress_weight,
@@ -263,7 +293,8 @@ class HDF5Dataset:
         atomic_numbers_ds[offset:end] = numbers
 
         structures.resize(current_len + 1, axis=0)
-        structures[current_len] = (
+        structures[current_len] = _structure_values(
+            structures,
             offset,
             length,
             cell,
@@ -272,6 +303,9 @@ class HDF5Dataset:
             stress,
             virials,
             dipole,
+            total_charge,
+            total_spin,
+            external_field,
             energy_weight,
             forces_weight,
             stress_weight,
@@ -300,6 +334,46 @@ def write_value(value):
 def unpack_value(value):
     value = value.decode('utf-8') if isinstance(value, bytes) else value
     return None if str(value) == 'None' else value
+
+
+def _entry_value(entry, field_names, key, default):
+    return entry[key] if key in field_names else default
+
+
+def _has_polar_fields(structures) -> bool:
+    field_names = structures.dtype.names or ()
+    return all(
+        field in field_names
+        for field in ('total_charge', 'total_spin', 'external_field')
+    )
+
+
+def _structure_values(
+    structures,
+    offset,
+    length,
+    cell,
+    pbc,
+    energy,
+    stress,
+    virials,
+    dipole,
+    total_charge,
+    total_spin,
+    external_field,
+    energy_weight,
+    forces_weight,
+    stress_weight,
+    virials_weight,
+    dipole_weight,
+):
+    values = [offset, length, cell, pbc, energy, stress, virials, dipole]
+    if _has_polar_fields(structures):
+        values.extend([total_charge, total_spin, external_field])
+    values.extend(
+        [energy_weight, forces_weight, stress_weight, virials_weight, dipole_weight]
+    )
+    return tuple(values)
 
 
 class HDF5GraphDataset(HDF5Dataset):

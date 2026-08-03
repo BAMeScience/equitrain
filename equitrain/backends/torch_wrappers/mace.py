@@ -65,6 +65,8 @@ class MaceWrapper(AbstractWrapper):
                 ):
                     setattr(data, key, value.to(dtype=target_dtype))
 
+        _ensure_data_get(data)
+
         y_pred = self.model(
             data,
             compute_force=self.compute_force,
@@ -180,6 +182,31 @@ class MaceWrapper(AbstractWrapper):
                 self.model.pair_repulsion_fn = ZBLBasis(r_max=r_max, p=p)
 
         self.model.r_max.fill_(r_max)
+
+
+def _ensure_data_get(data):
+    """Patch MACE's vendored PyG Batch with ``get`` when needed.
+
+    Newer MACE ``prepare_graph`` calls ``data.get('displacement')``, but some
+    MACE-bundled ``torch_geometric`` Batch classes do not implement ``get``.
+    Remove this shim once MACE either stops calling ``get`` on batches or its
+    vendored Batch/Data classes provide a mapping-compatible ``get`` method.
+    """
+    if hasattr(data, 'get'):
+        return data
+
+    def _get(key, default=None):
+        try:
+            if key in data:
+                return data[key]
+        except (AttributeError, TypeError):
+            pass
+
+        value = getattr(data, key, default)
+        return default if value is None else value
+
+    object.__setattr__(data, 'get', _get)
+    return data
 
 
 __all__ = ['MaceWrapper']

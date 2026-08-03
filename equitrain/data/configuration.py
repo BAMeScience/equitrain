@@ -25,6 +25,9 @@ class Configuration:
     virials: Virials | None = None  # eV
     dipole: Vector | None = None  # Debye
     charges: Charges | None = None  # atomic unit
+    total_charge: float | None = None
+    total_spin: float | None = None
+    external_field: Vector | None = None
     cell: Cell | None = None
     pbc: Pbc | None = None
 
@@ -45,6 +48,9 @@ class Configuration:
         virials_key: str = 'virials',
         dipole_key: str = 'dipole',
         charges_key: str = 'charges',
+        total_charge_key: str = 'charge',
+        total_spin_key: str = 'spin',
+        external_field_key: str = 'external_field',
     ) -> 'Configuration':
         """Convert ase.Atoms to Configuration"""
 
@@ -76,6 +82,24 @@ class Configuration:
 
         virials = atoms.info.get(virials_key, None)
         dipole = atoms.info.get(dipole_key, None)  # Debye
+        total_charge = _info_value(
+            atoms,
+            total_charge_key,
+            aliases=('charge', 'total_charge'),
+            default=0.0,
+        )
+        total_spin = _info_value(
+            atoms,
+            total_spin_key,
+            aliases=('spin', 'total_spin'),
+            default=1.0,
+        )
+        external_field = _info_value(
+            atoms,
+            external_field_key,
+            aliases=('external_field',),
+            default=np.zeros(3),
+        )
 
         # Charges default to 0 instead of None if not found
         charges = atoms.arrays.get(charges_key, np.zeros(len(atoms)))
@@ -107,6 +131,7 @@ class Configuration:
         if dipole is None:
             dipole = np.zeros(3)
             dipole_weight = 0.0
+        external_field = np.asarray(external_field, dtype=float).reshape(3)
 
         return Configuration(
             atomic_numbers=atomic_numbers,
@@ -117,6 +142,9 @@ class Configuration:
             virials=virials,
             dipole=dipole,
             charges=charges,
+            total_charge=float(np.asarray(total_charge)),
+            total_spin=float(np.asarray(total_spin)),
+            external_field=external_field,
             pbc=pbc,
             cell=cell,
             energy_weight=energy_weight,
@@ -142,6 +170,15 @@ class Configuration:
         atoms.info['virials'] = self.virials
         atoms.info['dipole'] = self.dipole
         atoms.arrays['charges'] = self.charges
+        atoms.info['total_charge'] = (
+            0.0 if self.total_charge is None else self.total_charge
+        )
+        atoms.info['charge'] = atoms.info['total_charge']
+        atoms.info['total_spin'] = 1.0 if self.total_spin is None else self.total_spin
+        atoms.info['spin'] = atoms.info['total_spin']
+        atoms.info['external_field'] = (
+            np.zeros(3) if self.external_field is None else self.external_field
+        )
 
         atoms.info['energy_weight'] = self.energy_weight
         atoms.info['forces_weight'] = self.forces_weight
@@ -150,6 +187,18 @@ class Configuration:
         atoms.info['dipole_weight'] = self.dipole_weight
 
         return atoms
+
+
+def _info_value(atoms, key: str | None, *, aliases=(), default=None):
+    candidates = []
+    if key is not None:
+        candidates.append(key)
+    candidates.extend(alias for alias in aliases if alias not in candidates)
+
+    for candidate in candidates:
+        if candidate in atoms.info:
+            return atoms.info[candidate]
+    return default
 
 
 # Replacement class for ase SinglePointCalculator, which is not stable across releases

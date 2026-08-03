@@ -572,6 +572,42 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default='stress',
         )
         parser.add_argument(
+            '--virials-key',
+            help='Key of reference virials in training xyz',
+            type=str,
+            default='virials',
+        )
+        parser.add_argument(
+            '--dipole-key',
+            help='Key of reference dipole in training xyz',
+            type=str,
+            default='dipole',
+        )
+        parser.add_argument(
+            '--charges-key',
+            help='Key of per-atom charges in training xyz',
+            type=str,
+            default='charges',
+        )
+        parser.add_argument(
+            '--total-charge-key',
+            help='Key of total system charge in training xyz',
+            type=str,
+            default='charge',
+        )
+        parser.add_argument(
+            '--total-spin-key',
+            help='Key of total system spin in training xyz',
+            type=str,
+            default='spin',
+        )
+        parser.add_argument(
+            '--external-field-key',
+            help='Key of external electric field in training xyz',
+            type=str,
+            default='external_field',
+        )
+        parser.add_argument(
             '--output-dir', help='Output directory', type=str, default=''
         )
         parser.add_argument(

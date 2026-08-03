@@ -101,6 +101,20 @@ def lmdb_entry_to_atoms(entry: Mapping) -> Atoms:
     # Populate auxiliary metadata expected by the HDF5 writer.
     atoms.info.setdefault('virials', np.zeros((3, 3), dtype=float))
     atoms.info.setdefault('dipole', np.zeros(3, dtype=float))
+    total_charge = float(
+        np.asarray(entry.get('total_charge', entry.get('charge', 0.0)), dtype=float)
+    )
+    total_spin = float(
+        np.asarray(entry.get('total_spin', entry.get('spin', 1.0)), dtype=float)
+    )
+    external_field = np.asarray(
+        entry.get('external_field', np.zeros(3, dtype=float)), dtype=float
+    ).reshape(3)
+    atoms.info.setdefault('total_charge', total_charge)
+    atoms.info.setdefault('charge', total_charge)
+    atoms.info.setdefault('total_spin', total_spin)
+    atoms.info.setdefault('spin', total_spin)
+    atoms.info.setdefault('external_field', external_field)
     atoms.info.setdefault('energy_weight', 1.0)
     atoms.info.setdefault('forces_weight', 1.0)
     atoms.info.setdefault('stress_weight', 1.0)
