@@ -208,7 +208,13 @@ class LossFnCollection(torch.nn.Module):
         self.main = LossFn(**args)
         self.loss_fns = {}
         for loss_type in args['loss_monitor']:
-            args_for_type = {**args, 'loss_type': loss_type}
+            args_for_type = {
+                **args,
+                'loss_type': loss_type,
+                'loss_type_energy': loss_type,
+                'loss_type_forces': loss_type,
+                'loss_type_stress': loss_type,
+            }
             self.loss_fns[loss_type] = LossFn(**args_for_type)
 
     def forward(self, y_pred, y_true):
