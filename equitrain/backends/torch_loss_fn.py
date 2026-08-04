@@ -118,12 +118,58 @@ class LossFnStress(torch.nn.Module):
         return loss, error.detach().mean(dim=(1, 2))
 
 
+class LossFnRelativeEnergy(torch.nn.Module):
+    def __init__(self, target_state: int, **args):
+        super().__init__()
+        args = dict(args)
+        if args.get('loss_type_energy') is not None:
+            args['loss_type'] = args['loss_type_energy']
+        args['loss_weight_type'] = None
+        self.error_fn = ErrorFn(**args)
+        self.target_state = int(target_state)
+
+    def forward(self, input, target, reaction_group_id, state_id):
+        input = input.reshape(-1)
+        target = target.reshape(-1).to(device=input.device, dtype=input.dtype)
+        reaction_group_id = reaction_group_id.reshape(-1).to(device=input.device)
+        state_id = state_id.reshape(-1).to(device=input.device)
+
+        pred_diffs = []
+        target_diffs = []
+        for group_id in torch.unique(reaction_group_id[reaction_group_id >= 0]):
+            group_mask = reaction_group_id == group_id
+            reference_mask = group_mask & (state_id == 0)
+            target_mask = group_mask & (state_id == self.target_state)
+            if not torch.any(reference_mask) or not torch.any(target_mask):
+                continue
+
+            pred_diffs.append(input[target_mask].mean() - input[reference_mask].mean())
+            target_diffs.append(
+                target[target_mask].mean() - target[reference_mask].mean()
+            )
+
+        if not pred_diffs:
+            zero = input.sum() * 0.0
+            count = torch.tensor(0.0, device=input.device, dtype=input.dtype)
+            return zero, zero.detach(), count
+
+        pred = torch.stack(pred_diffs)
+        true = torch.stack(target_diffs)
+        error = self.error_fn(pred, true)
+        count = torch.tensor(
+            float(error.numel()), device=input.device, dtype=input.dtype
+        )
+        return error.mean(), error.detach(), count
+
+
 class LossFn(torch.nn.Module):
     def __init__(
         self,
         energy_weight: float = 1.0,
         forces_weight: float = 1.0,
         stress_weight: float = 0.0,
+        barrier_weight: float = 0.0,
+        reaction_energy_weight: float = 0.0,
         loss_energy_per_atom: bool = True,
         **args,
     ):
@@ -131,10 +177,14 @@ class LossFn(torch.nn.Module):
         self.loss_energy = LossFnEnergy(**args)
         self.loss_forces = LossFnForces(**args)
         self.loss_stress = LossFnStress(**args)
+        self.loss_barrier = LossFnRelativeEnergy(target_state=1, **args)
+        self.loss_reaction_energy = LossFnRelativeEnergy(target_state=2, **args)
 
         self.energy_weight = energy_weight
         self.forces_weight = forces_weight
         self.stress_weight = stress_weight
+        self.barrier_weight = barrier_weight
+        self.reaction_energy_weight = reaction_energy_weight
         self.loss_energy_per_atom = loss_energy_per_atom
 
     def compute_weighted(self, energy_value, forces_value, stress_value):
@@ -152,6 +202,18 @@ class LossFn(torch.nn.Module):
         ):
             result += self.stress_weight * stress_value
         return result
+
+    @staticmethod
+    def _graph_attr(y_true, name: str, default: int, *, length: int, device):
+        value = getattr(y_true, name, None)
+        if value is None:
+            return torch.full((length,), default, device=device, dtype=torch.long)
+        value = value.to(device=device, dtype=torch.long).reshape(-1)
+        if value.numel() < length:
+            padded = torch.full((length,), default, device=device, dtype=torch.long)
+            padded[: value.numel()] = value
+            return padded
+        return value[:length]
 
     def forward(self, y_pred, y_true):
         loss = Loss(device=y_true.batch.device)
@@ -172,7 +234,9 @@ class LossFn(torch.nn.Module):
         s_pred = y_pred['stress']
 
         loss_e = loss_f = loss_s = None
+        loss_b = loss_r = None
         error_e = error_f = error_s = None
+        count_b = count_r = None
 
         if self.energy_weight > 0.0:
             loss_e, error_e = self.loss_energy(e_pred, e_true, energy_weights)
@@ -181,8 +245,47 @@ class LossFn(torch.nn.Module):
         if self.stress_weight > 0.0:
             loss_s, error_s = self.loss_stress(s_pred, s_true)
 
-        loss['total'].value += self.compute_weighted(loss_e, loss_f, loss_s)
-        loss['total'].n += y_true.batch.max() + 1
+        graph_count = e_pred.reshape(-1).numel()
+        reaction_group_id = self._graph_attr(
+            y_true,
+            'reaction_group_id',
+            -1,
+            length=graph_count,
+            device=e_pred.device,
+        )
+        if torch.all(reaction_group_id < 0):
+            reaction_group_id = self._graph_attr(
+                y_true,
+                'reaction_id',
+                -1,
+                length=graph_count,
+                device=e_pred.device,
+            )
+        state_id = self._graph_attr(
+            y_true,
+            'state_id',
+            -1,
+            length=graph_count,
+            device=e_pred.device,
+        )
+
+        total = self.compute_weighted(loss_e, loss_f, loss_s)
+        if not isinstance(total, torch.Tensor):
+            total = torch.tensor(total, device=e_pred.device, dtype=e_pred.dtype)
+
+        if self.barrier_weight > 0.0:
+            loss_b, _, count_b = self.loss_barrier(
+                e_pred, e_true, reaction_group_id, state_id
+            )
+            total = total + self.barrier_weight * loss_b
+        if self.reaction_energy_weight > 0.0:
+            loss_r, _, count_r = self.loss_reaction_energy(
+                e_pred, e_true, reaction_group_id, state_id
+            )
+            total = total + self.reaction_energy_weight * loss_r
+
+        loss['total'].value += total
+        loss['total'].n += graph_count
 
         if self.energy_weight > 0.0:
             loss['energy'].value = loss_e
@@ -193,6 +296,12 @@ class LossFn(torch.nn.Module):
         if self.stress_weight > 0.0:
             loss['stress'].value += loss_s
             loss['stress'].n += s_true.numel()
+        if self.barrier_weight > 0.0:
+            loss['barrier'].value += loss_b
+            loss['barrier'].n += count_b
+        if self.reaction_energy_weight > 0.0:
+            loss['reaction_energy'].value += loss_r
+            loss['reaction_energy'].n += count_r
 
         error = self.compute_weighted(error_e, error_f, error_s)
         if not isinstance(error, torch.Tensor):
@@ -234,6 +343,7 @@ __all__ = [
     'LossFnEnergy',
     'LossFnForces',
     'LossFnStress',
+    'LossFnRelativeEnergy',
     'LossFn',
     'LossFnCollection',
 ]

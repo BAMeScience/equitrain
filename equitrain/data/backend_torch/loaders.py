@@ -10,6 +10,11 @@ from equitrain.data.format_hdf5.dataset import HDF5GraphDataset
 from equitrain.logger import FileLogger
 
 from .loaders_impl import DynamicGraphLoader
+from .loaders_reaction import (
+    get_reaction_loader,
+    prepare_reaction_dataset,
+    relative_reaction_losses_enabled,
+)
 
 
 def _should_pin_memory(requested: bool, accelerator: Accelerator | None) -> bool:
@@ -127,12 +132,28 @@ def get_dataloader(
     else:
         data_set = torch.utils.data.ConcatDataset(datasets)
 
+    reaction_grouping = relative_reaction_losses_enabled(args)
+    reaction_group_ids = None
+    if reaction_grouping:
+        data_set, reaction_group_ids = prepare_reaction_dataset(
+            args, data_set, label=str(data_file)
+        )
+
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
     num_workers = _resolve_num_workers(args.num_workers, accelerator)
 
+    if reaction_grouping:
+        return get_reaction_loader(
+            args,
+            data_set,
+            reaction_group_ids,
+            pin_memory=pin_memory,
+            num_workers=num_workers,
+            accelerator=accelerator,
+        )
+
     data_loader = DynamicGraphLoader(
         dataset=data_set,
-        errors=None,
         batch_size=args.batch_size,
         shuffle=args.shuffle,
         drop_last=False,

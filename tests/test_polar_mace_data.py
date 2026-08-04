@@ -12,7 +12,15 @@ from equitrain.data.configuration import Configuration
 from equitrain.data.format_hdf5 import HDF5Dataset
 
 
-def _atoms(*, charge=-1.0, spin=2.0, external_field=(0.1, -0.2, 0.3)):
+def _atoms(
+    *,
+    charge=-1.0,
+    spin=2.0,
+    external_field=(0.1, -0.2, 0.3),
+    source_id=1,
+    reaction_id=7,
+    state_id=1,
+):
     atoms = Atoms(
         symbols='OH',
         positions=np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.96]], dtype=float),
@@ -30,6 +38,9 @@ def _atoms(*, charge=-1.0, spin=2.0, external_field=(0.1, -0.2, 0.3)):
     atoms.info['charge'] = charge
     atoms.info['spin'] = spin
     atoms.info['external_field'] = np.asarray(external_field, dtype=float)
+    atoms.info['source_id'] = source_id
+    atoms.info['reaction_id'] = reaction_id
+    atoms.info['state_id'] = state_id
     atoms.info['energy_weight'] = 1.0
     atoms.info['forces_weight'] = 1.0
     atoms.info['stress_weight'] = 1.0
@@ -54,6 +65,9 @@ def test_configuration_preserves_polar_mace_metadata():
     assert config.total_charge == -2.0
     assert config.total_spin == 3.0
     np.testing.assert_allclose(config.external_field, [0.4, 0.5, 0.6])
+    assert config.source_id == 1
+    assert config.reaction_id == 7
+    assert config.state_id == 1
 
     roundtrip = config.to_atoms()
     assert roundtrip.info['charge'] == -2.0
@@ -61,6 +75,9 @@ def test_configuration_preserves_polar_mace_metadata():
     assert roundtrip.info['spin'] == 3.0
     assert roundtrip.info['total_spin'] == 3.0
     np.testing.assert_allclose(roundtrip.info['external_field'], [0.4, 0.5, 0.6])
+    assert roundtrip.info['source_id'] == 1
+    assert roundtrip.info['reaction_id'] == 7
+    assert roundtrip.info['state_id'] == 1
 
 
 def test_hdf5_roundtrip_stores_polar_mace_metadata(tmp_path):
@@ -73,6 +90,9 @@ def test_hdf5_roundtrip_stores_polar_mace_metadata(tmp_path):
         assert 'total_charge' in names
         assert 'total_spin' in names
         assert 'external_field' in names
+        assert 'source_id' in names
+        assert 'reaction_id' in names
+        assert 'state_id' in names
 
         atoms = dataset[0]
         assert atoms.info['charge'] == -1.5
@@ -80,6 +100,10 @@ def test_hdf5_roundtrip_stores_polar_mace_metadata(tmp_path):
         assert atoms.info['spin'] == 4.0
         assert atoms.info['total_spin'] == 4.0
         np.testing.assert_allclose(atoms.info['external_field'], [0.2, 0.0, -0.1])
+        assert atoms.info['source_id'] == 1
+        assert atoms.info['reaction_id'] == 7
+        assert atoms.info['state_id'] == 1
+        assert dataset.reaction_metadata() == [(1, 7, 1)]
 
 
 def test_hdf5_old_schema_defaults_to_neutral_singlet_zero_field(tmp_path):
@@ -161,6 +185,9 @@ def test_hdf5_old_schema_defaults_to_neutral_singlet_zero_field(tmp_path):
     assert atoms.info['spin'] == 1.0
     assert atoms.info['total_spin'] == 1.0
     np.testing.assert_allclose(atoms.info['external_field'], np.zeros(3))
+    assert atoms.info['source_id'] == 0
+    assert atoms.info['reaction_id'] == -1
+    assert atoms.info['state_id'] == -1
 
 
 def test_torch_graph_contains_polar_mace_inputs():
@@ -183,11 +210,17 @@ def test_torch_graph_contains_polar_mace_inputs():
     assert graph.total_charge.shape == torch.Size([])
     assert graph.total_spin.shape == torch.Size([])
     assert graph.external_field.shape == (1, 3)
+    assert graph.source_id.shape == torch.Size([])
+    assert graph.reaction_id.shape == torch.Size([])
+    assert graph.state_id.shape == torch.Size([])
     assert graph.fermi_level.shape == torch.Size([])
     assert graph.volume.shape == torch.Size([])
     assert graph.rcell.shape == (3, 3)
     assert graph.total_charge.item() == -1.0
     assert graph.total_spin.item() == 2.0
+    assert graph.source_id.item() == 1
+    assert graph.reaction_id.item() == 7
+    assert graph.state_id.item() == 1
     np.testing.assert_allclose(graph.external_field.numpy(), [[0.1, -0.2, 0.3]])
 
     cell = np.eye(3) * 5.0
@@ -203,9 +236,15 @@ def test_torch_graph_contains_polar_mace_inputs():
     assert batch.total_charge.shape == (2,)
     assert batch.total_spin.shape == (2,)
     assert batch.external_field.shape == (2, 3)
+    assert batch.source_id.shape == (2,)
+    assert batch.reaction_id.shape == (2,)
+    assert batch.state_id.shape == (2,)
     assert batch.fermi_level.shape == (2,)
     assert batch.volume.shape == (2,)
     assert batch.rcell.shape == (6, 3)
     np.testing.assert_allclose(batch.total_charge.numpy(), [-1.0, 0.5])
     np.testing.assert_allclose(batch.total_spin.numpy(), [2.0, 1.5])
+    np.testing.assert_array_equal(batch.source_id.numpy(), [1, 1])
+    np.testing.assert_array_equal(batch.reaction_id.numpy(), [7, 7])
+    np.testing.assert_array_equal(batch.state_id.numpy(), [1, 1])
     np.testing.assert_allclose(batch.external_field.numpy()[1], [0.0, 0.0, 1.0])

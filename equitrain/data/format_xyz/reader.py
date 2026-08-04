@@ -19,6 +19,9 @@ class XYZReader:
         total_charge_key: str = 'charge',
         total_spin_key: str = 'spin',
         external_field_key: str = 'external_field',
+        source_id_key: str = 'source_id',
+        reaction_id_key: str = 'reaction_id',
+        state_id_key: str = 'state_id',
         extract_atomic_numbers: bool = False,
         extract_atomic_energies: bool = False,
     ):
@@ -32,6 +35,9 @@ class XYZReader:
         self.total_charge_key = total_charge_key
         self.total_spin_key = total_spin_key
         self.external_field_key = external_field_key
+        self.source_id_key = source_id_key
+        self.reaction_id_key = reaction_id_key
+        self.state_id_key = state_id_key
         self.z_set = set()
         self.atomic_energies = {}
         self.extract_atomic_numbers = extract_atomic_numbers
@@ -63,6 +69,9 @@ class XYZReader:
                     total_charge_key=self.total_charge_key,
                     total_spin_key=self.total_spin_key,
                     external_field_key=self.external_field_key,
+                    source_id_key=self.source_id_key,
+                    reaction_id_key=self.reaction_id_key,
+                    state_id_key=self.state_id_key,
                 ).to_atoms()
 
                 yield atoms

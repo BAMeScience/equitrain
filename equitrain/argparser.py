@@ -274,6 +274,18 @@ def add_loss_weights_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         '--stress-weight', help='Weight for stress loss', type=float, default=1.0
     )
+    parser.add_argument(
+        '--barrier-weight',
+        help='Weight for relative barrier loss E_TS - E_reactant',
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        '--reaction-energy-weight',
+        help='Weight for reaction energy loss E_product - E_reactant',
+        type=float,
+        default=0.0,
+    )
     return parser
 
 
@@ -608,6 +620,24 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default='external_field',
         )
         parser.add_argument(
+            '--source-id-key',
+            help='Key of integer source id in training xyz',
+            type=str,
+            default='source_id',
+        )
+        parser.add_argument(
+            '--reaction-id-key',
+            help='Key of integer reaction group id in training xyz',
+            type=str,
+            default='reaction_id',
+        )
+        parser.add_argument(
+            '--state-id-key',
+            help='Key of integer reaction state id in training xyz',
+            type=str,
+            default='state_id',
+        )
+        parser.add_argument(
             '--output-dir', help='Output directory', type=str, default=''
         )
         parser.add_argument(
@@ -885,7 +915,30 @@ def _ensure_losses_defined(args, backend_name: str) -> None:
     energy = getattr(args, 'energy_weight', 0.0) or 0.0
     forces = getattr(args, 'forces_weight', 0.0) or 0.0
     stress = getattr(args, 'stress_weight', 0.0) or 0.0
-    if energy == 0.0 and forces == 0.0 and stress == 0.0:
+    barrier = getattr(args, 'barrier_weight', 0.0) or 0.0
+    reaction_energy = getattr(args, 'reaction_energy_weight', 0.0) or 0.0
+
+    if backend_name == 'jax' and (barrier != 0.0 or reaction_energy != 0.0):
+        raise ArgumentError(
+            'The JAX backend does not support relative reaction losses yet; '
+            'set --barrier-weight 0 and --reaction-energy-weight 0.'
+        )
+
+    if getattr(args, 'weighted_sampler', False) and (
+        barrier != 0.0 or reaction_energy != 0.0
+    ):
+        raise ArgumentError(
+            'The weighted sampler does not support relative reaction losses yet; '
+            'disable --weighted-sampler or set relative loss weights to zero.'
+        )
+
+    if (
+        energy == 0.0
+        and forces == 0.0
+        and stress == 0.0
+        and barrier == 0.0
+        and reaction_energy == 0.0
+    ):
         raise ArgumentError(
             f'{backend_name} backend requires at least one non-zero loss weight.'
         )

@@ -178,6 +178,8 @@ The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; 
 
 For MACE-POLAR/PolarMACE inputs, Equitrain preserves system-level `charge`, `spin`, and `external_field` metadata and maps them to the MACE graph keys `total_charge`, `total_spin`, and `external_field`; the XYZ key names can be changed with `--total-charge-key`, `--total-spin-key`, and `--external-field-key`.
 
+For reaction-relative training data, Equitrain also preserves integer `source_id`, `reaction_id`, and `state_id` metadata. Ordinary frames default to `source_id=0`, `reaction_id=-1`, and `state_id=-1`; reactive triplets can use `state_id=0` for reactant, `1` for transition state, and `2` for product. The XYZ key names can be changed with `--source-id-key`, `--reaction-id-key`, and `--state-id-key`.
+
 Under the hood, each processed file is organised as:
 
 - `/structures`: per-configuration metadata (cell, energy, stress, charge, spin, external field, weights, etc.) and pointers into the per-atom arrays.
@@ -267,6 +269,12 @@ equitrain -v \
 HDF5 inputs can be a directory, a glob (e.g. `data/train_*.h5`), or a comma-separated
 list of files; all shards are concatenated in order. This applies to
 `--train-file`, `--valid-file`, and `--test-file` when training with either backend.
+
+Torch training can add reaction-relative energy targets with `--barrier-weight` for
+`E_TS - E_reactant` and `--reaction-energy-weight` for
+`E_product - E_reactant`. These losses require complete reaction groups in the
+Torch batch, are averaged once per reaction rather than per frame, and are not
+currently available for the JAX backend.
 
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
