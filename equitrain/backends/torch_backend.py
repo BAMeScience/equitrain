@@ -34,6 +34,32 @@ from .torch_utils import set_dtype, set_seeds
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
 
+def _fine_tune_config(model: torch.nn.Module):
+    config_fn = getattr(model, 'get_fine_tune_export_config', None)
+    if callable(config_fn):
+        return config_fn()
+    return None
+
+
+def _log_fine_tune_summary(
+    model: torch.nn.Module,
+    accelerator: Accelerator,
+    logger: FileLogger,
+) -> None:
+    unwrapped_model = accelerator.unwrap_model(model)
+    config = _fine_tune_config(unwrapped_model)
+    if not config:
+        return
+
+    wrapper = config.get('wrapper')
+    if wrapper is not None:
+        logger.log(1, f'Fine-tune wrapper          : {wrapper}')
+    for key, value in config.items():
+        if key == 'wrapper':
+            continue
+        logger.log(1, f'Fine-tune {key:<15} : {value}')
+
+
 def fix_gradients(args, model: torch.nn.Module, accelerator: Accelerator):
     # Remove NaN and Inf from gradients
     for param in model.parameters():
@@ -271,6 +297,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
         logger.log(1, f'Number of params           : {n_parameters}')
+        _log_fine_tune_summary(model, accelerator, logger)
         logger.log(1, f'Number of training points  : {len(train_loader.dataset)}')
         logger.log(
             1,

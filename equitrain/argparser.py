@@ -950,7 +950,17 @@ class ArgsFormatter:
         Initialize the ArgsFormatter with parsed arguments.
         :param args: argparse.Namespace object
         """
-        self.args = vars(args)  # Convert Namespace to dictionary
+        self.args = dict(vars(args))  # Convert Namespace to dictionary
+        fine_tune_config = self._fine_tune_config(self.args.get('model'))
+        if fine_tune_config is not None:
+            self.args['fine_tune_export'] = fine_tune_config
+
+    @staticmethod
+    def _fine_tune_config(model):
+        config_fn = getattr(model, 'get_fine_tune_export_config', None)
+        if callable(config_fn):
+            return config_fn()
+        return None
 
     def format(self):
         """

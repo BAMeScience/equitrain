@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from equitrain.argparser import ArgsFormatter
 from equitrain.backends.torch_optimizer import create_optimizer_impl
 from equitrain.backends.torch_wrappers import AbstractWrapper
 from equitrain.finetune._layer_selection import infer_semantic_layer_names
@@ -187,6 +188,19 @@ def test_delta_wrapper_freezes_semantic_layer_range():
         'wrapper': 'delta',
         'freeze_layers': '2-',
     }
+
+
+def test_args_formatter_includes_delta_freeze_layers():
+    args = type('Args', (), {})()
+    args.model = DeltaFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='2-')
+
+    formatted = ArgsFormatter(args).format()
+
+    assert 'fine_tune_export' in formatted
+    assert 'wrapper' in formatted
+    assert 'delta' in formatted
+    assert 'freeze_layers' in formatted
+    assert '2-' in formatted
 
 
 def test_delta_wrapper_freezes_from_forward_order_index():
