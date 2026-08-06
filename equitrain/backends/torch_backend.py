@@ -11,6 +11,7 @@ from equitrain.argparser import (
     ArgsFilterSimple,
     ArgsFormatter,
     check_args_consistency,
+    fine_tune_export_config,
     get_loss_monitor,
     validate_training_args,
 )
@@ -34,20 +35,13 @@ from .torch_utils import set_dtype, set_seeds
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
 
-def _fine_tune_config(model: torch.nn.Module):
-    config_fn = getattr(model, 'get_fine_tune_export_config', None)
-    if callable(config_fn):
-        return config_fn()
-    return None
-
-
 def _log_fine_tune_summary(
     model: torch.nn.Module,
     accelerator: Accelerator,
     logger: FileLogger,
 ) -> None:
     unwrapped_model = accelerator.unwrap_model(model)
-    config = _fine_tune_config(unwrapped_model)
+    config = fine_tune_export_config(unwrapped_model)
     if not config:
         return
 

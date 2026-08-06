@@ -944,23 +944,28 @@ def _ensure_losses_defined(args, backend_name: str) -> None:
         )
 
 
+def fine_tune_export_config(model):
+    config_fn = getattr(model, 'get_fine_tune_export_config', None)
+    if callable(config_fn):
+        return config_fn()
+    return None
+
+
+def args_dict_with_runtime_metadata(args):
+    args_dict = dict(vars(args))
+    fine_tune_config = fine_tune_export_config(args_dict.get('model'))
+    if fine_tune_config is not None:
+        args_dict['fine_tune_export'] = fine_tune_config
+    return args_dict
+
+
 class ArgsFormatter:
     def __init__(self, args):
         """
         Initialize the ArgsFormatter with parsed arguments.
         :param args: argparse.Namespace object
         """
-        self.args = dict(vars(args))  # Convert Namespace to dictionary
-        fine_tune_config = self._fine_tune_config(self.args.get('model'))
-        if fine_tune_config is not None:
-            self.args['fine_tune_export'] = fine_tune_config
-
-    @staticmethod
-    def _fine_tune_config(model):
-        config_fn = getattr(model, 'get_fine_tune_export_config', None)
-        if callable(config_fn):
-            return config_fn()
-        return None
+        self.args = args_dict_with_runtime_metadata(args)
 
     def format(self):
         """
@@ -995,6 +1000,10 @@ class ArgsFilterSimple:
 
     def filter(self, args):
         """Filter the list of arguments to include only allowed types."""
-        return {
-            key: value for key, value in vars(args).items() if self.is_simple(value)
+        args_dict = args_dict_with_runtime_metadata(args)
+        filtered = {
+            key: value for key, value in args_dict.items() if self.is_simple(value)
         }
+        if 'fine_tune_export' in args_dict:
+            filtered['fine_tune_export'] = args_dict['fine_tune_export']
+        return filtered

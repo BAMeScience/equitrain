@@ -10,7 +10,9 @@ from equitrain.argparser import ArgsFormatter, validate_evaluate_args
 from equitrain.backends.jax_backend import (
     _build_eval_step,
     _initialize_distributed,
+    _jax_runtime_config,
     _launch_local_processes,
+    _log_jax_runtime_summary,
     _run_eval_loop,
     _shutdown_distributed,
 )
@@ -119,6 +121,8 @@ def _evaluate_initialized(args):
         )
     multi_device = _is_multi_device()
     device_count = jax.local_device_count() if multi_device else 1
+    requested_batch_size = getattr(args, 'batch_size', None)
+    requested_batch_max_nodes = getattr(args, 'batch_max_nodes', None)
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
@@ -138,6 +142,19 @@ def _evaluate_initialized(args):
         prefetch_batches = effective_workers
     else:
         prefetch_batches = max(int(prefetch_requested or 0), 0)
+
+    runtime_config = _jax_runtime_config(
+        args,
+        requested_batch_size=requested_batch_size,
+        requested_batch_max_nodes=requested_batch_max_nodes,
+        multi_device=multi_device,
+        device_count=device_count,
+        effective_workers=effective_workers,
+        prefetch_batches=prefetch_batches,
+        process_count=getattr(jax, 'process_count', lambda: 1)(),
+        process_index=process_index,
+    )
+    _log_jax_runtime_summary(logger, runtime_config)
 
     test_loader = get_dataloader(
         data_file=test_file,
