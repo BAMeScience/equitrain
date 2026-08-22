@@ -2,31 +2,72 @@ site_name: Equitrain
 site_description: Training and fine-tuning machine learning interatomic potentials
 site_url: https://bamescience.github.io/equitrain/
 repo_url: https://github.com/BAMeScience/equitrain
+repo_name: BAMeScience/equitrain
 
 theme:
   name: material
+  language: en
+  font: false
+  palette:
+    - scheme: slate
+      primary: black
+      accent: lime
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: green
+      accent: deep orange
+      toggle:
+        icon: material/console
+        name: Switch to dark mode
+  icon:
+    repo: fontawesome/brands/github
   features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
     - navigation.sections
     - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - toc.follow
     - content.code.copy
+    - content.code.annotate
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
 
 markdown_extensions:
   - admonition
+  - attr_list
   - toc:
       permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
   - pymdownx.superfences
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Quickstart: quickstart.md
-  - Data and Preprocessing: data.md
-  - CLI: cli.md
-  - Training Options: training-options.md
-  - Python API: python-api.md
-  - Model Wrappers: model-wrappers.md
-  - JAX Bundles: jax-bundles.md
-  - Fine-Tuning: fine-tuning.md
-  - Calculators: calculators.md
-  - Reaction-Relative Losses: reaction-relative-losses.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+  - Workflows:
+      - Data and Preprocessing: data.md
+      - CLI: cli.md
+      - Training Options: training-options.md
+      - Fine-Tuning: fine-tuning.md
+      - Reaction-Relative Losses: reaction-relative-losses.md
+  - Interfaces:
+      - Python API: python-api.md
+      - Model Wrappers: model-wrappers.md
+      - JAX Bundles: jax-bundles.md
+      - Calculators: calculators.md
   - Resources: resources.md
