@@ -47,7 +47,7 @@ def merge_delta_params(base_params, delta_params) -> dict:
 
 def ensure_delta_params(variables, delta_template) -> flax_core.FrozenDict:
     """
-    Wrap a full MACE-JAX NNX state into Equitrain's delta fine-tuning layout.
+    Wrap a full MACE-JAX NNX state into Equitrain's delta/L^2-SP layout.
     """
     unfrozen = _as_mutable_tree(variables)
 
@@ -67,8 +67,12 @@ def ensure_delta_params(variables, delta_template) -> flax_core.FrozenDict:
 
 class DeltaFineTuneModule:
     """
-    Wrap an NNX module so Equitrain can fine-tune additive deltas on top of the
-    frozen imported MACE-JAX state.
+    Wrap an NNX module with additive residual parameters for L^2-SP fine-tuning.
+
+    The imported state is frozen under ``base_params`` and trainable deltas are
+    stored under ``params.delta``. Applying the module evaluates
+    ``theta = theta_0 + delta``, so optimizer weight decay on deltas corresponds
+    to the L^2-SP penalty on distance from the imported starting weights.
     """
 
     def __init__(self, inner_module):

@@ -709,9 +709,25 @@ Delta fine-tuning is the simplest adapter method in the repository:
 - the forward pass uses `base_parameter + delta`
 - the base model stays frozen throughout optimisation
 
-This is effectively LoRA without any rank compression. It is useful when you
-want the simplest possible residual fine-tuning scheme and do not need to limit
-adapter size aggressively.
+This is the Equitrain residual-parameter implementation of L<sup>2</sup>-SP ("Starting
+Point") regularization from [Li, Grandvalet, and Davoine, 2018, *Explicit
+Inductive Bias for Transfer Learning with Convolutional
+Networks*](https://proceedings.mlr.press/v80/li18a.html). L<sup>2</sup>-SP regularizes
+fine-tuned parameters toward their pre-trained starting values instead of toward
+zero:
+
+```text
+Omega(theta) = lambda / 2 * ||theta - theta_0||_2^2
+```
+
+Equitrain parameterizes this as `theta = theta_0 + delta`, with `theta_0`
+frozen and `delta` initialized at zero. Optimizer weight decay on decayed delta
+tensors therefore regularizes `||delta||_2^2`, i.e. the distance between the
+effective fine-tuned parameters and the pre-trained parameters.
+
+Compared with LoRA, delta fine-tuning uses full-size residuals rather than
+low-rank residuals, so it is useful when you want the simplest residual
+fine-tuning scheme and do not need to limit adapter size aggressively.
 
 Implementation details:
 
@@ -747,6 +763,12 @@ zero-based layer indices or ranges. For MACE models, Equitrain groups deltas as
 `4:products.1`, and `5:readouts`. Therefore
 `TorchDeltaFineTuneWrapper(base_model, freeze_layers="2-")` keeps only the
 node embedding and first interaction block trainable.
+
+When delta fine-tuning is combined with `freeze_layers`, Equitrain calls this
+targeted L<sup>2</sup>-SP (L<sup>2</sup>-TSP): the L<sup>2</sup>-SP
+penalty is applied only to the selected trainable delta layers, while frozen
+layers keep `delta = 0` and remain exactly at their pre-trained starting
+values.
 
 #### Freeze Fine-Tuning
 
