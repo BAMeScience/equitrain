@@ -12,7 +12,6 @@ from equitrain.backends.torch_utils import set_dtype
 from equitrain.data.atomic import AtomicNumberTable
 from equitrain.data.backend_torch.atoms_to_graphs import AtomsToGraphs
 from equitrain.data.backend_torch.loaders import get_dataloader
-from equitrain.data.configuration import niggli_reduce_inplace
 
 
 def _iterate_with_progress(iterable, enable: bool, *, desc: str):
@@ -77,7 +76,6 @@ def predict_atoms(
     pin_memory=False,
     batch_size=12,
     device=None,
-    niggli_reduce: bool = False,
     show_progress: bool = False,
 ) -> list[torch.Tensor]:
     atoms_to_graphs = AtomsToGraphs(
@@ -95,8 +93,6 @@ def predict_atoms(
     graph_list = []
     for atom in atoms_list:
         atoms_copy = atom.copy()
-        if niggli_reduce:
-            niggli_reduce_inplace(atoms_copy)
         graph_list.append(atoms_to_graphs.convert(atoms_copy))
 
     return predict_graphs(
@@ -119,7 +115,6 @@ def predict_structures(
     pin_memory=False,
     batch_size=12,
     device=None,
-    niggli_reduce: bool = False,
     show_progress: bool = False,
 ) -> list[torch.Tensor]:
     atoms_list = [AseAtomsAdaptor.get_atoms(structure) for structure in structure_list]
@@ -132,7 +127,6 @@ def predict_structures(
         pin_memory=pin_memory,
         batch_size=batch_size,
         device=device,
-        niggli_reduce=niggli_reduce,
         show_progress=show_progress,
     )
 

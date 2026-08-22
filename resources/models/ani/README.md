@@ -4,7 +4,7 @@ This directory bundles helper utilities for working with [TorchANI](https://gith
 
 ## Contents
 
-- `ani-initial-model.py` – convenience script that exports one of the pre-trained TorchANI model families (ANI1x, ANI1ccx, ANI2x, … depending on the installed TorchANI release) into a checkpoint that can be consumed by `equitrain.utility_test.AniWrapper`.
+- `ani-initial-model.py` – convenience script that exports one of the pre-trained TorchANI model families (ANI1x, ANI1ccx, ANI2x, … depending on the installed TorchANI release) into a checkpoint that can be consumed with `--model-wrapper ani` or `equitrain.backends.torch_wrappers.AniWrapper`.
 
 Running the script will default to the single-precision ANI1x model and produce `ani-initial.model` in the current directory:
 

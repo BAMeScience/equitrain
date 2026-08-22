@@ -58,24 +58,6 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default=False,
     )
     parser.add_argument(
-        '--jax-pack-max-edges-per-batch',
-        help='(JAX) Greedy packer edge cap per batch; enables fixed-shape padding.',
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        '--jax-pack-max-nodes-per-batch',
-        help='(JAX) Greedy packer node cap per batch; enables fixed-shape padding.',
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        '--jax-pack-batch-size-limit',
-        help='(JAX) Optional graph-count limit per greedy-packed batch.',
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
         '--prefetch-batches',
         help='Number of JAX batches to build ahead of time in a background thread.',
         type=int,
@@ -733,12 +715,6 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             help='Optional description string for the prediction progress bar',
             type=str,
             default=None,
-        )
-        parser.add_argument(
-            '--niggli-reduce',
-            help='Apply Niggli reduction before graph construction at inference time',
-            action='store_true',
-            default=False,
         )
         parser.add_argument(
             '--predict-file',

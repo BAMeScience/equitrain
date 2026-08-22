@@ -1,881 +1,143 @@
-# Equitrain: A Unified Framework for Training and Fine-tuning Machine Learning Interatomic Potentials
+# Equitrain: Training and Fine-Tuning Machine Learning Interatomic Potentials
 
-Equitrain is a Python toolkit for preprocessing atomistic datasets, training interatomic potential models, and fine-tuning existing checkpoints through one consistent CLI and API.
+Equitrain is a Python toolkit for preprocessing atomistic datasets, training
+machine-learning interatomic potentials (MLIPs), fine-tuning existing
+checkpoints, and running evaluation or prediction through one CLI/API.
 
-Equitrain is an open-source software package designed to simplify the training and fine-tuning of machine learning universal interatomic potentials (MLIPs). Equitrain addresses the challenges posed by the diverse and often complex training codes specific to each MLIP by providing a unified and efficient framework. This allows researchers to focus on model development rather than implementation details.
+## Features
 
----
-
-## Key Features
-
-- **Unified Framework**: Train and fine-tune MLIPs using a consistent interface.
-- **Flexible Backends**: Parity-tested Torch and JAX backends that share schedulers, EMA, and fine-tuning workflows.
-- **Flexible Model Wrappers**: Support for different MLIP architectures  (MACE, SevenNet, ORB, ANI, and M3GNet) through model-specific wrappers.
-- **Efficient Preprocessing**: Automated preprocessing with options for computing statistics and managing data.
-- **GPU/Node Scalability**: Seamless integration with multi-GPU and multi-node environments using `accelerate`.
-- **Extensive Resources**: Includes scripts for dataset preparation, initial model setup, and training workflows.
-
----
+- Unified Torch and JAX training entry points.
+- Model wrappers for MACE, SevenNet, ORB, ANI, and M3GNet.
+- Native HDF5 preprocessing for large atomistic datasets.
+- Torch reaction-relative losses for barrier and reaction energies.
+- Fine-tuning adapters for Delta/L<sup>2</sup>-SP, Freeze, and LoRA workflows.
+- ASE calculator helpers for batched prediction and relaxation.
 
 ## Supported Models
 
-`equitrain` currently supports the following model families through model
-wrappers:
-
 | Wrapper | Backends | Upstream / Companion Project | Notes |
 | --- | --- | --- | --- |
-| `mace` | Torch, JAX | [`mace-model`](https://github.com/bamescience/mace-model) | Companion repository in this workspace for MACE model definitions, conversion, and foundation-model export. |
-| `sevennet` | Torch | [`MDIL-SNU/SevenNet`](https://github.com/MDIL-SNU/SevenNet) | Torch wrapper around SevenNet checkpoints and models. |
-| `orb` | Torch | [`orbital-materials/orb-models`](https://github.com/orbital-materials/orb-models) | Torch wrapper around ORB force-field models. |
-| `ani` | Torch, JAX | [`aiqm/torchani`](https://github.com/aiqm/torchani) | Torch uses TorchANI directly; JAX uses a JAX-native ANI-like bundle interface. |
-| `m3gnet` | Torch, JAX | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | Torch uses the MatGL-backed implementation; JAX uses a JAX-native M3GNet-like bundle interface. |
+| `mace` | Torch, JAX | [`mace-model`](https://github.com/bamescience/mace-model) | Companion repository for MACE model definitions, conversion, and foundation-model export. |
+| `sevennet` | Torch | [`MDIL-SNU/SevenNet`](https://github.com/MDIL-SNU/SevenNet) | Torch SevenNet checkpoints and models. |
+| `orb` | Torch | [`orbital-materials/orb-models`](https://github.com/orbital-materials/orb-models) | Torch ORB force-field models. |
+| `ani` | Torch, JAX | [`aiqm/torchani`](https://github.com/aiqm/torchani) | Torch uses TorchANI; JAX uses a JAX-native bundle. |
+| `m3gnet` | Torch, JAX | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | Torch uses MatGL; JAX uses a JAX-native bundle. |
 
-For MACE specifically, the intended repository split is:
+For MACE, use [`mace-model`](https://github.com/bamescience/mace-model) for
+model construction/conversion and `equitrain` for preprocessing, training,
+fine-tuning, checkpointing, evaluation, and prediction.
 
-- [`mace-model`](https://github.com/bamescience/mace-model): model definition,
-  backend-specific model code, model initialization, conversion, and foundation
-  model export
-- [`equitrain`](https://github.com/bamescience/equitrain): preprocessing,
-  training, fine-tuning, checkpoint handling, and experiment orchestration
+## Documentation
 
----
+Full documentation lives in [`docs/`](docs/index.md):
+
+- [Installation](docs/installation.md)
+- [Quickstart](docs/quickstart.md)
+- [Data and Preprocessing](docs/data.md)
+- [CLI](docs/cli.md)
+- [Training Options](docs/training-options.md)
+- [Python API](docs/python-api.md)
+- [Model Wrappers](docs/model-wrappers.md)
+- [JAX Bundles](docs/jax-bundles.md)
+- [Fine-Tuning](docs/fine-tuning.md)
+- [Calculators](docs/calculators.md)
+- [Reaction-Relative Losses](docs/reaction-relative-losses.md)
+- [Resources](docs/resources.md)
+
+Build or serve the docs locally with:
+
+```bash
+pip install -e '.[docu]'
+mkdocs serve
+```
 
 ## Installation
-
-`equitrain` can be installed in your environment by doing:
 
 ```bash
 pip install equitrain
 ```
 
-**Note!** Until the package is fully deployed in PyPI, you can only install it by following the instructions below.
-
-
-### Development
-
-To install the package for development purposes, first clone the repository:
+Until the package is fully available on PyPI, install from a local clone:
 
 ```bash
 git clone https://github.com/BAMeScience/equitrain.git
-cd equitrain/
-```
-
-Create a virtual environment (either with `conda` or `virtualenv`). Note we are using Python 3.10 to create the environment.
-
-**Using `virtualenv`**
-
-Create and activate the environment:
-
-```bash
+cd equitrain
 python3.10 -m venv .venv
 source .venv/bin/activate
-```
-
-Make sure `pip` is up-to-date:
-
-```bash
 pip install --upgrade pip
-```
-
-We recommend using `uv` for the fast installation of the package:
-
-```bash
 pip install uv
 uv pip install -e '.[dev,docu]'
 ```
 
-* The `-e` flag makes sure to install the package in editable mode.
-* The `[dev]` optional dependencies install a set of packages used for formatting, typing, and testing.
-* The `[docu]` optional dependencies install the packages for launching the documentation page.
-* For specific model support, you can install additional dependencies:
-  * `[torch]` - Install the core Torch backend (PyTorch, torch_geometric, accelerate, torch-ema)
-  * `[jax]` - Install the JAX backend runtime (jax, jaxlib)
-  * `[ani]` - Install TorchANI models for molecular systems
-  * `[orb]` - Install ORB models and dependencies for universal interatomic potentials
-
-**Using `conda`**
-
-Create the environment with the settings file `environment.yml`:
+Install model/runtime extras as needed:
 
 ```bash
-conda env create -f environment.yml
+pip install 'equitrain[torch,mace]'
+pip install 'equitrain[jax,mace-jax]'
+pip install 'equitrain[torch,ani]'
 ```
 
-And activate it:
+## Minimal Workflow
 
-```bash
-conda activate equitrain
-```
-
-This will automatically install the dependencies. If you want the optional dependencies installed:
-
-```bash
-pip install -e '[dev,docu]'
-```
-
-Alternatively, you can create a `conda` environment with Python 3.10 and follow all the steps in the installation explained above when using `virtualenv`:
-
-```bash
-conda create -n equitrain python=3.10 setuptools pip
-conda activate equitrain
-```
-
----
-
-## Quickstart Guide
-
-If you are working with MACE, treat
-[`mace-model`](https://github.com/bamescience/mace-model) as the companion
-model repository and `equitrain` as the training repository. In other words:
-
-1. prepare or convert the model artifact with `mace-model`
-2. train or fine-tune it with `equitrain`
-
-The dependency examples below still reflect the current MACE runtime extras in
-`equitrain`; the repository boundary above describes the intended long-term
-split between model code and training code.
-
-Many examples below use the Torch backend. Ensure the relevant extras are installed, for example:
-
-```bash
-pip install equitrain[torch,mace]
-```
-
-For JAX-based workflows, install the corresponding extras, e.g.:
-
-```bash
-pip install equitrain[jax,mace-jax]
-```
-
-ANI can be used through either backend, but the model artifact format differs:
-
-- Torch ANI uses TorchANI models/checkpoints directly and requires the `ani` extra.
-- JAX ANI uses a JAX-native ANI-like module packaged as a JAX bundle (`config.json` + `params.msgpack`).
-
-For Torch ANI support:
-
-```bash
-pip install equitrain[torch,ani]
-```
-
-### 1. Preprocessing Data
-
-Preprocess data files to compute necessary statistics and prepare for training:
-
-#### Command Line:
+Preprocess data:
 
 ```bash
 equitrain-preprocess \
-    --train-file="data-train.xyz" \
-    --valid-file="data-valid.xyz" \
+    --train-file data-train.xyz \
+    --valid-file data-valid.xyz \
     --compute-statistics \
-    --atomic-energies="average" \
-    --output-dir="data" \
+    --atomic-energies average \
+    --output-dir data \
     --r-max 4.5
 ```
 
-The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; LMDB datasets are automatically converted to the native HDF5 format before statistics are computed. XYZ files are parsed through ASE so that lattice vectors, species labels, and per-configuration metadata are retained. Precomputed statistics (means, standard deviations, cutoff radius, atomic energies) are stored alongside and reused by the training entry points.
-
-For MACE-POLAR/PolarMACE inputs, Equitrain preserves system-level `charge`, `spin`, and `external_field` metadata and maps them to the MACE graph keys `total_charge`, `total_spin`, and `external_field`; the XYZ key names can be changed with `--total-charge-key`, `--total-spin-key`, and `--external-field-key`.
-
-For reaction-relative training data, Equitrain also preserves integer `source_id`, `reaction_id`, and `state_id` metadata. Ordinary frames default to `source_id=0`, `reaction_id=-1`, and `state_id=-1`; reactive triplets can use `state_id=0` for reactant, `1` for transition state, and `2` for product. The XYZ key names can be changed with `--source-id-key`, `--reaction-id-key`, and `--state-id-key`.
-
-Under the hood, each processed file is organised as:
-
-- `/structures`: per-configuration metadata (cell, energy, stress, charge, spin, external field, weights, etc.) and pointers into the per-atom arrays.
-- `/positions`, `/forces`, `/atomic_numbers`: flat, chunked arrays sized by the total number of atoms across the dataset. Random reads only touch the slices required for a batch.
-
-This layout keeps the HDF5 file compact even for tens of millions of structures: chunked per-atom arrays avoid the pointer-chasing overhead of variable-length fields, enabling efficient multi-worker dataloaders that issue many small reads concurrently.
-
-<!-- TODO: change this following a notebook style -->
-#### Python Script:
-
-```python
-from equitrain import get_args_parser_preprocess, preprocess
-
-
-def run_preprocess():
-    args = get_args_parser_preprocess().parse_args([])
-    args.train_file = 'data.xyz'
-    args.valid_file = 'data.xyz'
-    args.output_dir = 'test_preprocess'
-    args.compute_statistics = True
-    args.atomic_energies = 'average'
-    args.r_max = 4.5
-
-    preprocess(args)
-
-
-if __name__ == '__main__':
-    run_preprocess()
-```
-
----
-
-### 2. Training a Model
-
-Train a model using the prepared dataset and specify the MLIP wrapper:
-
-#### Command Line:
+Train a Torch/MACE model:
 
 ```bash
-# Training with MACE
 equitrain -v \
     --train-file data/train.h5 \
     --valid-file data/valid.h5 \
-    --output-dir result_mace \
-    --model path/to/mace.model \
-    --model-wrapper 'mace' \
-    --epochs 10 \
-    --tqdm
-
-# Training with ORB
-equitrain -v \
-    --train-file data/train.h5 \
-    --valid-file data/valid.h5 \
-    --output-dir result_orb \
-    --model path/to/orb.model \
-    --model-wrapper 'orb' \
-    --epochs 10 \
-    --tqdm
-
-# Training with TorchANI
-equitrain -v \
-    --train-file data/train.h5 \
-    --valid-file data/valid.h5 \
-    --output-dir result_ani \
-    --model path/to/ani.model \
-    --model-wrapper ani \
-    --epochs 10 \
-    --tqdm
-
-# JAX multi-GPU (single node, auto spawns one process per visible GPU)
-CUDA_VISIBLE_DEVICES=0,1 \
-equitrain -v \
-    --backend jax \
-    --train-file data/train.h5 \
-    --valid-file data/valid.h5 \
-    --output-dir result_jax \
+    --output-dir runs/mace \
     --model path/to/mace.model \
     --model-wrapper mace \
-    --batch-max-edges 200000 \
-    --device gpu \
-    --launcher auto \
-    --distributed \
     --epochs 10 \
     --tqdm
 ```
 
-HDF5 inputs can be a directory, a glob (e.g. `data/train_*.h5`), or a comma-separated
-list of files; all shards are concatenated in order. This applies to
-`--train-file`, `--valid-file`, and `--test-file` when training with either backend.
-
-Torch training can add reaction-relative energy targets with `--barrier-weight` for
-`E_TS - E_reactant` and `--reaction-energy-weight` for
-`E_product - E_reactant`. These losses require complete reaction groups in the
-Torch batch, are averaged once per reaction rather than per frame, and are not
-currently available for the JAX backend.
-
-<!-- TODO: change this following a notebook style -->
-#### Python Script:
-
-```python
-from equitrain import get_args_parser_train, train
-
-
-def train_mace():
-    args = get_args_parser_train().parse_args([])
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
-    args.output_dir = 'runs/mace'
-    args.epochs = 10
-    args.batch_size = 64
-    args.lr = 1e-2
-    args.verbose = 1
-    args.tqdm = True
-
-    args.model = 'path/to/mace.model'
-    args.model_wrapper = 'mace'
-
-    train(args)
-
-
-def train_orb():
-    args = get_args_parser_train().parse_args([])
-    args.train_file = 'data/train.h5'
-    args.valid_file = 'data/valid.h5'
-    args.output_dir = 'runs/orb'
-    args.epochs = 10
-    args.batch_size = 32
-    args.lr = 5e-4
-    args.verbose = 1
-    args.tqdm = True
-
-    args.model = 'path/to/orb.model'
-    args.model_wrapper = 'orb'
-
-    train(args)
-
-
-if __name__ == '__main__':
-    train_mace()
-    # train_orb()
-```
-
-#### Running the JAX backend
-
-The training CLI automatically selects the Torch backend. To run the JAX backend instead, point `--backend` to `jax` and provide a JAX bundle. A JAX bundle is a model directory with a `config.json` file and a `params.msgpack` file:
-
-```text
-path/to/jax_bundle/
-  config.json
-  params.msgpack
-```
-
-For MACE, this bundle can be exported via `mace_jax_from_torch` or the fine-tuning utilities:
-
-```bash
-equitrain -v \
-    --backend jax \
-    --model path/to/jax_bundle \
-    --train-file data/train.h5 \
-    --valid-file data/valid.h5 \
-    --output-dir result-jax \
-    --epochs 5
-```
-
-For JAX ANI, the bundle must describe how to construct a JAX-native ANI-like module. It does not load TorchANI checkpoints directly. A minimal `config.json` looks like:
-
-```json
-{
-  "wrapper_name": "ani",
-  "atomic_numbers": [1, 6, 7, 8],
-  "species_order": ["H", "C", "N", "O"],
-  "r_max": 5.2,
-  "module_factory": "my_package.my_ani:create_model",
-  "model_kwargs": {}
-}
-```
-
-The `module_factory`, `module_builder`, or `module_class` entry must resolve to a Python object that builds the JAX model. The resulting module should expose an `apply` method that accepts either a mapping with `species`, `coordinates`, `atom_mask`, and `counts`, or positional `(species, coordinates)` inputs. The output must include `energy` and may optionally include `forces` and `stress`. If the module returns only energy and `--forces-weight` is positive, the JAX ANI wrapper computes forces with `jax.grad`.
-
-Example JAX ANI training command:
-
-```bash
-equitrain -v \
-    --backend jax \
-    --model path/to/jax_ani_bundle \
-    --model-wrapper ani \
-    --train-file data/train.h5 \
-    --valid-file data/valid.h5 \
-    --output-dir result-jax-ani \
-    --energy-weight 1.0 \
-    --forces-weight 1.0 \
-    --stress-weight 0.0 \
-    --batch-max-edges 10000 \
-    --epochs 5
-```
-
-Start by testing JAX ANI with `--forces-weight 0.0` for an energy-only smoke test. After the bundle loads and energy training works, enable force training to exercise the `jax.grad` force path.
-
-For JAX M3GNet, the bundle follows the same config-driven pattern as JAX ANI:
-it must define a JAX-native module factory/class, not a MatGL Torch checkpoint.
-The module receives a flat graph dictionary with `positions`, `node_type`,
-`edge_index`, `senders`, `receivers`, `shifts`, `unit_shifts`, `batch`, `ptr`,
-and `cell`. A minimal `config.json` looks like:
-
-```json
-{
-  "wrapper_name": "m3gnet",
-  "atomic_numbers": [11, 17],
-  "r_max": 5.0,
-  "module_factory": "my_package.my_m3gnet:create_model",
-  "model_kwargs": {}
-}
-```
-
-If the module returns only energy and `--forces-weight` is positive, the JAX
-M3GNet wrapper computes forces with `jax.grad`. Missing stress is returned as
-a zero `(batch, 3, 3)` tensor. The factory may return either an NNX module, or
-`(module, params_template)` when the module/state are not NNX-splittable.
-
----
-
-### 3. Evaluating a Model
-
-Evaluate a trained model on an HDF5 test set and optionally write the results to
-an output directory:
+Evaluate and predict:
 
 ```bash
 equitrain-evaluate -v \
     --test-file data/test.h5 \
     --model path/to/mace.model \
     --model-wrapper mace \
-    --batch-size 64 \
     --output-dir evaluation_mace
-```
 
-When `--output-dir` is set, Equitrain writes aggregate metrics to
-`test_metrics.json`. The file records the backend, input dataset, primary loss
-type, and one metrics block per monitored loss type. Each metric component
-(`total`, `energy`, `forces`, `stress` when enabled) contains `avg`, `sum`, and
-`count` values. For the Torch backend, evaluation also writes
-`test_errors.csv`, with one `index,error` row per configuration in the test set.
-The JAX backend currently writes aggregate metrics only and sets `errors_file`
-to `null` in `test_metrics.json`.
-
-If `--output-dir` is omitted, evaluation still logs the aggregate test metrics
-and returns the metric object from the Python API, but no files are written.
-
-Python example:
-
-```python
-from equitrain import evaluate, get_args_parser_evaluate
-
-
-def evaluate_mace():
-    args = get_args_parser_evaluate().parse_args([])
-    args.test_file = 'data/test.h5'
-    args.model = 'path/to/mace.model'
-    args.model_wrapper = 'mace'
-    args.batch_size = 64
-    args.output_dir = 'evaluation_mace'
-    args.verbose = 1
-
-    metrics = evaluate(args)
-    return metrics
-```
-
-For JAX evaluation, select the JAX backend and provide the graph-packing limit:
-
-```bash
-equitrain-evaluate -v \
-    --backend jax \
-    --test-file data/test.h5 \
-    --model path/to/jax_bundle \
-    --model-wrapper mace \
-    --batch-max-edges 200000 \
-    --output-dir evaluation_jax
-```
-
----
-
-### 4. Making Predictions
-
-Use a trained model to make predictions on new data:
-
-```bash
 equitrain-predict \
+    --predict-file data/valid.h5 \
     --model path/to/mace.model \
     --model-wrapper mace \
-    --predict-file data/valid.h5 \
-    --batch-size 64 \
     --output-dir predictions_mace
 ```
 
-When `--output-dir` is set, Equitrain writes `predictions.npz` with the
-available prediction arrays (`energy`, `forces`, and `stress`) and
-`predictions.json` with the backend, input dataset, array file name, shapes, and
-dtypes. If `--output-dir` is omitted, `equitrain-predict` prints the returned
-arrays to stdout and the Python API returns them directly.
-
-#### Prediction with Fine-Tuned Torch Checkpoints
-
-Torch fine-tuning runs save checkpoint directories named
-`best_val_epochs@<epoch>_e@<loss>` below the training `--output-dir`. These
-directories contain model weights plus training state; they are not the same
-artifact type as the full model file expected by `--model`.
-
-To use a fine-tuned checkpoint for prediction or calculators, export a full
-model artifact first. Equitrain detects delta and LoRA adapter checkpoints by
-default and merges the adapter weights during export:
-
-```bash
-equitrain-export -v \
-    --model path/to/base-mace.model \
-    --model-wrapper mace \
-    --output-dir runs/mace-finetune \
-    --load-best-checkpoint \
-    --model-export runs/mace-finetune/mace-finetuned.model
-```
-
-The checkpoint must have been created with current Equitrain so its `args.json`
-contains the adapter export metadata.
-
-Then pass the exported model to prediction:
-
-```bash
-equitrain-predict \
-    --model runs/mace-finetune/mace-finetuned.model \
-    --model-wrapper mace \
-    --predict-file data/valid.h5 \
-    --output-dir predictions_mace
-```
-
-For a specific checkpoint directory, replace `--load-best-checkpoint` with
-`--load-checkpoint runs/mace-finetune/best_val_epochs@...`.
-
-<!-- TODO: change this following a notebook style -->
-#### Python Script:
-
-```python
-from equitrain import get_args_parser_predict, predict
-
-
-def predict_with_mace():
-    args = get_args_parser_predict().parse_args([])
-    args.predict_file = 'data/valid.h5'
-    args.batch_size = 64
-    args.model = 'path/to/mace.model'
-    args.model_wrapper = 'mace'
-    args.output_dir = 'predictions_mace'
-
-    energy_pred, forces_pred, stress_pred = predict(args)
-    print(energy_pred)
-    print(forces_pred)
-    print(stress_pred)
-
-
-if __name__ == '__main__':
-    predict_with_mace()
-```
-
-For HDF5 inputs you can pass a directory, glob, or comma-separated list of files
-via `--predict-file` (all shards are concatenated in order).
-
-The same backend/model distinction applies for prediction. Torch ANI uses a TorchANI checkpoint:
-
-```bash
-equitrain-predict \
-    --model path/to/ani.model \
-    --model-wrapper ani \
-    --predict-file data/valid.h5 \
-    --output-dir predictions_ani
-```
-
-JAX ANI uses the JAX bundle described above:
-
-```bash
-equitrain-predict \
-    --backend jax \
-    --model path/to/jax_ani_bundle \
-    --model-wrapper ani \
-    --predict-file data/valid.h5 \
-    --batch-max-edges 10000 \
-    --output-dir predictions_jax_ani
-```
-
----
-
-### 5. ASE Calculators and Relaxation
-
-`equitrain` also exposes a small calculator API for structure-level inference
-and geometry optimization with ASE:
-
-Torch:
-- `equitrain.calculators.TorchWrapperPredictor`
-- `equitrain.calculators.build_ase_calculator`
-
-JAX:
-- `equitrain.calculators.JaxWrapperPredictor`
-- `equitrain.calculators.build_jax_ase_calculator`
-
-Important behavior:
-
-- `model_wrapper` is required and must be explicit.
-- Torch `model` must be either:
-  - a loaded `torch.nn.Module`, or
-  - an existing model file path.
-- JAX `model` must be either:
-  - a loaded JAX `ModelBundle` (`config`, `params`, `module`), or
-  - an existing JAX bundle path (`config.json` + `params.msgpack`).
-- Foundation-model alias resolution is intentionally not done inside the
-  calculator; resolve aliases before creating the calculator and pass the loaded
-  model (or resolved file path).
-- The ASE calculator returns `energy` and `forces` (no stress).
-- If a requested GPU/CUDA device is unavailable, the API falls back to CPU.
-
-Supported wrappers:
-- Torch calculator: `mace`, `ani`, `orb`, `sevennet`, `m3gnet`
-- JAX calculator: wrappers available in `equitrain.backends.jax_wrappers` (currently `mace`, `ani`, `m3gnet`)
-
-#### Batched Structure Prediction
-
-```python
-from ase.build import molecule
-from equitrain.calculators import TorchWrapperPredictor
-
-predictor = TorchWrapperPredictor(
-    model="path/to/model.pt",
-    model_wrapper="mace",
-    device="cuda:0",
-    default_dtype="float32",
-    batch_size=16,
-    require_forces=True,
-)
-
-atoms = molecule("H2O")
-energies, forces = predictor.predict([atoms], require_forces=True)
-print(energies[0], forces[0].shape)
-```
-
-#### ASE Geometry Optimization
-
-```python
-from ase.build import molecule
-from ase.optimize import FIRE
-from equitrain.calculators import build_ase_calculator
-
-atoms = molecule("H2O")
-atoms.calc = build_ase_calculator(
-    model="path/to/model.pt",
-    model_wrapper="mace",
-    device="cuda:0",
-    default_dtype="float64",
-    batch_size=8,
-)
-
-opt = FIRE(atoms, logfile=None)
-opt.run(fmax=0.05, steps=200)
-print("Relaxed energy:", atoms.get_potential_energy())
-```
-
-You can also import these from the top-level package:
-
-```python
-from equitrain import build_ase_calculator, get_torch_wrapper_predictor
-```
-
-JAX example:
-
-```python
-from ase.build import molecule
-from equitrain.calculators import build_jax_ase_calculator
-
-atoms = molecule("H2O")
-atoms.calc = build_jax_ase_calculator(
-    model="path/to/jax_bundle",
-    model_wrapper="ani",
-    device="cpu",
-)
-print(atoms.get_potential_energy())
-```
-
----
-
-### JAX Backend Multi-Device Notes
-
-- When JAX training or evaluation detects more than one global JAX device, it automatically switches to multi-device (`shard_map`) execution. After `jax.distributed.initialize()`, the device mesh spans `jax.devices()`, so gradient and metric collectives synchronize across nodes as well as devices on one node.
-- Each process only has to provide local micro-batches for `jax.local_device_count()` devices; Equitrain converts those process-local batches into globally sharded arrays before calling `shard_map`.
-- For multi-node train/evaluate jobs, launch one Equitrain process per JAX process with `--distributed --launcher none --process-count <global-processes> --process-index <rank> --coordinator-address <host:port>`. A process may own one or more local devices; the local launcher remains intended for single-node multi-GPU runs.
-- On single-device machines no extra configuration is required; the backend falls back to the same single-device behaviour that existing scripts expect.
-
----
-
-### Fine-Tuning Adapters
-
-Equitrain ships adapter-style fine-tuning helpers in `equitrain.finetune`. They
-are currently exposed through the Python API and are designed to keep the
-original model frozen while training only a small set of additional parameters.
-
-Adapter parameters can still overfit quickly, especially for delta fine-tuning
-where each selected parameter gets a full-size residual. The key idea behind
-delta weights is to learn only the residual needed for the new data while
-keeping the combined parameter `base_parameter + delta` close to the
-pre-trained parameter. Set a non-zero optimizer weight decay with
-`args.weight_decay` or `--weight-decay` so that the residual is regularized
-toward zero, and tune it on validation data. Small values such as `1e-6` to
-`1e-4` are typical starting points, depending on dataset size and adapter
-capacity.
-
-Fine-tuning uses the same stopping behavior as normal training: it runs for the
-configured number of `--epochs`; there is no separate early-stopping criterion.
-Equitrain evaluates the validation set before training and after every epoch,
-logs train/validation losses to `trainer.log`, and saves a new best checkpoint
-whenever the validation total loss improves. By default all best checkpoints are
-kept; set `--keep-best-checkpoints N` to retain only the N checkpoints with the
-lowest validation total loss, or leave it at `0` to keep all best checkpoints.
-Convergence is usually checked from the validation loss curve and from the best
-checkpoint names `best_val_epochs@<epoch>_e@<loss>`. If the validation loss has
-flattened or starts increasing while the training loss still decreases, the run
-has stopped improving or is beginning to overfit. Use the best validation
-checkpoint, not necessarily the final epoch.
-
-#### Delta Fine-Tuning
-
-Delta fine-tuning is the simplest adapter method in the repository:
-
-- every selected parameter gets a trainable additive residual with the same shape
-- the forward pass uses `base_parameter + delta`
-- the base model stays frozen throughout optimisation
-
-This is the Equitrain residual-parameter implementation of L<sup>2</sup>-SP ("Starting
-Point") regularization from [Li, Grandvalet, and Davoine, 2018, *Explicit
-Inductive Bias for Transfer Learning with Convolutional
-Networks*](https://proceedings.mlr.press/v80/li18a.html). L<sup>2</sup>-SP regularizes
-fine-tuned parameters toward their pre-trained starting values instead of toward
-zero:
-
-```text
-Omega(theta) = lambda / 2 * ||theta - theta_0||_2^2
-```
-
-Equitrain parameterizes this as `theta = theta_0 + delta`, with `theta_0`
-frozen and `delta` initialized at zero. Optimizer weight decay on decayed delta
-tensors therefore regularizes `||delta||_2^2`, i.e. the distance between the
-effective fine-tuned parameters and the pre-trained parameters.
-
-Compared with LoRA, delta fine-tuning uses full-size residuals rather than
-low-rank residuals, so it is useful when you want the simplest residual
-fine-tuning scheme and do not need to limit adapter size aggressively.
-
-Implementation details:
-
-- Torch: `DeltaFineTuneWrapper` mirrors all base parameters with same-shaped
-  delta tensors and merges them only for the forward pass or export.
-- JAX/NNX: `wrap_jax_module_with_deltas()` / `JaxDeltaFineTuneModule` keep the
-  frozen model state under `base_params` and the trainable residuals under
-  `params.delta`.
-
-Minimal Torch example:
-
-```python
-from equitrain import get_args_parser_train, train
-from equitrain.finetune import TorchDeltaFineTuneWrapper
-from equitrain.utility_test import MaceWrapper
-
-args = get_args_parser_train().parse_args([])
-args.train_file = 'data/train.h5'
-args.valid_file = 'data/valid.h5'
-args.output_dir = 'runs/mace-delta'
-args.weight_decay = 1e-6
-
-base_model = MaceWrapper(args, filename_model='path/to/mace.model')
-args.model = TorchDeltaFineTuneWrapper(base_model)
-
-train(args)
-```
-
-By default, `TorchDeltaFineTuneWrapper` trains one delta tensor per base
-parameter. To freeze selected semantic delta layers, pass `freeze_layers` using
-zero-based layer indices or ranges. For MACE models, Equitrain groups deltas as
-`0:node_embedding`, `1:interactions.0`, `2:interactions.1`, `3:products.0`,
-`4:products.1`, and `5:readouts`. Therefore
-`TorchDeltaFineTuneWrapper(base_model, freeze_layers="2-")` keeps only the
-node embedding and first interaction block trainable.
-
-When delta fine-tuning is combined with `freeze_layers`, Equitrain calls this
-targeted L<sup>2</sup>-SP (L<sup>2</sup>-TSP): the L<sup>2</sup>-SP
-penalty is applied only to the selected trainable delta layers, while frozen
-layers keep `delta = 0` and remain exactly at their pre-trained starting
-values.
-
-#### Freeze Fine-Tuning
-
-For Torch models, `TorchFreezeFineTuneWrapper` provides the same semantic layer
-selection interface without adding adapter tensors. It freezes selected base
-model layers and trains the remaining base weights directly, so exported models
-already contain the fine-tuned weights and do not require a delta merge.
-
-```python
-from equitrain.finetune import TorchFreezeFineTuneWrapper
-
-args.model = TorchFreezeFineTuneWrapper(base_model, freeze_layers="2-")
-```
-
-For MACE, the layer order is the same as delta fine-tuning:
-`0:node_embedding`, `1:interactions.0`, `2:interactions.1`, `3:products.0`,
-`4:products.1`, and `5:readouts`. Thus `freeze_layers="2-"` keeps the node
-embedding and first interaction block trainable and freezes later blocks.
-
-#### LoRA Fine-Tuning
-
-Equitrain also provides LoRA adapters for both backends:
-
-- Torch: `TorchLoRAFineTuneWrapper`
-- JAX/NNX: `wrap_jax_module_with_lora()` / `JaxLoRAFineTuneModule`
-
-The LoRA implementation in this repository is intentionally close to the delta
-wrapper, but it only applies low-rank updates to eligible weight tensors:
-
-- only parameters named `*.weight` with `ndim >= 2` receive LoRA adapters
-- higher-order weights are flattened to `(shape[0], prod(shape[1:]))`, updated
-  as a matrix, and reshaped back to the original tensor shape
-- biases and 1D weights remain frozen
-
-Instead of requiring one fixed rank for the whole model, Equitrain lets you
-specify either:
-
-- `rank_reduction`: percentage of rank to remove
-- `rank_fraction`: percentage of rank to keep
-
-This is usually more practical for MLIPs, because different layers can have very
-different matrix sizes. For example, `rank_reduction=75` keeps roughly 25% of
-the effective rank of each eligible weight matrix, with a minimum rank of 1.
-
-The effective update is:
-
-```text
-W_eff = W + scale * (B @ A)
-```
-
-where:
-
-- `A` has shape `(r, in_dim)`
-- `B` has shape `(out_dim, r)`
-- `scale = alpha / r` if `alpha` is provided, otherwise `scale = 1`
-
-Torch example:
-
-```python
-from equitrain import get_args_parser_train, train
-from equitrain.finetune import TorchLoRAFineTuneWrapper
-from equitrain.utility_test import MaceWrapper
-
-args = get_args_parser_train().parse_args([])
-args.train_file = 'data/train.h5'
-args.valid_file = 'data/valid.h5'
-args.output_dir = 'runs/mace-lora'
-args.weight_decay = 1e-6
-
-base_model = MaceWrapper(args, filename_model='path/to/mace.model')
-args.model = TorchLoRAFineTuneWrapper(
-    base_model,
-    rank_reduction=75,
-    alpha=16,
-)
-
-train(args)
-```
-
-JAX helper example:
-
-```python
-from equitrain.finetune import wrap_jax_module_with_lora
-
-lora_module = wrap_jax_module_with_lora(
-    jax_module,
-    rank_reduction=75,
-    alpha=16,
-)
-variables = lora_module.init()
-```
-
-For JAX, the wrapped variable tree stores the frozen imported state under
-`base_params` and the trainable LoRA weights under `params.lora`.
-
----
-
-## Advanced Features
-
-### Multi-GPU and Multi-Node Training
-
-Equitrain supports multi-GPU and multi-node training using `accelerate`. Example scripts are available in the `resources/training` directory.
-
-### Dataset Preparation
-
-Equitrain provides scripts for downloading and preparing popular datasets such as Alexandria and MPTraj. These scripts can be found in the `resources/data` directory.
-
-### Pretrained Models
-
-Initial model examples and configurations can be accessed in the `resources/models` directory.
+See the [Quickstart](docs/quickstart.md) for the full workflow, including JAX
+bundles and fine-tuned checkpoint export.
+
+## Fine-Tuning Note
+
+Equitrain's Delta adapter is a residual-parameter implementation of
+L<sup>2</sup>-SP ("Starting Point") regularization from Li, Grandvalet, and
+Davoine, 2018,
+[*Explicit Inductive Bias for Transfer Learning with Convolutional Networks*](https://proceedings.mlr.press/v80/li18a.html).
+It parameterizes fine-tuning as `theta = theta_0 + delta`, so weight decay on
+trainable deltas regularizes `||delta||_2^2`.
+
+Delta combined with `freeze_layers` is targeted L<sup>2</sup>-SP
+(L<sup>2</sup>-TSP): the L<sup>2</sup>-SP penalty applies only to selected
+trainable delta layers while frozen layers remain exactly at their pre-trained
+starting values. See [Fine-Tuning](docs/fine-tuning.md).
+
+## Resources
+
+Example data-preparation scripts are in `resources/data`, training scripts are
+in `resources/training`, and initial model examples are in `resources/models`.

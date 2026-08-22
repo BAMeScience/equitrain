@@ -42,7 +42,7 @@ from equitrain import get_args_parser_train, train
 from equitrain.backends.torch_wrappers import OrbWrapper
 
 # Parse arguments
-args = get_args_parser_train().parse_args()
+args = get_args_parser_train().parse_args([])
 
 # Set training parameters
 args.train_file = 'data/train.h5'
@@ -75,7 +75,7 @@ from equitrain import get_args_parser_predict, predict
 from equitrain.backends.torch_wrappers import OrbWrapper
 
 # Parse arguments
-args = get_args_parser_predict().parse_args()
+args = get_args_parser_predict().parse_args([])
 
 # Set prediction parameters
 args.predict_file = 'data/valid.h5'
@@ -88,45 +88,31 @@ args.model = OrbWrapper(args, model_variant='direct')
 energy_pred, forces_pred, stress_pred = predict(args)
 ```
 
-### Using a Configuration File
+### Configuration Sketch
 
-You can also use a YAML configuration file to train an ORB model:
+`orb_config.yaml` records the relevant settings for notebooks, custom launchers,
+or external configuration systems. The current `equitrain` console script does
+not read YAML files directly, so pass the equivalent values as CLI flags or load
+them into an `argparse.Namespace` in Python.
 
-```yaml
-# ORB model configuration for Equitrain
-
-# Data paths
-train_file: data/train.h5
-valid_file: data/valid.h5
-output_dir: orb_training
-
-# Model configuration
-model_wrapper: orb
-model: null  # Will use pretrained ORB model from zoo
-
-# ORB-specific settings
-model_variant: direct  # 'direct' or 'conservative'
-enable_zbl: false      # Enable ZBL repulsion for high-Z elements (Z > 56)
-
-# Training parameters
-epochs: 100
-batch_size: 32
-lr: 0.001
-
-# Loss weights (ORB defaults)
-energy_weight: 0.01
-forces_weight: 1.0
-stress_weight: 0.1
-
-# Mixed precision (recommended for ORB)
-precision: 16
-```
-
-Then run:
+CLI shape:
 
 ```bash
-equitrain resources/models/orb/orb_config.yaml
+equitrain -v \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir orb_training \
+    --model path/to/orb.model \
+    --model-wrapper orb \
+    --energy-weight 0.01 \
+    --forces-weight 1.0 \
+    --stress-weight 0.1 \
+    --loss-type mse
 ```
+
+ORB-specific constructor options such as `model_variant` and `enable_zbl` are
+Python-level wrapper options. For CLI training, save or load a model artifact
+that already has the desired ORB behavior.
 
 ## Model Variants
 
@@ -143,25 +129,15 @@ equitrain resources/models/orb/orb_config.yaml
 
 ## Performance Optimization
 
-### Graph Compilation
-The ORB wrapper automatically initializes graph compilation cache to avoid first-step delays:
-
-```python
-# This is done automatically in the wrapper
-model = OrbWrapper(args, model_variant='direct')
-# Compilation cache is initialized during __init__
-```
+### Model Loading
+When `model=None`, `OrbWrapper` tries the available ORB pretrained factories for
+the requested variant. For CLI workflows, pass a concrete model artifact via
+`--model` so `equitrain` can load it before wrapping.
 
 ### Mixed Precision
-ORB v3 models were trained in FP16 and work well with automatic mixed precision:
-
-```python
-# Enable in your training configuration
-precision: 16
-
-# Or programmatically
-torch.cuda.amp.autocast(enabled=True)
-```
+The ORB wrapper uses `torch.amp.autocast('cuda')` during the wrapped forward pass
+when CUDA is available. Equitrain does not currently expose a top-level
+`--precision` flag for ORB training.
 
 ### High-Z Elements
 For systems containing elements with Z > 56, enable ZBL repulsion:
@@ -175,7 +151,7 @@ model = OrbWrapper(args, enable_zbl=True)
 Run the test suite to verify the ORB integration:
 
 ```bash
-python tests/test_train_orb.py
+pytest tests/test_train_orb.py
 ```
 
 This test includes:

@@ -164,7 +164,7 @@ def _evaluate_initialized(args):
         max_nodes=None,
         max_edges=args.batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
-        niggli_reduce=getattr(args, 'niggli_reduce', False),
+        niggli_reduce=False,
         prefetch_batches=prefetch_batches,
         num_workers=effective_workers,
         graph_multiple=device_count if multi_device else 1,

@@ -1,4 +1,6 @@
-# ORB model configuration for Equitrain
+# ORB model configuration sketch for Equitrain.
+# The current equitrain CLI does not load YAML files directly.
+# Translate these fields to CLI flags or a Python argparse.Namespace.
 
 # Data paths
 train_file: data/train.h5
@@ -7,9 +9,9 @@ output_dir: orb_training
 
 # Model configuration
 model_wrapper: orb
-model: null  # Will use pretrained ORB model from zoo
+model: path/to/orb.model
 
-# ORB-specific settings
+# ORB-specific Python wrapper settings
 model_variant: direct  # 'direct' or 'conservative'
 enable_zbl: false      # Enable ZBL repulsion for high-Z elements (Z > 56)
 
@@ -20,29 +22,20 @@ lr: 0.001
 verbose: 1
 tqdm: true
 
-# Loss weights (ORB defaults: 0.01 × energy + 1.0 × forces + 0.1 × stress)
+# Loss weights
 energy_weight: 0.01
 forces_weight: 1.0
 stress_weight: 0.1
 
 # Loss function
 loss_type: mse
-loss_energy_per_atom: true
 
-# Optimizer
-optimizer: Adam
-scheduler: ReduceLROnPlateau
-scheduler_patience: 10
-scheduler_factor: 0.5
-scheduler_min_lr: 0.00001
+# Optimizer and scheduler
+opt: adam
+scheduler: plateau
+plateau_patience: 10
+plateau_factor: 0.5
+min_lr: 0.00001
 
-# Distributed training
-accelerator: auto
-devices: auto
-precision: 16  # ORB v3 models were trained in FP16 and tolerate AMP
-
-# Validation
-validation_frequency: 5  # Compute Matbench-MAE every 5 epochs
-
-# Memory optimization
-pin_memory: true  # Pin memory to avoid graph recompilation lag
+# Runtime
+pin_memory: true

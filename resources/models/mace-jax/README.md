@@ -26,7 +26,7 @@ Use `--source` to pick a different foundation family (`mp`, `off`, `anicc`, `omo
 The script relies on the optional `mace` and `mace-jax` stacks, including their CUDA-enabled cuequivariance extensions. Install them via:
 
 ```bash
-pip install equitrain[mace,jax]  # or the corresponding mace/mace-jax wheels
+pip install equitrain[jax,mace-jax]  # or the corresponding mace/mace-jax wheels
 ```
 
 If the cuequivariance libraries are unavailable, the script will exit after downloading the Torch model; the export step itself requires the accelerated kernels to be importable. Run `python -c "import mace_jax, cuequivariance_ops_torch"` to check whether your environment is configured correctly.

@@ -1,4 +1,6 @@
-# M3GNet model configuration for Equitrain
+# M3GNet model configuration sketch for Equitrain.
+# The current equitrain CLI does not load YAML files directly.
+# Translate these fields to CLI flags or a Python argparse.Namespace.
 
 # Data paths
 train_file: data/train.h5
@@ -23,16 +25,10 @@ stress_weight: 0.1
 
 # Loss function
 loss_type: mse
-loss_energy_per_atom: true
 
-# Optimizer
-optimizer: Adam
-scheduler: ReduceLROnPlateau
-scheduler_patience: 10
-scheduler_factor: 0.5
-scheduler_min_lr: 0.00001
-
-# Distributed training
-accelerator: auto
-devices: auto
-precision: 32
+# Optimizer and scheduler
+opt: adam
+scheduler: plateau
+plateau_patience: 10
+plateau_factor: 0.5
+min_lr: 0.00001

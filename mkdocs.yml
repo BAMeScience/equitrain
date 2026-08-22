@@ -1,0 +1,31 @@
+site_name: Equitrain
+site_description: Training and fine-tuning machine learning interatomic potentials
+repo_url: https://github.com/BAMeScience/equitrain
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Data and Preprocessing: data.md
+  - CLI: cli.md
+  - Training Options: training-options.md
+  - Python API: python-api.md
+  - Model Wrappers: model-wrappers.md
+  - JAX Bundles: jax-bundles.md
+  - Fine-Tuning: fine-tuning.md
+  - Calculators: calculators.md
+  - Reaction-Relative Losses: reaction-relative-losses.md
+  - Resources: resources.md

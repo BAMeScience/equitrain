@@ -1052,7 +1052,6 @@ def train(args):
     r_max = float(bundle.config.get('r_max', 0.0))
     if r_max <= 0.0:
         raise RuntimeError('Model configuration must define a positive `r_max`.')
-    reduce_cells = bool(getattr(args, 'niggli_reduce', False))
     train_seed = getattr(args, 'seed', None)
 
     multi_device = _is_multi_device()
@@ -1123,7 +1122,7 @@ def train(args):
             max_edges=args.batch_max_edges,
             drop=getattr(args, 'batch_drop', False),
             seed=train_seed if shuffle else None,
-            niggli_reduce=reduce_cells,
+            niggli_reduce=False,
             prefetch_batches=prefetch_batches,
             num_workers=effective_workers,
             graph_multiple=device_count if multi_device else 1,

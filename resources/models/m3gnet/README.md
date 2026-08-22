@@ -17,7 +17,7 @@ pip install equitrain[m3gnet]
 Or manually:
 
 ```bash
-pip install matgl>=1.0.0 dgl>=1.0.0
+pip install 'matgl>=4.0.0'
 ```
 
 ## Usage
@@ -28,10 +28,10 @@ You can train a M3GNet model using the Equitrain framework:
 
 ```python
 from equitrain import get_args_parser_train, train
-from equitrain.utility_test import M3GNetWrapper
+from equitrain.backends.torch_wrappers import M3GNetWrapper
 
 # Parse arguments
-args = get_args_parser_train().parse_args()
+args = get_args_parser_train().parse_args([])
 
 # Set training parameters
 args.train_file = 'data/train.h5'
@@ -61,10 +61,10 @@ You can use a trained M3GNet model to make predictions:
 
 ```python
 from equitrain import get_args_parser_predict, predict
-from equitrain.utility_test import M3GNetWrapper
+from equitrain.backends.torch_wrappers import M3GNetWrapper
 
 # Parse arguments
-args = get_args_parser_predict().parse_args()
+args = get_args_parser_predict().parse_args([])
 
 # Set prediction parameters
 args.predict_file = 'data/valid.h5'
@@ -77,41 +77,26 @@ args.model = M3GNetWrapper(args)
 energy_pred, forces_pred, stress_pred = predict(args)
 ```
 
-### Using a Configuration File
+### Configuration Sketch
 
-You can also use a YAML configuration file to train a M3GNet model:
+`m3gnet-config.yaml` records the relevant settings for notebooks, custom
+launchers, or external configuration systems. The current `equitrain` console
+script does not read YAML files directly, so pass the equivalent values as CLI
+flags or load them into an `argparse.Namespace` in Python.
 
-```yaml
-# M3GNet model configuration for Equitrain
+CLI shape:
 
-# Data paths
-train_file: data/train.h5
-valid_file: data/valid.h5
-output_dir: m3gnet_training
-
-# Model configuration
-model_wrapper: m3gnet
-model: resources/models/m3gnet/m3gnet-initial-model.pt
-
-# Training parameters
-epochs: 100
-batch_size: 32
-lr: 0.001
-verbose: 1
-tqdm: true
-
-# Loss weights
-energy_weight: 1.0
-forces_weight: 10.0
-stress_weight: 0.1
-
-# Loss function
-loss_type: mse
-loss_energy_per_atom: true
-```
-Then run:
 ```bash
-equitrain resources/models/m3gnet/m3gnet_config.yaml
+equitrain -v \
+    --train-file data/train.h5 \
+    --valid-file data/valid.h5 \
+    --output-dir m3gnet_training \
+    --model resources/models/m3gnet/m3gnet-initial-model.pt \
+    --model-wrapper m3gnet \
+    --energy-weight 1.0 \
+    --forces-weight 10.0 \
+    --stress-weight 0.1 \
+    --loss-type mse
 ```
 
 ## References

@@ -461,7 +461,7 @@ def predict(args):
         max_nodes=batch_max_nodes,
         max_edges=batch_max_edges,
         drop=getattr(args, 'batch_drop', False),
-        niggli_reduce=getattr(args, 'niggli_reduce', False),
+        niggli_reduce=False,
         prefetch_batches=prefetch_batches,
         num_workers=effective_workers,
         graph_multiple=None,

@@ -114,7 +114,6 @@ def get_dataloader(
     if data_file is None:
         return None
 
-    niggli_reduce = getattr(args, 'niggli_reduce', False)
     files = _expand_hdf5_paths(data_file)
     if not files:
         raise ValueError('No HDF5 files found for the provided data_file input.')
@@ -123,7 +122,6 @@ def get_dataloader(
             path,
             r_max=r_max,
             atomic_numbers=atomic_numbers,
-            niggli_reduce=niggli_reduce,
         )
         for path in files
     ]
