@@ -1,5 +1,6 @@
 site_name: Equitrain
 site_description: Training and fine-tuning machine learning interatomic potentials
+site_url: https://bamescience.github.io/equitrain/
 repo_url: https://github.com/BAMeScience/equitrain
 
 theme:

@@ -29,22 +29,23 @@ fine-tuning, checkpointing, evaluation, and prediction.
 
 ## Documentation
 
-Full documentation lives in [`docs/`](docs/index.md):
+Full documentation is published at
+[https://bamescience.github.io/equitrain/](https://bamescience.github.io/equitrain/):
 
-- [Installation](docs/installation.md)
-- [Quickstart](docs/quickstart.md)
-- [Data and Preprocessing](docs/data.md)
-- [CLI](docs/cli.md)
-- [Training Options](docs/training-options.md)
-- [Python API](docs/python-api.md)
-- [Model Wrappers](docs/model-wrappers.md)
-- [JAX Bundles](docs/jax-bundles.md)
-- [Fine-Tuning](docs/fine-tuning.md)
-- [Calculators](docs/calculators.md)
-- [Reaction-Relative Losses](docs/reaction-relative-losses.md)
-- [Resources](docs/resources.md)
+- [Installation](https://bamescience.github.io/equitrain/installation/)
+- [Quickstart](https://bamescience.github.io/equitrain/quickstart/)
+- [Data and Preprocessing](https://bamescience.github.io/equitrain/data/)
+- [CLI](https://bamescience.github.io/equitrain/cli/)
+- [Training Options](https://bamescience.github.io/equitrain/training-options/)
+- [Python API](https://bamescience.github.io/equitrain/python-api/)
+- [Model Wrappers](https://bamescience.github.io/equitrain/model-wrappers/)
+- [JAX Bundles](https://bamescience.github.io/equitrain/jax-bundles/)
+- [Fine-Tuning](https://bamescience.github.io/equitrain/fine-tuning/)
+- [Calculators](https://bamescience.github.io/equitrain/calculators/)
+- [Reaction-Relative Losses](https://bamescience.github.io/equitrain/reaction-relative-losses/)
+- [Resources](https://bamescience.github.io/equitrain/resources/)
 
-Build or serve the docs locally with:
+The documentation source is in `docs/`. Build or serve it locally with:
 
 ```bash
 pip install -e '.[docu]'
@@ -120,7 +121,7 @@ equitrain-predict \
     --output-dir predictions_mace
 ```
 
-See the [Quickstart](docs/quickstart.md) for the full workflow, including JAX
+See the [Quickstart](https://bamescience.github.io/equitrain/quickstart/) for the full workflow, including JAX
 bundles and fine-tuned checkpoint export.
 
 ## Fine-Tuning Note
@@ -135,7 +136,7 @@ trainable deltas regularizes `||delta||_2^2`.
 Delta combined with `freeze_layers` is targeted L<sup>2</sup>-SP
 (L<sup>2</sup>-TSP): the L<sup>2</sup>-SP penalty applies only to selected
 trainable delta layers while frozen layers remain exactly at their pre-trained
-starting values. See [Fine-Tuning](docs/fine-tuning.md).
+starting values. See [Fine-Tuning](https://bamescience.github.io/equitrain/fine-tuning/).
 
 ## Resources
 
