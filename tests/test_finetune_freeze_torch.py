@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from equitrain.argparser import ArgsFilterSimple, ArgsFormatter
 from equitrain.backends.torch_optimizer import create_optimizer_impl
 from equitrain.backends.torch_wrappers import AbstractWrapper
 from equitrain.finetune.freeze_torch import FreezeFineTuneWrapper
@@ -110,6 +111,32 @@ def test_freeze_wrapper_freezes_semantic_layer_range():
         'model.readouts.1.weight',
     ]
     assert wrapper.get_fine_tune_export_config() == {
+        'wrapper': 'freeze',
+        'freeze_layers': '2-',
+    }
+
+
+def test_args_formatter_includes_freeze_freeze_layers():
+    args = type('Args', (), {})()
+    args.model = FreezeFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='2-')
+
+    formatted = ArgsFormatter(args).format()
+
+    assert 'fine_tune_export' in formatted
+    assert 'wrapper' in formatted
+    assert 'freeze' in formatted
+    assert 'freeze_layers' in formatted
+    assert '2-' in formatted
+
+
+def test_args_filter_simple_includes_freeze_freeze_layers():
+    args = type('Args', (), {})()
+    args.model = FreezeFineTuneWrapper(_ToyMaceLikeWrapper(), freeze_layers='2-')
+    args.lr = 1e-3
+
+    filtered = ArgsFilterSimple().filter(args)
+
+    assert filtered['fine_tune_export'] == {
         'wrapper': 'freeze',
         'freeze_layers': '2-',
     }

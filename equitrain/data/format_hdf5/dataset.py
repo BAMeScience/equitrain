@@ -72,6 +72,9 @@ class HDF5Dataset:
                 ('total_charge', np.float64),
                 ('total_spin', np.float64),
                 ('external_field', np.float64, (3,)),
+                ('source_id', np.int32),
+                ('reaction_id', np.int64),
+                ('state_id', np.int32),
                 ('energy_weight', np.float32),
                 ('forces_weight', np.float32),
                 ('stress_weight', np.float32),
@@ -192,6 +195,11 @@ class HDF5Dataset:
         atoms.info['total_charge'] = atoms.info['charge'] = total_charge
         atoms.info['total_spin'] = atoms.info['spin'] = total_spin
         atoms.info['external_field'] = external_field
+        atoms.info['source_id'] = int(_entry_value(entry, field_names, 'source_id', 0))
+        atoms.info['reaction_id'] = int(
+            _entry_value(entry, field_names, 'reaction_id', -1)
+        )
+        atoms.info['state_id'] = int(_entry_value(entry, field_names, 'state_id', -1))
         atoms.info['energy_weight'] = entry['energy_weight']
         atoms.info['forces_weight'] = entry['forces_weight']
         atoms.info['stress_weight'] = entry['stress_weight']
@@ -235,6 +243,9 @@ class HDF5Dataset:
             atoms.info.get('external_field', np.zeros(3, dtype=np.float64)),
             dtype=np.float64,
         ).reshape(3)
+        source_id = np.int32(atoms.info.get('source_id', 0))
+        reaction_id = np.int64(atoms.info.get('reaction_id', -1))
+        state_id = np.int32(atoms.info.get('state_id', -1))
         energy_weight = np.float32(atoms.info.get('energy_weight', 1.0))
         forces_weight = np.float32(atoms.info.get('forces_weight', 1.0))
         stress_weight = np.float32(atoms.info.get('stress_weight', 1.0))
@@ -266,6 +277,9 @@ class HDF5Dataset:
                 total_charge,
                 total_spin,
                 external_field,
+                source_id,
+                reaction_id,
+                state_id,
                 energy_weight,
                 forces_weight,
                 stress_weight,
@@ -306,11 +320,25 @@ class HDF5Dataset:
             total_charge,
             total_spin,
             external_field,
+            source_id,
+            reaction_id,
+            state_id,
             energy_weight,
             forces_weight,
             stress_weight,
             virials_weight,
             dipole_weight,
+        )
+
+    def reaction_metadata(self):
+        structures = self.file[self.STRUCTURES_DATASET]
+        return list(
+            zip(
+                _entry_array(structures, 'source_id', 0, np.int32).tolist(),
+                _entry_array(structures, 'reaction_id', -1, np.int64).tolist(),
+                _entry_array(structures, 'state_id', -1, np.int32).tolist(),
+                strict=True,
+            )
         )
 
     def check_magic(self):
@@ -340,12 +368,9 @@ def _entry_value(entry, field_names, key, default):
     return entry[key] if key in field_names else default
 
 
-def _has_polar_fields(structures) -> bool:
+def _has_fields(structures, fields: tuple[str, ...]) -> bool:
     field_names = structures.dtype.names or ()
-    return all(
-        field in field_names
-        for field in ('total_charge', 'total_spin', 'external_field')
-    )
+    return all(field in field_names for field in fields)
 
 
 def _structure_values(
@@ -361,6 +386,9 @@ def _structure_values(
     total_charge,
     total_spin,
     external_field,
+    source_id,
+    reaction_id,
+    state_id,
     energy_weight,
     forces_weight,
     stress_weight,
@@ -368,12 +396,21 @@ def _structure_values(
     dipole_weight,
 ):
     values = [offset, length, cell, pbc, energy, stress, virials, dipole]
-    if _has_polar_fields(structures):
+    if _has_fields(structures, ('total_charge', 'total_spin', 'external_field')):
         values.extend([total_charge, total_spin, external_field])
+    if _has_fields(structures, ('source_id', 'reaction_id', 'state_id')):
+        values.extend([source_id, reaction_id, state_id])
     values.extend(
         [energy_weight, forces_weight, stress_weight, virials_weight, dipole_weight]
     )
     return tuple(values)
+
+
+def _entry_array(structures, field_name: str, default, dtype):
+    field_names = structures.dtype.names or ()
+    if field_name in field_names:
+        return np.asarray(structures[field_name], dtype=dtype)
+    return np.full((structures.shape[0],), default, dtype=dtype)
 
 
 class HDF5GraphDataset(HDF5Dataset):

@@ -11,6 +11,7 @@ from equitrain.argparser import (
     ArgsFilterSimple,
     ArgsFormatter,
     check_args_consistency,
+    fine_tune_export_config,
     get_loss_monitor,
     validate_training_args,
 )
@@ -32,6 +33,25 @@ from .torch_scheduler import SchedulerWrapper, create_scheduler
 from .torch_utils import set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
+
+
+def _log_fine_tune_summary(
+    model: torch.nn.Module,
+    accelerator: Accelerator,
+    logger: FileLogger,
+) -> None:
+    unwrapped_model = accelerator.unwrap_model(model)
+    config = fine_tune_export_config(unwrapped_model)
+    if not config:
+        return
+
+    wrapper = config.get('wrapper')
+    if wrapper is not None:
+        logger.log(1, f'Fine-tune wrapper          : {wrapper}')
+    for key, value in config.items():
+        if key == 'wrapper':
+            continue
+        logger.log(1, f'Fine-tune {key:<15} : {value}')
 
 
 def fix_gradients(args, model: torch.nn.Module, accelerator: Accelerator):
@@ -271,6 +291,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
         n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
         logger.log(1, f'Number of params           : {n_parameters}')
+        _log_fine_tune_summary(model, accelerator, logger)
         logger.log(1, f'Number of training points  : {len(train_loader.dataset)}')
         logger.log(
             1,

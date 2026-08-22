@@ -28,6 +28,9 @@ class Configuration:
     total_charge: float | None = None
     total_spin: float | None = None
     external_field: Vector | None = None
+    source_id: int = 0
+    reaction_id: int = -1
+    state_id: int = -1
     cell: Cell | None = None
     pbc: Pbc | None = None
 
@@ -51,6 +54,9 @@ class Configuration:
         total_charge_key: str = 'charge',
         total_spin_key: str = 'spin',
         external_field_key: str = 'external_field',
+        source_id_key: str = 'source_id',
+        reaction_id_key: str = 'reaction_id',
+        state_id_key: str = 'state_id',
     ) -> 'Configuration':
         """Convert ase.Atoms to Configuration"""
 
@@ -100,6 +106,11 @@ class Configuration:
             aliases=('external_field',),
             default=np.zeros(3),
         )
+        source_id = _info_int(atoms, source_id_key, aliases=('source_id',), default=0)
+        reaction_id = _info_int(
+            atoms, reaction_id_key, aliases=('reaction_id',), default=-1
+        )
+        state_id = _info_int(atoms, state_id_key, aliases=('state_id',), default=-1)
 
         # Charges default to 0 instead of None if not found
         charges = atoms.arrays.get(charges_key, np.zeros(len(atoms)))
@@ -145,6 +156,9 @@ class Configuration:
             total_charge=float(np.asarray(total_charge)),
             total_spin=float(np.asarray(total_spin)),
             external_field=external_field,
+            source_id=source_id,
+            reaction_id=reaction_id,
+            state_id=state_id,
             pbc=pbc,
             cell=cell,
             energy_weight=energy_weight,
@@ -179,6 +193,9 @@ class Configuration:
         atoms.info['external_field'] = (
             np.zeros(3) if self.external_field is None else self.external_field
         )
+        atoms.info['source_id'] = int(self.source_id)
+        atoms.info['reaction_id'] = int(self.reaction_id)
+        atoms.info['state_id'] = int(self.state_id)
 
         atoms.info['energy_weight'] = self.energy_weight
         atoms.info['forces_weight'] = self.forces_weight
@@ -199,6 +216,10 @@ def _info_value(atoms, key: str | None, *, aliases=(), default=None):
         if candidate in atoms.info:
             return atoms.info[candidate]
     return default
+
+
+def _info_int(atoms, key: str | None, *, aliases=(), default: int) -> int:
+    return int(np.asarray(_info_value(atoms, key, aliases=aliases, default=default)))
 
 
 # Replacement class for ase SinglePointCalculator, which is not stable across releases

@@ -123,9 +123,54 @@ def test_jax_evaluate_multi_device_path(monkeypatch):
     assert captured['run_eval_loop_multi_device'] is True
     assert captured['run_eval_loop_loader'] == ['g0', 'g1', 'g2', 'g3']
     assert captured['loader_kwargs']['niggli_reduce'] is False
+    assert captured['loader_kwargs']['graph_multiple'] == 2
     assert captured['run_eval_loop_params'] == {'weights': 1.0}
     assert captured['wrapper_kwargs']['compute_force'] is False
     assert captured['wrapper_kwargs']['compute_stress'] is False
+    messages = [
+        str(args[1]) for args, _kwargs in captured['log_calls'] if len(args) > 1
+    ]
+    assert any('JAX runtime batching' in message for message in messages)
+    assert any('runtime batch_size=None' in message for message in messages)
+    assert args.batch_size is None
+    assert args.batch_max_nodes is None
+
+
+def test_jax_runtime_config_records_requested_and_effective_batching():
+    args = SimpleNamespace(
+        batch_size=None,
+        batch_max_nodes=None,
+        batch_max_edges=4096,
+    )
+
+    config = jax_evaluate._jax_runtime_config(
+        args,
+        requested_batch_size=8,
+        requested_batch_max_nodes=1024,
+        multi_device=True,
+        device_count=2,
+        effective_workers=4,
+        prefetch_batches=3,
+        process_count=2,
+        process_index=1,
+    )
+
+    assert config == {
+        'backend': 'jax',
+        'jax_runtime_batching': 'graph-packing',
+        'jax_requested_batch_size': 8,
+        'jax_runtime_batch_size': None,
+        'jax_requested_batch_max_nodes': 1024,
+        'jax_runtime_batch_max_nodes': None,
+        'jax_runtime_batch_max_edges': 4096,
+        'jax_runtime_graph_multiple': 2,
+        'jax_runtime_multi_device': True,
+        'jax_runtime_device_count': 2,
+        'jax_runtime_num_workers': 4,
+        'jax_runtime_prefetch_batches': 3,
+        'jax_runtime_process_count': 2,
+        'jax_runtime_process_index': 1,
+    }
 
 
 def test_jax_evaluate_requires_pack_limits(monkeypatch):

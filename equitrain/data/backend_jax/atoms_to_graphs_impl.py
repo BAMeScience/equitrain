@@ -89,6 +89,9 @@ def graph_from_configuration(
             if config.external_field is None
             else config.external_field
         ),
+        source_id=_int_array(config.source_id),
+        reaction_id=_int_array(config.reaction_id),
+        state_id=_int_array(config.state_id),
     )
 
     nodes = _AttrDict(
@@ -172,6 +175,12 @@ def _scalar_array(value: float | int | None) -> np.ndarray:
     if value is None:
         value = 0.0
     return np.asarray([float(value)], dtype=np.float32)
+
+
+def _int_array(value: int | None) -> np.ndarray:
+    if value is None:
+        value = -1
+    return np.asarray([int(value)], dtype=np.int32)
 
 
 def _matrix_array(value: np.ndarray | None) -> np.ndarray:
@@ -287,6 +296,11 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
         value = getattr(graph.globals, field, None)
         if value is not None:
             data_dict[field] = jnp.asarray(value, dtype=positions.dtype)
+
+    for field in ('source_id', 'reaction_id', 'state_id'):
+        value = getattr(graph.globals, field, None)
+        if value is not None:
+            data_dict[field] = jnp.asarray(value, dtype=jnp.int32)
 
     if hasattr(graph.nodes, 'head'):
         data_dict['head'] = graph.nodes.head

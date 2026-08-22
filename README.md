@@ -178,6 +178,8 @@ The preprocessing command accepts `.xyz`, `.lmdb`/`.aselmdb`, and `.h5` inputs; 
 
 For MACE-POLAR/PolarMACE inputs, Equitrain preserves system-level `charge`, `spin`, and `external_field` metadata and maps them to the MACE graph keys `total_charge`, `total_spin`, and `external_field`; the XYZ key names can be changed with `--total-charge-key`, `--total-spin-key`, and `--external-field-key`.
 
+For reaction-relative training data, Equitrain also preserves integer `source_id`, `reaction_id`, and `state_id` metadata. Ordinary frames default to `source_id=0`, `reaction_id=-1`, and `state_id=-1`; reactive triplets can use `state_id=0` for reactant, `1` for transition state, and `2` for product. The XYZ key names can be changed with `--source-id-key`, `--reaction-id-key`, and `--state-id-key`.
+
 Under the hood, each processed file is organised as:
 
 - `/structures`: per-configuration metadata (cell, energy, stress, charge, spin, external field, weights, etc.) and pointers into the per-atom arrays.
@@ -267,6 +269,12 @@ equitrain -v \
 HDF5 inputs can be a directory, a glob (e.g. `data/train_*.h5`), or a comma-separated
 list of files; all shards are concatenated in order. This applies to
 `--train-file`, `--valid-file`, and `--test-file` when training with either backend.
+
+Torch training can add reaction-relative energy targets with `--barrier-weight` for
+`E_TS - E_reactant` and `--reaction-energy-weight` for
+`E_product - E_reactant`. These losses require complete reaction groups in the
+Torch batch, are averaged once per reaction rather than per frame, and are not
+currently available for the JAX backend.
 
 <!-- TODO: change this following a notebook style -->
 #### Python Script:
@@ -701,9 +709,25 @@ Delta fine-tuning is the simplest adapter method in the repository:
 - the forward pass uses `base_parameter + delta`
 - the base model stays frozen throughout optimisation
 
-This is effectively LoRA without any rank compression. It is useful when you
-want the simplest possible residual fine-tuning scheme and do not need to limit
-adapter size aggressively.
+This is the Equitrain residual-parameter implementation of L<sup>2</sup>-SP ("Starting
+Point") regularization from [Li, Grandvalet, and Davoine, 2018, *Explicit
+Inductive Bias for Transfer Learning with Convolutional
+Networks*](https://proceedings.mlr.press/v80/li18a.html). L<sup>2</sup>-SP regularizes
+fine-tuned parameters toward their pre-trained starting values instead of toward
+zero:
+
+```text
+Omega(theta) = lambda / 2 * ||theta - theta_0||_2^2
+```
+
+Equitrain parameterizes this as `theta = theta_0 + delta`, with `theta_0`
+frozen and `delta` initialized at zero. Optimizer weight decay on decayed delta
+tensors therefore regularizes `||delta||_2^2`, i.e. the distance between the
+effective fine-tuned parameters and the pre-trained parameters.
+
+Compared with LoRA, delta fine-tuning uses full-size residuals rather than
+low-rank residuals, so it is useful when you want the simplest residual
+fine-tuning scheme and do not need to limit adapter size aggressively.
 
 Implementation details:
 
@@ -739,6 +763,12 @@ zero-based layer indices or ranges. For MACE models, Equitrain groups deltas as
 `4:products.1`, and `5:readouts`. Therefore
 `TorchDeltaFineTuneWrapper(base_model, freeze_layers="2-")` keeps only the
 node embedding and first interaction block trainable.
+
+When delta fine-tuning is combined with `freeze_layers`, Equitrain calls this
+targeted L<sup>2</sup>-SP (L<sup>2</sup>-TSP): the L<sup>2</sup>-SP
+penalty is applied only to the selected trainable delta layers, while frozen
+layers keep `delta = 0` and remain exactly at their pre-trained starting
+values.
 
 #### Freeze Fine-Tuning
 

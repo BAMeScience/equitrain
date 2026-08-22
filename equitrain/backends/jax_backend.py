@@ -20,6 +20,7 @@ from flax import serialization, struct
 from jax import tree_util as jtu
 
 from equitrain.argparser import (
+    ArgsFilterSimple,
     ArgsFormatter,
     check_args_consistency,
     validate_training_args,
@@ -921,6 +922,90 @@ def _run_eval_loop(
     return mean_loss, loss_collection
 
 
+def _jax_runtime_config(
+    args,
+    *,
+    requested_batch_size,
+    requested_batch_max_nodes,
+    multi_device: bool,
+    device_count: int,
+    effective_workers: int,
+    prefetch_batches: int,
+    process_count: int | None = None,
+    process_index: int | None = None,
+) -> dict[str, object]:
+    graph_multiple = device_count if multi_device else 1
+    config: dict[str, object] = {
+        'backend': 'jax',
+        'jax_runtime_batching': 'graph-packing',
+        'jax_requested_batch_size': requested_batch_size,
+        'jax_runtime_batch_size': getattr(args, 'batch_size', None),
+        'jax_requested_batch_max_nodes': requested_batch_max_nodes,
+        'jax_runtime_batch_max_nodes': getattr(args, 'batch_max_nodes', None),
+        'jax_runtime_batch_max_edges': getattr(args, 'batch_max_edges', None),
+        'jax_runtime_graph_multiple': graph_multiple,
+        'jax_runtime_multi_device': multi_device,
+        'jax_runtime_device_count': device_count,
+        'jax_runtime_num_workers': effective_workers,
+        'jax_runtime_prefetch_batches': prefetch_batches,
+    }
+    if process_count is not None:
+        config['jax_runtime_process_count'] = process_count
+    if process_index is not None:
+        config['jax_runtime_process_index'] = process_index
+    return config
+
+
+def _log_jax_runtime_summary(logger, runtime_config: dict[str, object]) -> None:
+    if logger is None:
+        return
+
+    logger.log(
+        1,
+        'JAX runtime batching      : '
+        f'{runtime_config["jax_runtime_batching"]} '
+        f'(requested batch_size={runtime_config["jax_requested_batch_size"]}, '
+        'runtime batch_size='
+        f'{runtime_config["jax_runtime_batch_size"]})',
+    )
+    logger.log(
+        1,
+        'JAX runtime node limit    : '
+        f'requested={runtime_config["jax_requested_batch_max_nodes"]}, '
+        f'runtime={runtime_config["jax_runtime_batch_max_nodes"]}',
+    )
+    logger.log(
+        1,
+        f'JAX runtime edge limit    : {runtime_config["jax_runtime_batch_max_edges"]}',
+    )
+    logger.log(
+        1,
+        f'JAX runtime graph multiple: {runtime_config["jax_runtime_graph_multiple"]}',
+    )
+    logger.log(
+        1,
+        'JAX runtime devices       : '
+        f'{runtime_config["jax_runtime_device_count"]} '
+        f'(multi_device={runtime_config["jax_runtime_multi_device"]})',
+    )
+    logger.log(
+        1,
+        'JAX runtime workers       : '
+        f'{runtime_config["jax_runtime_num_workers"]} '
+        f'(prefetch={runtime_config["jax_runtime_prefetch_batches"]})',
+    )
+    if (
+        'jax_runtime_process_index' in runtime_config
+        and 'jax_runtime_process_count' in runtime_config
+    ):
+        logger.log(
+            1,
+            'JAX runtime process       : '
+            f'{runtime_config["jax_runtime_process_index"]}/'
+            f'{runtime_config["jax_runtime_process_count"]}',
+        )
+
+
 def train(args):
     exit_code = _launch_local_processes(args)
     if exit_code is not None:
@@ -952,20 +1037,6 @@ def train(args):
     logger.log(1, ArgsFormatter(args))
 
     wandb_run = None
-    if is_primary and getattr(args, 'wandb_project', None):
-        try:
-            import wandb
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                'wandb is required for the JAX backend when wandb_project is set.'
-            ) from exc
-
-        init_kwargs = {'project': args.wandb_project}
-        if getattr(args, 'wandb_name', None):
-            init_kwargs['name'] = args.wandb_name
-        if getattr(args, 'wandb_group', None):
-            init_kwargs['group'] = args.wandb_group
-        wandb_run = wandb.init(**init_kwargs, config={'backend': 'jax'})
 
     bundle = load_model_bundle(
         args.model,
@@ -988,6 +1059,8 @@ def train(args):
     local_devices = jax.local_devices()
     device_count = len(local_devices) if multi_device else 1
 
+    requested_batch_size = getattr(args, 'batch_size', None)
+    requested_batch_max_nodes = getattr(args, 'batch_max_nodes', None)
     args.batch_size = None
     if getattr(args, 'batch_max_edges', None) is None:
         raise ValueError(
@@ -1007,6 +1080,36 @@ def train(args):
         prefetch_batches = effective_workers
     else:
         prefetch_batches = max(int(prefetch_requested or 0), 0)
+
+    runtime_config = _jax_runtime_config(
+        args,
+        requested_batch_size=requested_batch_size,
+        requested_batch_max_nodes=requested_batch_max_nodes,
+        multi_device=multi_device,
+        device_count=device_count,
+        effective_workers=effective_workers,
+        prefetch_batches=prefetch_batches,
+        process_count=process_count,
+        process_index=process_index,
+    )
+    _log_jax_runtime_summary(logger, runtime_config)
+
+    if is_primary and getattr(args, 'wandb_project', None):
+        try:
+            import wandb
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                'wandb is required for the JAX backend when wandb_project is set.'
+            ) from exc
+
+        init_kwargs = {'project': args.wandb_project}
+        if getattr(args, 'wandb_name', None):
+            init_kwargs['name'] = args.wandb_name
+        if getattr(args, 'wandb_group', None):
+            init_kwargs['group'] = args.wandb_group
+        wandb_config = ArgsFilterSimple().filter(args)
+        wandb_config.update(runtime_config)
+        wandb_run = wandb.init(**init_kwargs, config=wandb_config)
 
     def _build_streaming_loader(path: str | None, shuffle: bool):
         if path in (None, 'None'):

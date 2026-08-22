@@ -274,6 +274,18 @@ def add_loss_weights_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument(
         '--stress-weight', help='Weight for stress loss', type=float, default=1.0
     )
+    parser.add_argument(
+        '--barrier-weight',
+        help='Weight for relative barrier loss E_TS - E_reactant',
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        '--reaction-energy-weight',
+        help='Weight for reaction energy loss E_product - E_reactant',
+        type=float,
+        default=0.0,
+    )
     return parser
 
 
@@ -608,6 +620,24 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
             default='external_field',
         )
         parser.add_argument(
+            '--source-id-key',
+            help='Key of integer source id in training xyz',
+            type=str,
+            default='source_id',
+        )
+        parser.add_argument(
+            '--reaction-id-key',
+            help='Key of integer reaction group id in training xyz',
+            type=str,
+            default='reaction_id',
+        )
+        parser.add_argument(
+            '--state-id-key',
+            help='Key of integer reaction state id in training xyz',
+            type=str,
+            default='state_id',
+        )
+        parser.add_argument(
             '--output-dir', help='Output directory', type=str, default=''
         )
         parser.add_argument(
@@ -885,10 +915,48 @@ def _ensure_losses_defined(args, backend_name: str) -> None:
     energy = getattr(args, 'energy_weight', 0.0) or 0.0
     forces = getattr(args, 'forces_weight', 0.0) or 0.0
     stress = getattr(args, 'stress_weight', 0.0) or 0.0
-    if energy == 0.0 and forces == 0.0 and stress == 0.0:
+    barrier = getattr(args, 'barrier_weight', 0.0) or 0.0
+    reaction_energy = getattr(args, 'reaction_energy_weight', 0.0) or 0.0
+
+    if backend_name == 'jax' and (barrier != 0.0 or reaction_energy != 0.0):
+        raise ArgumentError(
+            'The JAX backend does not support relative reaction losses yet; '
+            'set --barrier-weight 0 and --reaction-energy-weight 0.'
+        )
+
+    if getattr(args, 'weighted_sampler', False) and (
+        barrier != 0.0 or reaction_energy != 0.0
+    ):
+        raise ArgumentError(
+            'The weighted sampler does not support relative reaction losses yet; '
+            'disable --weighted-sampler or set relative loss weights to zero.'
+        )
+
+    if (
+        energy == 0.0
+        and forces == 0.0
+        and stress == 0.0
+        and barrier == 0.0
+        and reaction_energy == 0.0
+    ):
         raise ArgumentError(
             f'{backend_name} backend requires at least one non-zero loss weight.'
         )
+
+
+def fine_tune_export_config(model):
+    config_fn = getattr(model, 'get_fine_tune_export_config', None)
+    if callable(config_fn):
+        return config_fn()
+    return None
+
+
+def args_dict_with_runtime_metadata(args):
+    args_dict = dict(vars(args))
+    fine_tune_config = fine_tune_export_config(args_dict.get('model'))
+    if fine_tune_config is not None:
+        args_dict['fine_tune_export'] = fine_tune_config
+    return args_dict
 
 
 class ArgsFormatter:
@@ -897,7 +965,7 @@ class ArgsFormatter:
         Initialize the ArgsFormatter with parsed arguments.
         :param args: argparse.Namespace object
         """
-        self.args = vars(args)  # Convert Namespace to dictionary
+        self.args = args_dict_with_runtime_metadata(args)
 
     def format(self):
         """
@@ -932,6 +1000,10 @@ class ArgsFilterSimple:
 
     def filter(self, args):
         """Filter the list of arguments to include only allowed types."""
-        return {
-            key: value for key, value in vars(args).items() if self.is_simple(value)
+        args_dict = args_dict_with_runtime_metadata(args)
+        filtered = {
+            key: value for key, value in args_dict.items() if self.is_simple(value)
         }
+        if 'fine_tune_export' in args_dict:
+            filtered['fine_tune_export'] = args_dict['fine_tune_export']
+        return filtered

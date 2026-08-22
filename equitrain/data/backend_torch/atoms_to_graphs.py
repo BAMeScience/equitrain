@@ -89,6 +89,15 @@ class AtomsToGraphs:
                 _external_field(atoms),
                 dtype=dtype,
             ).view(1, 3),
+            source_id=torch.tensor(
+                _info_int(atoms, 'source_id', default=0), dtype=torch.long
+            ),
+            reaction_id=torch.tensor(
+                _info_int(atoms, 'reaction_id', default=-1), dtype=torch.long
+            ),
+            state_id=torch.tensor(
+                _info_int(atoms, 'state_id', default=-1), dtype=torch.long
+            ),
             fermi_level=torch.tensor(0.0, dtype=dtype),
             volume=torch.tensor(np.linalg.det(cell_array), dtype=dtype),
             rcell=torch.tensor(_reciprocal_cell(cell_array), dtype=dtype),
@@ -135,6 +144,10 @@ def _info_float(atoms, *keys, default: float) -> float:
         if key in atoms.info:
             return float(np.asarray(atoms.info[key]))
     return default
+
+
+def _info_int(atoms, key: str, default: int) -> int:
+    return int(np.asarray(atoms.info.get(key, default)))
 
 
 def _external_field(atoms) -> np.ndarray:

@@ -30,13 +30,20 @@ def _sanitize(name: str) -> str:
 
 class DeltaFineTuneWrapper(AbstractWrapper):
     """
-    Wrap a :class:`~equitrain.backends.torch_wrappers.AbstractWrapper` instance with
-    additive (delta) parameters that are trained while the original parameters remain
-    frozen.
+    Wrap a :class:`~equitrain.backends.torch_wrappers.AbstractWrapper` instance
+    with additive residual parameters for L^2-SP fine-tuning.
 
-    The wrapper keeps a reference to the underlying base wrapper and proxies all
-    attribute access to it. During the forward pass, the deltas are temporarily added
-    to the base parameters.
+    The wrapped base model is frozen at its pre-trained starting point. Each
+    base parameter is mirrored by a zero-initialized ``delta`` parameter, and
+    the forward pass evaluates the effective parameter
+    ``theta = theta_0 + delta``. Optimizer weight decay on trainable deltas
+    therefore corresponds to the L^2-SP penalty on distance from the starting
+    weights.
+
+    When ``freeze_layers`` freezes selected semantic delta layers, Equitrain
+    calls the configuration targeted L^2-SP (L^2-TSP): L^2-SP is applied
+    only to the remaining trainable delta layers, while frozen layers keep
+    ``delta = 0``.
     """
 
     def __init__(self, base_wrapper: AbstractWrapper, *, freeze_layers=None):

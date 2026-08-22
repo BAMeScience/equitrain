@@ -155,6 +155,9 @@ def _convert_to_hdf5(
             total_charge_key=getattr(args, 'total_charge_key', 'charge'),
             total_spin_key=getattr(args, 'total_spin_key', 'spin'),
             external_field_key=getattr(args, 'external_field_key', 'external_field'),
+            source_id_key=getattr(args, 'source_id_key', 'source_id'),
+            reaction_id_key=getattr(args, 'reaction_id_key', 'reaction_id'),
+            state_id_key=getattr(args, 'state_id_key', 'state_id'),
             extract_atomic_numbers=extract_atomic_numbers,
             extract_atomic_energies=extract_atomic_energies,
         )
