@@ -18,6 +18,7 @@ from mace.tools.scripts_utils import extract_config_mace_model  # noqa: E402
 from mace_jax.cli import mace_jax_from_torch  # noqa: E402
 from mace_jax.nnx_utils import state_to_pure_dict  # noqa: E402
 
+from equitrain.backends.torch_wrappers.mace import _ensure_data_get  # noqa: E402
 from equitrain.utility_test.mace_support import (  # noqa: E402
     build_statistics,
     build_structures,
@@ -44,7 +45,7 @@ def _make_batch(statistics: dict) -> torch_geometric.batch.Batch:
         value = getattr(batch, key)
         if isinstance(value, torch.Tensor) and value.dtype.is_floating_point:
             setattr(batch, key, value.float())
-    return batch
+    return _ensure_data_get(batch)
 
 
 def _batch_to_jax(batch: torch_geometric.batch.Batch) -> dict[str, jax.Array]:

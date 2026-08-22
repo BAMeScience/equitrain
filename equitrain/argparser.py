@@ -476,7 +476,6 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default=argparse.SUPPRESS,
         help='Legacy alias for --gamma',
     )
-    parser.set_defaults(decay_rate=None)
     parser.add_argument(
         '--weighted-sampler',
         help='Use a weighted sampler where the probability of drawing a sample is proportional to its prediction error',
@@ -802,7 +801,7 @@ def check_args_complete(args: argparse.ArgumentParser, script_type: str):
     # Check if all expected arguments are present and there are no extras
     if expected_args != actual_args:
         missing = expected_args - actual_args
-        extra = (actual_args - expected_args) - {'resume'}
+        extra = (actual_args - expected_args) - {'resume', 'decay_rate'}
         if missing:
             raise ValueError(f'Missing arguments: {missing}')
         if extra:
