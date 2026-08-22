@@ -471,10 +471,12 @@ def add_optimizer_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
     parser.add_argument(
         '--decay-rate',
         '--dr',
+        dest='gamma',
         type=float,
-        default=0.5,
-        help='LR decay rate (default: 0.5)',
+        default=argparse.SUPPRESS,
+        help='Legacy alias for --gamma',
     )
+    parser.set_defaults(decay_rate=None)
     parser.add_argument(
         '--weighted-sampler',
         help='Use a weighted sampler where the probability of drawing a sample is proportional to its prediction error',

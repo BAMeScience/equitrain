@@ -6,9 +6,12 @@ def scheduler_kwargs(args):
     Collect scheduler-related hyperparameters that are backend agnostic.
     """
 
+    decay_rate = getattr(args, 'decay_rate', None)
+    gamma = getattr(args, 'gamma', 0.8) if decay_rate is None else decay_rate
+
     return {
         'scheduler_name': getattr(args, 'scheduler', None),
-        'gamma': getattr(args, 'gamma', 0.8),
+        'gamma': gamma,
         'min_lr': getattr(args, 'min_lr', 0.0),
         'step_size': getattr(args, 'step_size', 1),
         'plateau_mode': getattr(args, 'plateau_mode', 'min'),

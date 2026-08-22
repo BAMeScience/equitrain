@@ -90,6 +90,8 @@ those names and also treats `none` or `constant` as a fixed learning rate.
 - `step`: reduce the learning rate every `--step-size` epochs by `--gamma`.
 - `exponential`: reduce the learning rate every epoch by `--gamma`.
 
+`--decay-rate` and `--dr` are legacy aliases for `--gamma`.
+
 For plateau scheduling, use `--plateau-factor`, `--plateau-patience`,
 `--plateau-threshold`, `--plateau-threshold-mode`, `--plateau-mode`,
 `--plateau-eps`, and `--min-lr`.
@@ -193,6 +195,17 @@ Accelerate device. For JAX, workers build graph batches from HDF5 directly.
 
 Use `--train-max-steps` and `--valid-max-steps` for short smoke tests or bounded
 debug runs.
+
+## Logging and Reproducibility
+
+`--seed` controls preprocessing splits, Torch random seeds, and JAX shuffled
+loader order. `--print-freq` controls per-step logging in training loops, while
+`--tqdm` enables progress bars. Set `--wandb-project` to enable Weights &
+Biases logging when `wandb` is installed.
+
+`--find-unused-parameters` forces Accelerate/DDP to tolerate unused Torch
+parameters. `--epochs-start` changes the first epoch number and is normally set
+automatically when resuming from a full checkpoint.
 
 ## Weighted Sampler
 

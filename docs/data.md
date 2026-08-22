@@ -36,7 +36,9 @@ data/
 
 `statistics.json` is written when `--compute-statistics` is enabled. It stores
 the atomic number table, atomic energy offsets, cutoff radius, mean/std energy
-statistics, and average neighbor count used by training.
+statistics, and average neighbor count used by training. Use `--atomic-numbers`
+when the element table should be fixed explicitly instead of inferred from the
+training split.
 
 `preprocess_summary.json` records target availability for each split. It is a
 quick way to catch mismatched target keys or datasets where energies, forces, or

@@ -169,6 +169,7 @@ the factory may return `(module, params_template)`.
   devices; Equitrain converts them into globally sharded arrays.
 - For multi-node jobs, launch one Equitrain process per JAX process with
   `--distributed --launcher none`, `--process-count <global-processes>`,
-  `--process-index <rank>`, and `--coordinator-address <host:port>`. A process
-  may own one or more local devices; the local launcher is intended for
-  single-node multi-GPU runs.
+  `--process-index <rank>`, and `--coordinator-address <host>` plus
+  `--coordinator-port <port>`. `--coordinator-address` may also be given as
+  `<host>:<port>`. A process may own one or more local devices; the local
+  launcher is intended for single-node multi-GPU runs.

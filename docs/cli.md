@@ -21,6 +21,9 @@ equitrain-preprocess --help
 equitrain-evaluate --help
 equitrain-predict --help
 equitrain-export --help
+equitrain-inspect --help
+equitrain-hdf5-info --help
+equitrain-hdf5-benchmark --help
 ```
 
 Use this page as an entry-point map. Detailed data conversion options are in
@@ -62,6 +65,8 @@ Torch also supports reaction-relative losses:
 
 These are described in [Reaction-Relative Losses](reaction-relative-losses.md).
 
+Prediction commands accept `--tqdm-desc` to customize the progress-bar label.
+
 ## JAX Distributed Arguments
 
 JAX training can initialize `jax.distributed`:
@@ -73,10 +78,13 @@ equitrain \
     --launcher none \
     --process-count <global-processes> \
     --process-index <rank> \
-    --coordinator-address <host:port> \
+    --coordinator-address <host> \
+    --coordinator-port <port> \
     ...
 ```
 
-On a single node with multiple visible GPUs, the default launcher behavior can
-spawn local JAX processes automatically. For multi-node jobs, launch one
-Equitrain process per JAX process and pass explicit process metadata.
+`--coordinator-address` may also include the port directly, for example
+`host:12345`. On a single node with multiple visible GPUs, the default launcher
+behavior can spawn local JAX processes automatically. For multi-node jobs,
+launch one Equitrain process per JAX process and pass explicit process
+metadata.

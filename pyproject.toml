@@ -188,7 +188,7 @@ disable_error_code = "import, annotation-unchecked"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["equitrain"]
+include = ["equitrain", "equitrain.*"]
 
 [tool.equitrain]
 conda_env_file = "environment.yml"
