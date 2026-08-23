@@ -90,8 +90,8 @@ For Torch MACE models, semantic delta layers are ordered as:
 ```text
 0: node_embedding
 1: interactions.0
-2: interactions.1
-3: products.0
+2: products.0
+3: interactions.1
 4: products.1
 5: readouts
 ```
@@ -103,6 +103,10 @@ Delta plus `freeze_layers` is targeted L<sup>2</sup>-SP
 (L<sup>2</sup>-TSP): the L<sup>2</sup>-SP penalty is applied only to selected
 trainable delta layers, while frozen layers keep `delta = 0` and remain exactly
 at their pre-trained starting values.
+
+See [Phonon Fine-Tuning Paper](phonon-finetuning-paper.md) for the reproduction
+recipe for the Equitrain 0.1.0 Delta workflow used in the phonon fine-tuning
+manuscript.
 
 ## Freeze
 

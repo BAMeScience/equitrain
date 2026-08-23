@@ -41,6 +41,7 @@ Full documentation is published at
 - [Model Wrappers](https://bamescience.github.io/equitrain/model-wrappers/)
 - [JAX Bundles](https://bamescience.github.io/equitrain/jax-bundles/)
 - [Fine-Tuning](https://bamescience.github.io/equitrain/fine-tuning/)
+- [Phonon Fine-Tuning Paper](https://bamescience.github.io/equitrain/phonon-finetuning-paper/)
 - [Calculators](https://bamescience.github.io/equitrain/calculators/)
 - [Reaction-Relative Losses](https://bamescience.github.io/equitrain/reaction-relative-losses/)
 - [Resources](https://bamescience.github.io/equitrain/resources/)

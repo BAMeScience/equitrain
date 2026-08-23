@@ -36,6 +36,8 @@ rewriting orchestration code for each MLIP.
 - Use Equitrain from Python instead of the CLI: [Python API](python-api.md)
 - Prepare JAX model bundles: [JAX Bundles](jax-bundles.md)
 - Fine-tune checkpoints with adapters: [Fine-Tuning](fine-tuning.md)
+- Reproduce the phonon fine-tuning manuscript workflow:
+  [Phonon Fine-Tuning Paper](phonon-finetuning-paper.md)
 
 ## Supported Models
 
