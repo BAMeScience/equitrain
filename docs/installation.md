@@ -11,10 +11,10 @@ Until the package is fully available on PyPI, install from a local clone:
 ```bash
 git clone https://github.com/BAMeScience/equitrain.git
 cd equitrain
-python3.10 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install uv
+python -m pip install --upgrade pip
+python -m pip install uv
 uv pip install -e '.[dev,docu]'
 ```
 
