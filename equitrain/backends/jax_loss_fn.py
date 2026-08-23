@@ -26,8 +26,8 @@ _VALID_WEIGHT_TYPES = {None, 'groundstate'}
 @dataclass(frozen=True)
 class LossSettings:
     energy_weight: float = 1.0
-    forces_weight: float = 0.0
-    stress_weight: float = 0.0
+    forces_weight: float = 1.0
+    stress_weight: float = 1.0
     loss_type: str = 'huber'
     loss_type_energy: str | None = None
     loss_type_forces: str | None = None
@@ -48,9 +48,9 @@ class LossSettings:
 
         base_loss = _get('loss_type', 'huber')
         return cls(
-            energy_weight=float(_get('energy_weight', 0.0) or 0.0),
-            forces_weight=float(_get('forces_weight', 0.0) or 0.0),
-            stress_weight=float(_get('stress_weight', 0.0) or 0.0),
+            energy_weight=float(_get('energy_weight', 1.0) or 0.0),
+            forces_weight=float(_get('forces_weight', 1.0) or 0.0),
+            stress_weight=float(_get('stress_weight', 1.0) or 0.0),
             loss_type=_canonical_loss_type(base_loss),
             loss_type_energy=_canonical_loss_type(
                 _get('loss_type_energy', None) or base_loss

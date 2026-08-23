@@ -6,9 +6,9 @@ import optax
 def optimizer_kwargs(args):
     return {
         'optimizer_name': getattr(args, 'opt', 'adamw'),
-        'learning_rate': getattr(args, 'lr', 1e-3),
+        'learning_rate': getattr(args, 'lr', 0.01),
         'weight_decay': getattr(args, 'weight_decay', 0.0) or 0.0,
-        'momentum': getattr(args, 'momentum', 0.0) or 0.0,
+        'momentum': getattr(args, 'momentum', 0.9) or 0.0,
         'alpha': getattr(args, 'alpha', 0.99) or 0.99,
     }
 

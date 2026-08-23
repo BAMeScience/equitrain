@@ -167,7 +167,7 @@ class LossFn(torch.nn.Module):
         self,
         energy_weight: float = 1.0,
         forces_weight: float = 1.0,
-        stress_weight: float = 0.0,
+        stress_weight: float = 1.0,
         barrier_weight: float = 0.0,
         reaction_energy_weight: float = 0.0,
         loss_energy_per_atom: bool = True,

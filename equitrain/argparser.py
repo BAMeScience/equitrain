@@ -1,17 +1,16 @@
 import argparse
 
 
-class LenientArgumentParser(argparse.ArgumentParser):
-    """Argument parser that silently ignores unknown CLI arguments.
+class EquitrainArgumentParser(argparse.ArgumentParser):
+    """Compatibility subclass retained for external imports.
 
-    Pytest injects test file names into sys.argv, which would normally make the
-    default parser exit. This subclass keeps the CLI forgiving while maintaining
-    backwards compatibility for scripts invoked by users.
+    Equitrain intentionally keeps argparse's strict ``parse_args`` behavior so
+    misspelled production CLI options fail loudly instead of being ignored.
     """
 
-    def parse_args(self, args=None, namespace=None):
-        parsed, _ = self.parse_known_args(args=args, namespace=namespace)
-        return parsed
+
+# Backwards-compatible name for code that imported the old parser subclass.
+LenientArgumentParser = EquitrainArgumentParser
 
 
 def str2bool(value):
@@ -516,7 +515,7 @@ def add_export_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def get_args_parser(script_type: str) -> argparse.ArgumentParser:
-    parser = LenientArgumentParser(f'Equitrain {script_type} script')
+    parser = EquitrainArgumentParser(f'Equitrain {script_type} script')
 
     if script_type == 'preprocess':
         add_common_file_args(parser)
@@ -758,6 +757,9 @@ def get_args_parser(script_type: str) -> argparse.ArgumentParser:
 
     elif script_type == 'export':
         add_export_args(parser)
+
+    else:
+        raise ValueError(f'Unknown Equitrain script type: {script_type}')
 
     parser.add_argument(
         '-v',

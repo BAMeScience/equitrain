@@ -18,7 +18,7 @@ def test_predict_m3gnet_structures():
     r = 5.0  # M3GNet default cutoff
     filename = 'data.xyz'
 
-    args = get_args_parser_predict().parse_args()
+    args = get_args_parser_predict().parse_args([])
     args.dtype = 'float32'
 
     # Create the M3GNet wrapper

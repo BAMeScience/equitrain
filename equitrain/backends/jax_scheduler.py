@@ -98,7 +98,7 @@ class _PlateauScheduler(_SchedulerBase):
             return False
         self.num_bad_epochs = 0
         new_lr = max(self.current_lr * self.factor, self.min_lr)
-        if new_lr < self.current_lr:
+        if self.current_lr - new_lr > self.eps:
             self.current_lr = new_lr
             return True
         return False
@@ -122,7 +122,7 @@ class _PlateauScheduler(_SchedulerBase):
 def create_scheduler_controller(args, initial_lr: float):
     cfg = scheduler_kwargs(args)
     name = (cfg.get('scheduler_name') or 'constant').lower()
-    monitor = str(getattr(args, 'scheduler_monitor', 'val') or 'val').lower()
+    monitor = str(getattr(args, 'scheduler_monitor', 'train') or 'train').lower()
     start_epoch = int(getattr(args, 'epochs_start', 1))
     if name in {'none', 'constant', ''}:
         return _ConstantScheduler(
@@ -140,7 +140,7 @@ def create_scheduler_controller(args, initial_lr: float):
             min_lr=float(cfg.get('min_lr', 0.0)),
             start_epoch=start_epoch,
             gamma=float(cfg.get('gamma', 0.8)),
-            step_size=max(int(cfg.get('step_size', 1)), 1),
+            step_size=max(int(cfg.get('step_size', 5)), 1),
         )
     if name == 'exponential':
         return _ExponentialScheduler(
@@ -158,12 +158,12 @@ def create_scheduler_controller(args, initial_lr: float):
             current_lr=float(initial_lr),
             min_lr=float(cfg.get('min_lr', 0.0)),
             start_epoch=start_epoch,
-            factor=float(cfg.get('plateau_factor', 0.1)),
-            patience=max(int(cfg.get('plateau_patience', 10)), 0),
+            factor=float(cfg.get('plateau_factor', 0.5)),
+            patience=max(int(cfg.get('plateau_patience', 2)), 0),
             threshold=float(cfg.get('plateau_threshold', 0.0001)),
             threshold_mode=str(cfg.get('plateau_threshold_mode', 'rel')).lower(),
             mode=str(cfg.get('plateau_mode', 'min')).lower(),
-            eps=float(cfg.get('plateau_eps', 1e-8)),
+            eps=float(cfg.get('plateau_eps', 1e-12)),
         )
     # fallback to constant
     return _ConstantScheduler(

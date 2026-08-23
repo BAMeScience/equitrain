@@ -17,7 +17,7 @@ def test_m3gnet_predict():
     on a dataset.
     """
     # Parse arguments
-    args = get_args_parser_predict().parse_args()
+    args = get_args_parser_predict().parse_args([])
 
     # Set prediction parameters
     args.predict_file = 'data/valid.h5'

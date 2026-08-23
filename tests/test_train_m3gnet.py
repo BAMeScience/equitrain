@@ -19,7 +19,7 @@ def test_train_m3gnet():
     This test creates a M3GNet wrapper and trains it on a small dataset.
     """
     # Parse arguments
-    args = get_args_parser_train().parse_args()
+    args = get_args_parser_train().parse_args([])
     args.dtype = 'float32'
 
     # Set training parameters
