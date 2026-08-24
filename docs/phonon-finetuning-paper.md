@@ -92,6 +92,7 @@ equitrain-preprocess \
 | Weight decay | `10.0` for Equitrain L<sup>2</sup>-SP deltas |
 | Loss | Huber with `delta = 0.01` |
 | Loss weights | energy `10`, forces `100`, stress `1000` |
+| Dtype | `float64` |
 | EMA | disabled |
 
 ## Current Equitrain Reproduction
@@ -110,7 +111,7 @@ args.valid_file = "data/material/valid.h5"
 args.output_dir = "runs/material-l2-tsp"
 args.model = "path/to/mace-mp-0b3.model"
 args.model_wrapper = "mace"
-args.dtype = "float32"
+args.dtype = "float64"
 
 args.r_max = 6.0
 args.loss_type = "huber"
