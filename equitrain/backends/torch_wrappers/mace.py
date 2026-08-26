@@ -29,6 +29,13 @@ except Exception:  # pragma: no cover - guard optional import errors
 
 
 class MaceWrapper(AbstractWrapper):
+    """Adapt a Torch MACE model to Equitrain's graph-batch interface.
+
+    The wrapper accepts Torch Geometric ``Data``/``Batch`` objects produced by
+    Equitrain's Torch data loaders and returns a prediction dictionary with
+    energy and, when enabled by loss weights, forces and stress.
+    """
+
     def __init__(self, args, model, optimize_atomic_energies: bool = False):
         super().__init__(model)
 
@@ -44,6 +51,7 @@ class MaceWrapper(AbstractWrapper):
         self.compute_stress = getattr(args, 'stress_weight', 0.0) > 0.0
 
     def forward(self, *args):
+        """Run the wrapped MACE model on one Torch Geometric batch."""
         if len(args) != 1:
             raise NotImplementedError(
                 'MaceWrapper expects a single PyG batch argument.'
@@ -81,18 +89,22 @@ class MaceWrapper(AbstractWrapper):
 
     @property
     def atomic_numbers(self):
+        """Return the atomic-number table supported by the wrapped MACE model."""
         return AtomicNumberTable(self.model.atomic_numbers.cpu().tolist())
 
     @property
     def atomic_energies(self):
+        """Return per-element atomic reference energies from the MACE model."""
         return self.model.atomic_energies_fn.atomic_energies.cpu().tolist()
 
     @property
     def r_max(self):
+        """Return the MACE cutoff radius used for graph construction."""
         return self.model.r_max.item()
 
     @r_max.setter
     def r_max(self, r_max):
+        """Update cutoff-dependent MACE modules when the cutoff changes."""
         r_max = float(r_max)
         if math.isclose(self.r_max, r_max, rel_tol=0.0, abs_tol=1e-6):
             return

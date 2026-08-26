@@ -268,18 +268,21 @@ class OrbWrapper(AbstractWrapper):
 
     @property
     def atomic_numbers(self):
+        """Return the atomic-number table supported by the ORB model."""
         if hasattr(self.model, 'atomic_numbers'):
             return AtomicNumberTable(self.model.atomic_numbers.cpu().tolist())
         return AtomicNumberTable(list(range(1, 85)))
 
     @property
     def atomic_energies(self):
+        """Return ORB atomic reference energies when available."""
         if hasattr(self.model, 'atomic_energies'):
             return self.model.atomic_energies.cpu().tolist()
         return None
 
     @property
     def r_max(self):
+        """Return the ORB neighbor cutoff radius."""
         if self.system_config is not None:
             return float(self.system_config.radius)
         if hasattr(self.model, 'cutoff'):
@@ -289,6 +292,7 @@ class OrbWrapper(AbstractWrapper):
 
     @r_max.setter
     def r_max(self, value):
+        """Update the ORB neighbor cutoff radius where supported."""
         if self.system_config is not None:
             self.system_config.radius = float(value)
         if hasattr(self.model, 'cutoff'):

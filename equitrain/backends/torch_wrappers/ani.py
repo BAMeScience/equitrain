@@ -160,6 +160,7 @@ class AniWrapper(AbstractWrapper):
         return species_batch, coordinates_batch, counts
 
     def forward(self, *args):
+        """Run the wrapped TorchANI model and normalize output keys."""
         if len(args) == 1:
             species_batch, coordinates_batch, counts = self._prepare_batch_inputs(
                 args[0]
@@ -207,6 +208,7 @@ class AniWrapper(AbstractWrapper):
 
     @property
     def atomic_numbers(self):
+        """Return the atomic-number table supported by the ANI model."""
         if hasattr(self.model, 'species_order'):
             symbol_to_Z = {
                 'H': 1,
@@ -229,6 +231,7 @@ class AniWrapper(AbstractWrapper):
 
     @property
     def atomic_energies(self):
+        """Return ANI self atomic energies when available."""
         if hasattr(self.model, 'sae_dict'):
             return list(self.model.sae_dict.values())
         if hasattr(self.model, 'energy_shifter') and hasattr(
@@ -239,6 +242,7 @@ class AniWrapper(AbstractWrapper):
 
     @property
     def r_max(self):
+        """Return the ANI radial cutoff used by the AEV computer."""
         if hasattr(self.model, 'aev_computer'):
             return self.model.aev_computer.Rcr
         return 5.2

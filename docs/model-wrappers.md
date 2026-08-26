@@ -3,6 +3,10 @@
 Model wrappers adapt backend-specific model objects to Equitrain's common
 training, evaluation, and prediction interfaces.
 
+See [API Reference](api-reference.md#torch-model-wrappers) for generated
+reference entries for the import-safe Torch wrapper classes and fine-tuning
+adapters.
+
 ## Supported Wrappers
 
 | Wrapper | Backends | Model Artifact |

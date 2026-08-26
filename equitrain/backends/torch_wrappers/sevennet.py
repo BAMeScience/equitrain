@@ -12,10 +12,13 @@ from .base import AbstractWrapper
 
 
 class SevennetWrapper(AbstractWrapper):
+    """Adapt a SevenNet Torch model to Equitrain's graph-batch interface."""
+
     def __init__(self, args, model):
         super().__init__(model)
 
     def forward(self, input):
+        """Run SevenNet on a Torch graph batch and normalize output keys."""
         input.energy = input.y
         input.forces = input['force']
         input.edge_vec, _ = self.get_edge_vectors_and_lengths(
@@ -42,6 +45,7 @@ class SevennetWrapper(AbstractWrapper):
         edge_index: torch.Tensor,
         shifts: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return edge displacement vectors and lengths for a graph batch."""
         sender = edge_index[0]
         receiver = edge_index[1]
         vectors = positions[receiver] - positions[sender] + shifts
@@ -50,6 +54,7 @@ class SevennetWrapper(AbstractWrapper):
 
     @classmethod
     def batch_voigt_to_tensor(cls, voigts: torch.Tensor) -> torch.Tensor:
+        """Convert batched Voigt stress vectors to full 3x3 stress tensors."""
         tensors = torch.zeros(
             (voigts.shape[0], 3, 3), dtype=voigts.dtype, device=voigts.device
         )
@@ -63,20 +68,24 @@ class SevennetWrapper(AbstractWrapper):
 
     @property
     def atomic_numbers(self):
+        """Return the atomic-number table supported by the SevenNet model."""
         return AtomicNumberTable(
             torch.nonzero(self.model.z_to_onehot_tensor != -1).squeeze().cpu().tolist()
         )
 
     @property
     def atomic_energies(self):
+        """Return atomic reference energies when provided by the model."""
         return None
 
     @property
     def r_max(self):
+        """Return the SevenNet cutoff radius used for graph construction."""
         return self.model.cutoff.item()
 
     @r_max.setter
     def r_max(self, value):
+        """Update the SevenNet cutoff radius."""
         self.model.cutoff.fill_(value)
 
 

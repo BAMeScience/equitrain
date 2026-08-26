@@ -42,6 +42,16 @@ extra_css:
 
 plugins:
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - .
+          options:
+            docstring_style: google
+            members_order: source
+            show_source: false
+            show_root_full_path: true
 
 markdown_extensions:
   - admonition
@@ -68,6 +78,7 @@ nav:
       - Reaction-Relative Losses: reaction-relative-losses.md
   - Interfaces:
       - Python API: python-api.md
+      - API Reference: api-reference.md
       - Model Wrappers: model-wrappers.md
       - JAX Bundles: jax-bundles.md
       - Calculators: calculators.md

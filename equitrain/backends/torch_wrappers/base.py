@@ -20,13 +20,12 @@ class AbstractWrapper(torch.nn.Module, ABC):
     def forward(self, *args):
         """Implement the model forward pass.
 
-        Returns:
-            Mapping with at least an ``'energy'`` entry (shape ``[batch, 1]`` or
-            ``[batch]``). Wrappers that produce forces or stresses should also
-            return ``'forces'`` (``[num_atoms, 3]``) and ``'stress'``
-            (``[batch, 3, 3]``). Additional observables (dipoles, virials, etc.)
-            can be included as extra keys; they are forwarded to the loss /
-            metrics stack unchanged.
+        Implementations must return a mapping with at least an ``'energy'``
+        entry of shape ``[batch, 1]`` or ``[batch]``. Wrappers that produce
+        forces or stresses should also return ``'forces'`` with shape
+        ``[num_atoms, 3]`` and ``'stress'`` with shape ``[batch, 3, 3]``.
+        Additional observables such as dipoles or virials can be included as
+        extra keys; they are forwarded to the loss and metrics stack unchanged.
         """
         raise NotImplementedError
 

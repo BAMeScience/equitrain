@@ -16,6 +16,9 @@ Available parser constructors are:
 In notebooks and tests, use `parse_args([])` to avoid inheriting unrelated
 process arguments.
 
+Generated entries for stable public objects are collected in the
+[API Reference](api-reference.md).
+
 ## Preprocess
 
 ```python

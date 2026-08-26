@@ -38,6 +38,7 @@ Full documentation is published at
 - [CLI](https://bamescience.github.io/equitrain/cli/)
 - [Training Options](https://bamescience.github.io/equitrain/training-options/)
 - [Python API](https://bamescience.github.io/equitrain/python-api/)
+- [API Reference](https://bamescience.github.io/equitrain/api-reference/)
 - [Model Wrappers](https://bamescience.github.io/equitrain/model-wrappers/)
 - [JAX Bundles](https://bamescience.github.io/equitrain/jax-bundles/)
 - [Fine-Tuning](https://bamescience.github.io/equitrain/fine-tuning/)

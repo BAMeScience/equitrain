@@ -27,7 +27,6 @@ classifiers = [
 ]
 dependencies = [
     "matscipy",
-    "lightning",
     "beautifulsoup4",
     "pqdm",
     "ase",
@@ -48,6 +47,8 @@ docu = [
   "mkdocs-material",
   "pymdown-extensions",
   "mkdocs-click",
+  "mkdocstrings[python]",
+  "torch>=2.0.0",
 ]
 torch = [
   "torch>=2.0.0",

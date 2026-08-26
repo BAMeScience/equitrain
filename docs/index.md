@@ -34,6 +34,7 @@ rewriting orchestration code for each MLIP.
 - Configure losses, optimizers, checkpointing, freezing, and batching:
   [Training Options](training-options.md)
 - Use Equitrain from Python instead of the CLI: [Python API](python-api.md)
+- Browse generated public API entries: [API Reference](api-reference.md)
 - Prepare JAX model bundles: [JAX Bundles](jax-bundles.md)
 - Fine-tune checkpoints with adapters: [Fine-Tuning](fine-tuning.md)
 - Reproduce the phonon fine-tuning manuscript workflow:
