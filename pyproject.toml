@@ -11,9 +11,13 @@ name = "equitrain"
 dynamic = ["version"]
 description = "A training framework for machine learning interatomic potentials (MLIPs)"
 authors = [
-    {name = "Carlos Madariaga", email = "carlos.madariaga@bam.de"},
-    {name = "Jose M. Pizarro", email = "jose.pizarro-blanco@bam.de"},
+    {name = "Philipp Benner"},
+    {name = "Ahmad Lutfi"},
+    {name = "Carlos Madariaga"},
+    {name = "Jose M. Pizarro"},
     {name = "Janosh Riebesell"},
+]
+maintainers = [
     {name = "Philipp Benner", email = "philipp.benner@bam.de"},
 ]
 readme = "README.md"
