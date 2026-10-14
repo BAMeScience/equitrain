@@ -1,4 +1,4 @@
-"""Optional adapter for the separately installed RTorch HDF5 graph loader."""
+"""Optional adapter for the separately installed EquiLoad HDF5 graph loader."""
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -8,21 +8,21 @@ from typing import Any
 import torch
 
 
-def _import_rtorch() -> Any:
+def _import_equiload() -> Any:
     try:
-        import rtorch
+        import equiload
     except ImportError as error:
         raise RuntimeError(
-            "--torch-loader rtorch requires the separately installed RTorch extension. "
-            "Build/install RTorch first, then rerun Equitrain with --torch-loader rtorch."
+            "--torch-loader equiload requires the separately installed EquiLoad extension. "
+            "Build/install EquiLoad first, then rerun Equitrain with --torch-loader equiload."
         ) from error
-    return rtorch
+    return equiload
 
 
-class RTorchGraphLoader:
-    """Adapt RTorch's native loader to Equitrain's list-of-PyG-batches contract."""
+class EquiLoadGraphLoader:
+    """Adapt EquiLoad's native loader to Equitrain's list-of-PyG-batches contract."""
 
-    _uses_rtorch = True
+    _uses_equiload = True
 
     def __init__(self, native_loader: Any, device: torch.device) -> None:
         self._native_loader = native_loader
@@ -38,28 +38,28 @@ class RTorchGraphLoader:
             yield [batch.to(self._device, non_blocking=non_blocking) for batch in batches]
 
 
-def get_rtorch_dataloader(
+def get_equiload_dataloader(
     *,
     files: list[Path],
     atomic_numbers: list[int],
     r_max: float,
     args: Any,
     accelerator: Any = None,
-) -> RTorchGraphLoader:
+) -> EquiLoadGraphLoader:
     """Create a single-process native HDF5 graph loader.
 
-    RTorch performs loading/collation natively and does not implement PyTorch
+    EquiLoad performs loading/collation natively and does not implement PyTorch
     workers, distributed sharding, reaction grouping, or weighted resampling.
     """
     process_count = int(getattr(accelerator, 'num_processes', 1) or 1)
     if process_count != 1:
         raise RuntimeError(
-            '--torch-loader rtorch currently supports single-process training only; '
+            '--torch-loader equiload currently supports single-process training only; '
             'use --torch-loader python for distributed training.'
         )
-    rtorch = _import_rtorch()
+    equiload = _import_equiload()
     device = getattr(accelerator, 'device', torch.device('cpu'))
-    native_loader = rtorch.HDF5GraphLoader.from_hdf5_files(
+    native_loader = equiload.HDF5GraphLoader.from_hdf5_files(
         [str(path) for path in files],
         r_max,
         list(atomic_numbers),
@@ -71,4 +71,4 @@ def get_rtorch_dataloader(
         drop=args.batch_drop,
         seed=args.seed,
     )
-    return RTorchGraphLoader(native_loader, torch.device(device))
+    return EquiLoadGraphLoader(native_loader, torch.device(device))

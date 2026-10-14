@@ -83,11 +83,11 @@ def add_common_data_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     )
     parser.add_argument(
         '--torch-loader',
-        choices=('python', 'rtorch'),
+        choices=('python', 'equiload'),
         default='python',
         help=(
-            'Torch HDF5 graph-loader implementation. rtorch requires the separately '
-            'installed RTorch extension; python is the portable default.'
+            'Torch HDF5 graph-loader implementation. equiload requires the separately '
+            'installed EquiLoad extension; python is the portable default.'
         ),
     )
     parser.add_argument('--seed', help='Random seed for splits', type=int, default=123)

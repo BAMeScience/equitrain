@@ -54,19 +54,19 @@ pip install -e '.[docu]'
 mkdocs serve
 ```
 
-## Optional RTorch HDF5 Loader
+## Optional EquiLoad HDF5 Loader
 
 Equitrain's portable PyTorch/PyG loader remains the default. Users who have separately
-built the RTorch Python extension can install its wheel and opt into its native HDF5 graph loader:
+built the EquiLoad Python extension can install its wheel and opt into its native HDF5 graph loader:
 
 ```bash
-python -m pip install /path/to/rtorch-*.whl
-equitrain --backend torch --torch-loader rtorch ...
+python -m pip install /path/to/equiload-*.whl
+equitrain --backend torch --torch-loader equiload ...
 ```
 
-The RTorch loader is currently single-process and does not support weighted resampling or
+The EquiLoad loader is currently single-process and does not support weighted resampling or
 relative reaction losses. It returns the same nested PyG batch structure as the standard
-loader and moves batches to Equitrain's active accelerator device. Without `rtorch`
+loader and moves batches to Equitrain's active accelerator device. Without `equiload`
 installed, the default `--torch-loader python` requires no Rust tooling.
 
 ## Installation
