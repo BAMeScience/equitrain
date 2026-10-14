@@ -44,6 +44,12 @@ def dataloader_update_errors(
     accelerator: Accelerator = None,
     logger: FileLogger = None,
 ):
+    if getattr(dataloader, '_uses_rtorch', False):
+        raise RuntimeError(
+            'Weighted resampling is not supported by --torch-loader rtorch; '
+            'use --torch-loader python.'
+        )
+
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
     num_workers = _resolve_num_workers(args.num_workers, accelerator)
 
@@ -117,6 +123,28 @@ def get_dataloader(
     files = _expand_hdf5_paths(data_file)
     if not files:
         raise ValueError('No HDF5 files found for the provided data_file input.')
+
+    if getattr(args, 'torch_loader', 'python') == 'rtorch':
+        if relative_reaction_losses_enabled(args):
+            raise RuntimeError(
+                '--torch-loader rtorch does not support relative reaction losses; '
+                'use --torch-loader python.'
+            )
+        if getattr(args, 'weighted_sampler', False):
+            raise RuntimeError(
+                '--torch-loader rtorch does not support weighted resampling; '
+                'use --torch-loader python.'
+            )
+        from .rtorch_loader import get_rtorch_dataloader
+
+        return get_rtorch_dataloader(
+            files=files,
+            atomic_numbers=atomic_numbers,
+            r_max=r_max,
+            args=args,
+            accelerator=accelerator,
+        )
+
     datasets = [
         HDF5GraphDataset(
             path,
