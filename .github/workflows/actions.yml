@@ -1,5 +1,5 @@
 name: Installing and Testing
-on: [push]
+on: [push, pull_request]
 
 # https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs
 # `contents` is for permission to the contents of the repository.
@@ -31,9 +31,40 @@ jobs:
     # - name: mypy
     #   run: |
     #     python -m mypy --ignore-missing-imports --follow-imports=silent --no-strict-optional equitrain tests
-    # - name: Test with pytest
-    #   run: |
-    #     python -m pytest -sv tests
+    - name: Test with pytest
+      run: |
+        python -m pytest -sv tests
+
+  equiload-integration:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: lutfia95/RTorch
+        # Pin the native ABI dependency. Update this only after the referenced
+        # EquiLoad commit has been merged/released and pushed to GitHub.
+        ref: 2beef89beafa485314fc6ec92333682125b975ec
+        path: equiload
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libhdf5-dev
+    - name: Build EquiLoad against Equitrain's Torch
+      run: |
+        python -m venv .venv
+        . .venv/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install -e '.[dev,torch]'
+        bash equiload/scripts/install-python.sh --venv "$GITHUB_WORKSPACE/.venv"
+    - name: Test the optional EquiLoad integration
+      run: |
+        . .venv/bin/activate
+        python -m pytest -q tests/test_equiload_loader.py
   build-and-install:
     runs-on: ubuntu-latest
     steps:

@@ -56,13 +56,22 @@ mkdocs serve
 
 ## Optional EquiLoad HDF5 Loader
 
-Equitrain's portable PyTorch/PyG loader remains the default. Users who have separately
-built the EquiLoad Python extension can install its wheel and opt into its native HDF5 graph loader:
+Equitrain's portable PyTorch/PyG loader remains the default. EquiLoad is a separately
+installed native extension. It must be built against the exact Torch installation in
+the Equitrain environment, because PyTorch's C++ ABI is not stable between Torch releases:
 
 ```bash
-python -m pip install /path/to/equiload-*.whl
+git clone https://github.com/lutfia95/RTorch.git equiload
+cd equiload
+bash scripts/install-python.sh --venv /path/to/equitrain/.venv
+cd ..
 equitrain --backend torch --torch-loader equiload ...
 ```
+
+Do not install a wheel built in another environment. EquiLoad is CPU-side; Equitrain
+moves its returned batches to the active accelerator device. It currently requires
+Torch 2.6 through 2.14; the standard Python loader remains available for other
+supported Equitrain Torch versions.
 
 The EquiLoad loader is currently single-process and does not support weighted resampling or
 relative reaction losses. It returns the same nested PyG batch structure as the standard
