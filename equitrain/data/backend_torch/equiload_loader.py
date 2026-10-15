@@ -1,4 +1,5 @@
 """Optional adapter for the separately installed EquiLoad HDF5 graph loader."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -8,13 +9,29 @@ from typing import Any
 import torch
 
 
+def _supported_torch_version() -> bool:
+    """Whether the installed Torch release is supported by EquiLoad."""
+    try:
+        major, minor, *_ = torch.__version__.split('+', maxsplit=1)[0].split('.')
+        return int(major) == 2 and 6 <= int(minor) < 15
+    except (TypeError, ValueError):
+        return False
+
+
 def _import_equiload() -> Any:
+    if not _supported_torch_version():
+        raise RuntimeError(
+            '--torch-loader equiload supports Torch >=2.6,<2.15. '
+            f'Found Torch {torch.__version__}; use --torch-loader python instead.'
+        )
     try:
         import equiload
     except ImportError as error:
         raise RuntimeError(
-            "--torch-loader equiload requires the separately installed EquiLoad extension. "
-            "Build/install EquiLoad first, then rerun Equitrain with --torch-loader equiload."
+            '--torch-loader equiload requires the separately installed EquiLoad extension. '
+            "Build it against this environment's installed Torch with "
+            "EquiLoad's scripts/install-python.sh --venv /path/to/.venv, then rerun "
+            'Equitrain with --torch-loader equiload.'
         ) from error
     return equiload
 
@@ -35,7 +52,9 @@ class EquiLoadGraphLoader:
     def __iter__(self) -> Iterator[list[Any]]:
         non_blocking = self._device.type == 'cuda'
         for batches in self._native_loader:
-            yield [batch.to(self._device, non_blocking=non_blocking) for batch in batches]
+            yield [
+                batch.to(self._device, non_blocking=non_blocking) for batch in batches
+            ]
 
 
 def get_equiload_dataloader(

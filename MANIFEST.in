@@ -1,0 +1,10 @@
+# Keep source distributions focused on installable package source. Documentation,
+# examples, development workflows, and tests are available from the repository.
+prune .github
+prune .vscode
+prune docs
+prune resources
+prune tests
+exclude environment.yml
+exclude mkdocs.yml
+exclude .pre-commit-config.yaml

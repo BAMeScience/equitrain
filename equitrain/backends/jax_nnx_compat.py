@@ -34,14 +34,22 @@ def state_to_pure_dict(state: Any) -> dict[str, Any]:
 
     from flax import nnx
 
+    def _variable_value(value: Any) -> Any:
+        """Return an NNX variable value across supported Flax releases."""
+        # Flax <= 0.11 exposed get_value(); Flax 0.12 removed it in favor of
+        # the public value property. Do not access raw_value, which is an
+        # implementation detail and bypasses variable metadata.
+        getter = getattr(value, 'get_value', None)
+        return getter() if callable(getter) else value.value
+
     def _extract(value: Any) -> Any:
         if _MaceConfigVar is not None and isinstance(value, _MaceConfigVar):
-            config_val = value.get_value()
+            config_val = _variable_value(value)
             if isinstance(config_val, dict) and not is_config_dict(config_val):
                 return _make_config_dict(config_val)
             return config_val
         if isinstance(value, nnx.Variable):
-            return value.get_value()
+            return _variable_value(value)
         return value
 
     return nnx.to_pure_dict(state, extract_fn=_extract)
