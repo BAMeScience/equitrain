@@ -6,6 +6,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import h5py
+import numpy as np
 import torch
 
 
@@ -29,8 +31,9 @@ def _import_equiload() -> Any:
     except ImportError as error:
         raise RuntimeError(
             '--torch-loader equiload requires the separately installed EquiLoad extension. '
-            "Build it against this environment's installed Torch with "
-            "EquiLoad's scripts/install-python.sh --venv /path/to/.venv, then rerun "
+            'Check out tag v0.1.0 from https://github.com/BAMeScience/EquiLoad '
+            "and build it against this environment's installed Torch with "
+            'scripts/install-python.sh --venv /path/to/.venv, then rerun '
             'Equitrain with --torch-loader equiload.'
         ) from error
     return equiload
@@ -41,10 +44,19 @@ class EquiLoadGraphLoader:
 
     _uses_equiload = True
 
-    def __init__(self, native_loader: Any, device: torch.device) -> None:
+    def __init__(
+        self, native_loader: Any, device: torch.device, files: list[Path] | None = None
+    ) -> None:
         self._native_loader = native_loader
         self.dataset = native_loader.dataset
         self._device = device
+        self._file_ranges = []
+        offset = 0
+        for path in files or []:
+            with h5py.File(path, 'r') as handle:
+                end = offset + len(handle['structures'])
+            self._file_ranges.append((path, offset, end))
+            offset = end
 
     def __len__(self) -> int:
         return len(self._native_loader)
@@ -52,9 +64,44 @@ class EquiLoadGraphLoader:
     def __iter__(self) -> Iterator[list[Any]]:
         non_blocking = self._device.type == 'cuda'
         for batches in self._native_loader:
+            for batch in batches:
+                self._attach_target_weights(batch)
             yield [
                 batch.to(self._device, non_blocking=non_blocking) for batch in batches
             ]
+
+    def _attach_target_weights(self, batch):
+        # Older native loaders omit these fields. Read only the selected metadata
+        # rows instead of materializing weights for an entire large dataset.
+        missing = [
+            key
+            for key in ('energy_weight', 'forces_weight', 'stress_weight')
+            if getattr(batch, key, None) is None
+        ]
+        if not missing or not self._file_ranges:
+            return
+        indices = batch.idx.detach().cpu().numpy().reshape(-1)
+        weights = {key: np.ones(len(indices)) for key in missing}
+        for path, start, end in self._file_ranges:
+            positions = np.flatnonzero((indices >= start) & (indices < end))
+            if not len(positions):
+                continue
+            local_indices, inverse = np.unique(
+                indices[positions] - start, return_inverse=True
+            )
+            with h5py.File(path, 'r') as handle:
+                structures = handle['structures']
+                available = [key for key in missing if key in structures.dtype.names]
+                if available:
+                    rows = structures.fields(available)[local_indices]
+                    for key in available:
+                        weights[key][positions] = rows[key][inverse]
+        for key, values in weights.items():
+            setattr(
+                batch,
+                key,
+                torch.as_tensor(values, dtype=batch.y.dtype, device=batch.y.device),
+            )
 
 
 def get_equiload_dataloader(
@@ -90,4 +137,4 @@ def get_equiload_dataloader(
         drop=args.batch_drop,
         seed=args.seed,
     )
-    return EquiLoadGraphLoader(native_loader, torch.device(device))
+    return EquiLoadGraphLoader(native_loader, torch.device(device), files)

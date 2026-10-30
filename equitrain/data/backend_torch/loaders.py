@@ -17,6 +17,15 @@ from .loaders_reaction import (
 )
 
 
+class IndexedConcatDataset(torch.utils.data.ConcatDataset):
+    """Keep graph indices in the coordinate system of the combined dataset."""
+
+    def __getitem__(self, index):
+        data = super().__getitem__(index)
+        data.idx = index if index >= 0 else len(self) + index
+        return data
+
+
 def _should_pin_memory(requested: bool, accelerator: Accelerator | None) -> bool:
     if not requested:
         return False
@@ -156,7 +165,7 @@ def get_dataloader(
     if len(datasets) == 1:
         data_set = datasets[0]
     else:
-        data_set = torch.utils.data.ConcatDataset(datasets)
+        data_set = IndexedConcatDataset(datasets)
 
     reaction_grouping = relative_reaction_losses_enabled(args)
     reaction_group_ids = None

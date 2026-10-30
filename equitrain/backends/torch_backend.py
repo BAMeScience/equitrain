@@ -1,6 +1,8 @@
 import time
 import warnings
 from collections.abc import Iterable
+from contextlib import nullcontext
+from itertools import islice
 
 import torch
 from accelerate import Accelerator, DistributedDataParallelKwargs
@@ -30,7 +32,7 @@ from .torch_loss_metrics import BestMetric, LossMetrics
 from .torch_model import get_model
 from .torch_optimizer import create_optimizer, update_weight_decay
 from .torch_scheduler import SchedulerWrapper, create_scheduler
-from .torch_utils import set_dtype, set_seeds
+from .torch_utils import accumulate_errors, reduce_errors, set_dtype, set_seeds
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
@@ -68,10 +70,11 @@ def fix_gradients(args, model: torch.nn.Module, accelerator: Accelerator):
 def forward_and_backward(
     model,
     data,
-    data_list,
+    normalizers,
     i_,
     step,
     errors,
+    error_counts,
     loss_fn,
     loss_collection,
     accelerator,
@@ -83,10 +86,14 @@ def forward_and_backward(
     loss, error = loss_fn(y_pred, data)
 
     try:
-        # Backpropagate here to prevent out-of-memory errors, gradients
-        # will be accumulated. Since we accumulate gradients over sub-batches,
-        # we have to rescale before the backward pass
-        accelerator.backward(loss.main['total'].value / len(data_list))
+        # Preserve the whole-batch objective even when graph/atom/reaction counts
+        # differ between sub-batches or ranks. DDP averages the resulting gradients.
+        objective = sum(
+            weight * loss.main[key].value * loss.main[key].n / normalizers[key]
+            for key, weight in loss_fn.main.weights.items()
+            if weight > 0
+        )
+        accelerator.backward(objective * accelerator.num_processes)
 
     except torch.OutOfMemoryError:
         logger.log(
@@ -96,10 +103,10 @@ def forward_and_backward(
         )
         torch.cuda.empty_cache()
 
+    loss.main = loss.main.detach()
     loss_collection += loss
 
-    error = error.to(dtype=errors.dtype, device=errors.device)
-    errors[data.idx] = error
+    accumulate_errors(errors, error_counts, data.idx, error)
 
 
 def train_one_epoch(
@@ -121,25 +128,43 @@ def train_one_epoch(
 
     start_time = time.perf_counter()
 
-    if errors is None:
-        errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
-    else:
+    previous_errors = errors
+    if errors is not None:
         dataloader = dataloader_update_errors(
             args, dataloader, errors, accelerator, logger
         )
 
-    if args.train_max_steps is None:
-        total = len(dataloader)
-    else:
-        total = args.train_max_steps
+    errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
+    error_counts = torch.zeros_like(errors)
+    total = len(dataloader)
+    if args.train_max_steps is not None:
+        total = max(0, min(total, args.train_max_steps))
 
     with tqdm(
-        enumerate(dataloader),
+        enumerate(islice(dataloader, total)),
         total=total,
         disable=not args.tqdm or not accelerator.is_main_process,
         desc='Training',
     ) as pbar:
         for step, data_list in pbar:
+            keys = list(loss_fn.main.weights)
+            counts = torch.zeros(len(keys) + 1, device=accelerator.device)
+            counts[0] = bool(data_list)
+            for data in data_list:
+                component_counts = loss_fn.main.component_counts(data)
+                counts[1:] += torch.stack([component_counts[key] for key in keys])
+            counts = accelerator.reduce(counts, reduction='sum')
+            if counts[0].item() < accelerator.num_processes:
+                # Every rank must make the same decision before entering DDP.
+                logger.log(
+                    1,
+                    f'Skipping batch {step} on all ranks: no graphs remain on at least one rank.',
+                )
+                continue
+            if counts[1:].sum().item() == 0:
+                continue
+            normalizers = dict(zip(keys, counts[1:].clamp_min(1), strict=True))
+
             # Compute a collection of loss metrics for monitoring purposes
             loss_collection = LossCollection(
                 args.loss_monitor, device=accelerator.device
@@ -147,40 +172,27 @@ def train_one_epoch(
             # Reset gradients
             optimizer.zero_grad()
 
-            # Sub-batching causes deadlocks when the number of sub-batches varies between
-            # processes. We need to loop over sub-batches withouth sync
-            with accelerator.no_sync(model):
-                for i_, data in enumerate(data_list):
-                    # Break before last forward/backward pass
-                    if i_ + 1 == len(data_list):
-                        break
-
+            # Only the last sub-batch synchronizes, independently of local counts.
+            for i_, data in enumerate(data_list):
+                sync_context = (
+                    nullcontext()
+                    if i_ + 1 == len(data_list)
+                    else accelerator.no_sync(model)
+                )
+                with sync_context:
                     forward_and_backward(
                         model,
                         data,
-                        data_list,
+                        normalizers,
                         i_,
                         step,
                         errors,
+                        error_counts,
                         loss_fn,
                         loss_collection,
                         accelerator,
                         logger,
                     )
-
-            # Do final pass here to sync processes
-            forward_and_backward(
-                model,
-                data,
-                data_list,
-                i_,
-                step,
-                errors,
-                loss_fn,
-                loss_collection,
-                accelerator,
-                logger,
-            )
 
             # Handle NaN/Inf values and clip gradients
             fix_gradients(args, model, accelerator)
@@ -220,18 +232,9 @@ def train_one_epoch(
                         f'Training (lr={optimizer.param_groups[0]["lr"]:.0e}, loss={loss_metrics.main["total"].avg:.04g})'
                     )
 
-            # Stop training if maximum number of steps is defined and reached
-            if step >= total:
-                break
-
     # Reset gradients
     optimizer.zero_grad()
-    # Sum local errors across all processes
-    accelerator.reduce(errors, reduction='sum')
-
-    # Copy average weights to model
-    if model_ema is not None:
-        model_ema.copy_to(model.parameters())
+    errors = reduce_errors(errors, error_counts, accelerator, previous_errors)
 
     return loss_metrics, errors
 
@@ -310,6 +313,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             accelerator=accelerator,
             dataloader=train_loader,
             desc='Estimating errors',
+            model_ema=model_ema,
         )
     else:
         errors = None
@@ -327,6 +331,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             accelerator=accelerator,
             dataloader=val_loader,
             max_steps=args.valid_max_steps,
+            model_ema=model_ema,
         )
 
         if args.epochs_start > 1:
@@ -365,6 +370,7 @@ def _train_with_accelerator(args, accelerator: Accelerator):
             accelerator=accelerator,
             dataloader=val_loader,
             max_steps=args.valid_max_steps,
+            model_ema=model_ema,
         )
 
         update_val_result = best_metrics.update(valid_loss.main, epoch)
@@ -410,6 +416,11 @@ def _train_with_accelerator(args, accelerator: Accelerator):
                 )
 
             last_lr = lr_scheduler.get_last_lr()[0]
+
+    # Training and resumable checkpoints retain raw weights. Once optimization
+    # is finished, expose the averaged model for final testing and API callers.
+    if model_ema is not None:
+        model_ema.copy_to(model.parameters())
 
     if test_loader is not None:
         # evaluate on the whole testing set

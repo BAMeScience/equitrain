@@ -58,6 +58,10 @@ weights such as `energy_weight`, `forces_weight`, and `stress_weight`. Missing
 targets are written with zero target weights during preprocessing; global CLI
 loss weights still control which losses are requested.
 
+Torch losses apply these per-configuration weights and exclude zero-weight
+targets from each component's average. Both the Python and EquiLoad loader
+adapters preserve these weights.
+
 ## Optimizers
 
 `--opt` selects the Torch optimizer. Supported names are:
@@ -109,6 +113,13 @@ equitrain ... --ema --ema-decay 0.999
 
 Torch checkpoints write EMA state to `ema.bin` when EMA is enabled. JAX
 checkpoints write `ema_params.msgpack`.
+
+Torch validation uses the averaged parameters while optimization continues from
+the raw parameters. Checkpoints retain raw model weights and optimizer state
+for resuming. `equitrain-export` applies the separately saved moving average
+when present. The Python checkpoint loader supports
+`load_checkpoint(..., use_ema=True)` for inference; its default loads raw weights
+for training.
 
 ## Checkpoints
 
@@ -182,6 +193,11 @@ This is lower-level than the Delta, Freeze, and LoRA wrappers described in
 Torch workflows normally use `--batch-size`. Optional graph caps
 `--batch-max-nodes` and `--batch-max-edges` split large collated batches; with
 `--batch-drop`, individual graphs exceeding the cap are dropped.
+
+Torch sub-batches are normalized by each loss component's labeled element count,
+including across distributed ranks. If filtering removes every graph from a
+training batch on one rank, all ranks skip that batch together and log the skip
+to keep distributed training synchronized.
 
 JAX train/evaluate workflows require `--batch-max-edges`; the loader infers
 fixed padded shapes from the data and edge cap. JAX prediction also accepts
