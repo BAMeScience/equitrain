@@ -48,7 +48,8 @@ dev = [
 docu = [
   "mkdocs",
   "mkdocs-material",
-  "pymdown-extensions",
+  # PyMdown 12.2 changes the highlighter API used by mkdocstrings on Python 3.10.
+  "pymdown-extensions<12.2",
   "mkdocs-click",
   "mkdocstrings[python]",
   "torch>=2.0.0",

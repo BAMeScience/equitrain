@@ -27,7 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        uv pip install -e '.[dev]'
+        uv pip install -e '.[dev,torch]' 'setuptools>=77' wheel
     # - name: mypy
     #   run: |
     #     python -m mypy --ignore-missing-imports --follow-imports=silent --no-strict-optional equitrain tests
@@ -41,10 +41,9 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/checkout@v4
       with:
-        repository: lutfia95/RTorch
-        # Pin the native ABI dependency. Update this only after the referenced
-        # EquiLoad commit has been merged/released and pushed to GitHub.
-        ref: 2beef89beafa485314fc6ec92333682125b975ec
+        repository: BAMeScience/EquiLoad
+        # EquiLoad v0.1.0, including global indices for multi-file datasets.
+        ref: 781f96b3081185a0580dbdcaf004696bc456e164
         path: equiload
     - uses: actions/setup-python@v5
       with:
@@ -64,7 +63,7 @@ jobs:
     - name: Test the optional EquiLoad integration
       run: |
         . .venv/bin/activate
-        python -m pytest -q tests/test_equiload_loader.py
+        python -m pytest -q tests/test_equiload_loader.py tests/test_equiload_loader_optional.py
   build-and-install:
     runs-on: ubuntu-latest
     steps:
