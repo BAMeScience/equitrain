@@ -26,4 +26,19 @@ def set_dtype(dtype_str: str) -> None:
             raise ArgumentError('invalid dtype')
 
 
-__all__ = ['set_seeds', 'set_dtype']
+def accumulate_errors(errors, counts, indices, values):
+    indices = torch.as_tensor(indices, device=errors.device).reshape(-1)
+    values = values.detach().to(errors).reshape(-1).expand_as(indices)
+    errors.index_add_(0, indices, values)
+    counts.index_add_(0, indices, torch.ones_like(values))
+
+
+def reduce_errors(errors, counts, accelerator, previous=None):
+    """Average repeated samples and combine errors from every process."""
+    errors = accelerator.reduce(errors, reduction='sum')
+    counts = accelerator.reduce(counts, reduction='sum')
+    fallback = torch.zeros_like(errors) if previous is None else previous
+    return torch.where(counts > 0, errors / counts.clamp_min(1), fallback)
+
+
+__all__ = ['set_seeds', 'set_dtype', 'accumulate_errors', 'reduce_errors']

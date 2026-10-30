@@ -139,24 +139,20 @@ class ReactionGraphCollater:
             elif self._drop_oversized(unit_node_sum, unit_edge_sum):
                 continue
 
-            if current_batch:
-                if (
+            if current_batch and (
+                (
                     self.max_nodes is not None
                     and current_node_sum + unit_node_sum > self.max_nodes
-                ):
-                    dynamic_batches.append(self.collate_fn(current_batch))
-                    current_batch = []
-                    current_node_sum = 0
-                    current_edge_sum = 0
-
-                if (
+                )
+                or (
                     self.max_edges is not None
                     and current_edge_sum + unit_edge_sum > self.max_edges
-                ):
-                    dynamic_batches.append(self.collate_fn(current_batch))
-                    current_batch = []
-                    current_node_sum = 0
-                    current_edge_sum = 0
+                )
+            ):
+                dynamic_batches.append(self.collate_fn(current_batch))
+                current_batch = []
+                current_node_sum = 0
+                current_edge_sum = 0
 
             current_batch.extend(unit)
             current_node_sum += unit_node_sum

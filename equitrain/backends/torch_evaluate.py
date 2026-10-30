@@ -2,6 +2,8 @@ import csv
 import json
 import warnings
 from collections.abc import Iterable
+from contextlib import nullcontext
+from itertools import islice
 from pathlib import Path
 
 import torch
@@ -16,7 +18,7 @@ from .torch_loss import LossCollection
 from .torch_loss_fn import LossFnCollection
 from .torch_loss_metrics import LossMetrics
 from .torch_model import get_model
-from .torch_utils import set_dtype
+from .torch_utils import accumulate_errors, reduce_errors, set_dtype
 
 warnings.filterwarnings('ignore', message=r'.*TorchScript type system.*')
 
@@ -80,27 +82,41 @@ def evaluate_main(
     dataloader: Iterable,
     max_steps: int = None,
     desc: str = 'Evaluating',
+    model_ema=None,
 ):
     loss_fn = LossFnCollection(**vars(args))
 
     model.eval()
+    # Evaluation may have different numbers of surviving sub-batches per rank.
+    # DDP buffer broadcasts require matching forwards; gradients are not being
+    # reduced here, so use the synchronized local module directly.
+    evaluation_model = (
+        model.module
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel)
+        else model
+    )
 
     loss_metrics = LossMetrics(args)
 
     errors = torch.zeros(len(dataloader.dataset), device=accelerator.device)
+    error_counts = torch.zeros_like(errors)
 
-    if max_steps is None:
-        total = len(dataloader)
-    else:
-        total = max_steps
+    total = len(dataloader)
+    if max_steps is not None:
+        total = max(0, min(total, max_steps))
 
-    with tqdm(
-        dataloader,
-        total=total,
-        disable=not args.tqdm or not accelerator.is_main_process,
-        desc=desc,
-    ) as pbar:
-        for step, data_list in enumerate(pbar):
+    with (
+        model_ema.average_parameters(model.parameters())
+        if model_ema is not None
+        else nullcontext(),
+        tqdm(
+            islice(dataloader, total),
+            total=total,
+            disable=not args.tqdm or not accelerator.is_main_process,
+            desc=desc,
+        ) as pbar,
+    ):
+        for data_list in pbar:
             # Compute a collection of loss metrics for monitoring purposes
             loss_collection = LossCollection(
                 args.loss_monitor, device=accelerator.device
@@ -108,14 +124,13 @@ def evaluate_main(
 
             with accelerator.no_sync(model):
                 for data in data_list:
-                    y_pred = model(data)
+                    y_pred = evaluation_model(data)
 
                     loss, error = loss_fn(y_pred, data)
 
                     if loss.main.isfinite():
                         loss_collection += loss
-                        error = error.to(dtype=errors.dtype, device=errors.device)
-                        errors[data.idx] = error
+                        accumulate_errors(errors, error_counts, data.idx, error)
 
             # Gather loss across processes for computing metrics
             loss_for_metrics = loss_collection.gather_for_metrics(accelerator)
@@ -127,12 +142,7 @@ def evaluate_main(
                     f'{desc} (loss={loss_metrics.main["total"].avg:.04g})'
                 )
 
-            # Stop evaluating if maximum number of steps is defined and reached
-            if step >= total:
-                break
-
-    # Sum local errors across all processes
-    accelerator.reduce(errors, reduction='sum')
+    errors = reduce_errors(errors, error_counts, accelerator)
 
     return loss_metrics, errors
 

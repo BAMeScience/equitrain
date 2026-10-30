@@ -54,6 +54,36 @@ pip install -e '.[docu]'
 mkdocs serve
 ```
 
+## Optional EquiLoad HDF5 Loader
+
+Equitrain's portable PyTorch/PyG loader remains the default.
+[EquiLoad](https://github.com/BAMeScience/EquiLoad) is a separately installed native
+extension. This integration is tested with the `v0.1.0` release. Build it against
+the exact Torch installation in the Equitrain environment, because PyTorch's C++
+ABI is not stable between Torch releases:
+
+```bash
+git clone --branch v0.1.0 https://github.com/BAMeScience/EquiLoad.git equiload
+cd equiload
+bash scripts/install-python.sh --venv /path/to/equitrain/.venv
+cd ..
+equitrain --backend torch --torch-loader equiload ...
+```
+
+Use the tagged release when building EquiLoad. Earlier development checkouts
+also reported version `0.1.0` but lacked the global sample-index fix required
+for correct multi-file loading. Rebuild those older installations from the tag.
+
+Do not install a wheel built in another environment. EquiLoad is CPU-side; Equitrain
+moves its returned batches to the active accelerator device. It currently requires
+Torch 2.6 through 2.14; the standard Python loader remains available for other
+supported Equitrain Torch versions.
+
+The EquiLoad loader is currently single-process and does not support weighted resampling or
+relative reaction losses. It returns the same nested PyG batch structure as the standard
+loader and moves batches to Equitrain's active accelerator device. Without `equiload`
+installed, the default `--torch-loader python` requires no Rust tooling.
+
 ## Installation
 
 ```bash

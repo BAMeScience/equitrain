@@ -26,9 +26,6 @@ class LossMetric(dict):
             'barrier': float(getattr(args, 'barrier_weight', 0.0)),
             'reaction_energy': float(getattr(args, 'reaction_energy_weight', 0.0)),
         }
-        self._use_composite_total = (
-            self['barrier'] is not None or self['reaction_energy'] is not None
-        )
 
     def update(self, loss):
         self['total'].update(
@@ -56,8 +53,9 @@ class LossMetric(dict):
                 loss['reaction_energy'].value.detach().item(),
                 n=loss['reaction_energy'].n.detach().item(),
             )
-        if self._use_composite_total:
-            self['total'].avg = self._composite_total()
+        # Components can have different counts (atoms, labeled graphs, reactions).
+        self['total'].avg = self._composite_total()
+        self['total'].sum = self['total'].avg * self['total'].count
 
     def _composite_total(self) -> float:
         total = 0.0

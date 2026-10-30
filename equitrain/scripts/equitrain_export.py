@@ -221,7 +221,7 @@ def _export(args):
     model = _wrap_for_fine_tune_export(args, model, state_dict, logger)
 
     # Import model weights from a checkpoint if requested.
-    if not load_checkpoint(args, model, logger=logger)[0]:
+    if not load_checkpoint(args, model, logger=logger, use_ema=True)[0]:
         logger.log(1, 'No checkpoint found, using initial model')
 
     _save_exported_model(model, args.model_export)

@@ -76,6 +76,15 @@ class AtomsToGraphs:
             node_attrs=node_attrs,
             atomic_numbers=atomic_numbers,
             natoms=natoms,
+            energy_weight=torch.tensor(
+                _info_float(atoms, 'energy_weight', default=1.0), dtype=dtype
+            ),
+            forces_weight=torch.tensor(
+                _info_float(atoms, 'forces_weight', default=1.0), dtype=dtype
+            ),
+            stress_weight=torch.tensor(
+                _info_float(atoms, 'stress_weight', default=1.0), dtype=dtype
+            ),
             tags=tags,
             total_charge=torch.tensor(
                 _info_float(atoms, 'total_charge', 'charge', default=0.0),

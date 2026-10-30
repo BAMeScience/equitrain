@@ -11,8 +11,12 @@ from equitrain.utility_test import MaceWrapper
 from equitrain.utility_test.mace_support import get_mace_model_path
 
 
-def test_mace_predict(tmp_path):
+@pytest.mark.parametrize('torch_loader', ['python', 'equiload'])
+def test_mace_predict(tmp_path, torch_loader):
+    if torch_loader == 'equiload':
+        pytest.importorskip('equiload')
     args = get_args_parser_evaluate().parse_args([])
+    args.torch_loader = torch_loader
 
     data_dir = Path(__file__).with_name('data')
     args.test_file = str(data_dir / 'valid.h5')
@@ -42,4 +46,4 @@ if __name__ == '__main__':
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        test_mace_predict(Path(tmp_dir))
+        test_mace_predict(Path(tmp_dir), 'python')

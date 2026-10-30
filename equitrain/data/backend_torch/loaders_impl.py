@@ -32,24 +32,20 @@ class DynamicGraphCollater:
             ):
                 continue
 
-            if current_batch:
-                if (
+            if current_batch and (
+                (
                     self.max_nodes is not None
                     and current_node_sum + item.num_nodes > self.max_nodes
-                ):
-                    dynamic_batches.append(self.collate_fn(current_batch))
-                    current_batch = []
-                    current_node_sum = 0
-                    current_edge_sum = 0
-
-                if (
+                )
+                or (
                     self.max_edges is not None
                     and current_edge_sum + item.num_edges > self.max_edges
-                ):
-                    dynamic_batches.append(self.collate_fn(current_batch))
-                    current_batch = []
-                    current_node_sum = 0
-                    current_edge_sum = 0
+                )
+            ):
+                dynamic_batches.append(self.collate_fn(current_batch))
+                current_batch = []
+                current_node_sum = 0
+                current_edge_sum = 0
 
             current_batch.append(item)
             current_node_sum += item.num_nodes
@@ -74,6 +70,7 @@ class DynamicGraphLoader(torch_geometric.loader.DataLoader):
         **kwargs,
     ):
         if errors is not None:
+            errors = errors.clone()
             if errors_threshold is not None:
                 errors[errors >= errors_threshold] = 0.0
             errors[errors == 0.0] = errors.mean()

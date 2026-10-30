@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from equitrain import get_args_parser_export
-from equitrain.backends.torch_checkpoint import save_checkpoint
+from equitrain.backends.torch_checkpoint import load_checkpoint, save_checkpoint
 from equitrain.backends.torch_wrappers.base import AbstractWrapper
 from equitrain.finetune._torch_common import uniquify_empty_tensor_storage
 from equitrain.finetune.delta_torch import DeltaFineTuneWrapper
@@ -119,6 +119,50 @@ class _FakeAccelerator:
 
     def unwrap_model(self, model):
         return model
+
+
+def test_ema_checkpoint_resumes_raw_weights_and_exports_averaged_weights(tmp_path):
+    from torch_ema import ExponentialMovingAverage
+
+    model = _build_wrapper(1.0)
+    ema = ExponentialMovingAverage(model.parameters(), decay=0.9)
+    with torch.no_grad():
+        model.model.weight.fill_(3.0)
+    ema.update()
+    expected_ema = ema.shadow_params[0].clone()
+    args = SimpleNamespace(output_dir=str(tmp_path), verbose=0)
+    checkpoint = save_checkpoint(
+        args,
+        1,
+        {'total': SimpleNamespace(avg=0.1)},
+        ema,
+        _FakeAccelerator(model),
+        FileLogger(log_to_file=False, enable_logging=False, verbosity=0),
+        model=model,
+    )
+    resumed = _build_wrapper(0.0)
+    resumed_ema = ExponentialMovingAverage(resumed.parameters(), decay=0.9)
+    args.load_checkpoint = str(checkpoint)
+    load_checkpoint(args, resumed, resumed_ema)
+    torch.testing.assert_close(resumed.model.weight, model.model.weight)
+    torch.testing.assert_close(resumed_ema.shadow_params[0], expected_ema)
+
+    base_path = tmp_path / 'base.model'
+    export_path = tmp_path / 'export.model'
+    torch.save(_build_wrapper(0.0), base_path)
+    export_args = get_args_parser_export().parse_args(
+        [
+            '--model',
+            str(base_path),
+            '--load-checkpoint',
+            str(checkpoint),
+            '--model-export',
+            str(export_path),
+        ]
+    )
+    export(export_args)
+    exported = torch.load(export_path, weights_only=False)
+    torch.testing.assert_close(exported.weight, expected_ema)
 
 
 def _build_wrapper(weight: float) -> _WrappedLinear:

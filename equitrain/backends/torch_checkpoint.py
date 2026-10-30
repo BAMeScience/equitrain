@@ -171,6 +171,8 @@ def load_checkpoint(
     model_ema: ExponentialMovingAverage = None,
     accelerator: Accelerator = None,
     logger: FileLogger = None,
+    *,
+    use_ema: bool = False,
 ):
     if logger is None:
         logger = FileLogger(
@@ -272,6 +274,13 @@ def load_checkpoint(
     if args_path is not None and args_path.exists():
         with open(args_path) as f:
             args_checkpoint = json.load(f)
+
+    if use_ema and result and args_path is not None:
+        ema_path = args_path.parent / 'ema.bin'
+        if ema_path.exists():
+            inference_ema = ExponentialMovingAverage(model.parameters(), decay=0.0)
+            _load_ema_state(inference_ema, ema_path, model)
+            inference_ema.copy_to(model.parameters())
 
     if hasattr(args, 'epochs_start'):
         args.epochs_start = epochs_start

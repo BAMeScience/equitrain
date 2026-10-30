@@ -17,6 +17,15 @@ from .loaders_reaction import (
 )
 
 
+class IndexedConcatDataset(torch.utils.data.ConcatDataset):
+    """Keep graph indices in the coordinate system of the combined dataset."""
+
+    def __getitem__(self, index):
+        data = super().__getitem__(index)
+        data.idx = index if index >= 0 else len(self) + index
+        return data
+
+
 def _should_pin_memory(requested: bool, accelerator: Accelerator | None) -> bool:
     if not requested:
         return False
@@ -44,6 +53,12 @@ def dataloader_update_errors(
     accelerator: Accelerator = None,
     logger: FileLogger = None,
 ):
+    if getattr(dataloader, '_uses_equiload', False):
+        raise RuntimeError(
+            'Weighted resampling is not supported by --torch-loader equiload; '
+            'use --torch-loader python.'
+        )
+
     pin_memory = _should_pin_memory(args.pin_memory, accelerator)
     num_workers = _resolve_num_workers(args.num_workers, accelerator)
 
@@ -117,6 +132,28 @@ def get_dataloader(
     files = _expand_hdf5_paths(data_file)
     if not files:
         raise ValueError('No HDF5 files found for the provided data_file input.')
+
+    if getattr(args, 'torch_loader', 'python') == 'equiload':
+        if relative_reaction_losses_enabled(args):
+            raise RuntimeError(
+                '--torch-loader equiload does not support relative reaction losses; '
+                'use --torch-loader python.'
+            )
+        if getattr(args, 'weighted_sampler', False):
+            raise RuntimeError(
+                '--torch-loader equiload does not support weighted resampling; '
+                'use --torch-loader python.'
+            )
+        from .equiload_loader import get_equiload_dataloader
+
+        return get_equiload_dataloader(
+            files=files,
+            atomic_numbers=atomic_numbers,
+            r_max=r_max,
+            args=args,
+            accelerator=accelerator,
+        )
+
     datasets = [
         HDF5GraphDataset(
             path,
@@ -128,7 +165,7 @@ def get_dataloader(
     if len(datasets) == 1:
         data_set = datasets[0]
     else:
-        data_set = torch.utils.data.ConcatDataset(datasets)
+        data_set = IndexedConcatDataset(datasets)
 
     reaction_grouping = relative_reaction_losses_enabled(args)
     reaction_group_ids = None
