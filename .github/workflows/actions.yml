@@ -27,7 +27,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        uv pip install -e '.[dev,torch]' 'setuptools>=77' wheel
+        uv pip install -e '.[dev,torch,jax]' 'setuptools>=77' wheel
     # - name: mypy
     #   run: |
     #     python -m mypy --ignore-missing-imports --follow-imports=silent --no-strict-optional equitrain tests
