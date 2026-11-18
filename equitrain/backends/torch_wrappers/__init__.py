@@ -16,6 +16,7 @@ __all__ = [
     'OrbWrapper',
     'AniWrapper',
     'M3GNetWrapper',
+    'GraceWrapper',
     'available_wrappers',
 ]
 
@@ -25,6 +26,7 @@ _MODULE_MAP: dict[str, str] = {
     'OrbWrapper': 'orb',
     'AniWrapper': 'ani',
     'M3GNetWrapper': 'm3gnet',
+    'GraceWrapper': 'grace',
 }
 
 _CACHE: dict[str, object] = {}

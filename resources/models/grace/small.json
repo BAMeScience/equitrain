@@ -1,0 +1,17 @@
+{
+  "atomic_numbers": [1, 8],
+  "r_max": 5.0,
+  "lmax": 2,
+  "max_order": 4,
+  "n_rad_base": 8,
+  "n_rad_max": 16,
+  "prod_func_n_max": 16,
+  "embedding_size": 32,
+  "n_mlp_dens": 8,
+  "radial_hidden": [32, 32],
+  "readout_hidden": [32],
+  "cutoff_order": 16,
+  "avg_n_neigh": 1.0,
+  "energy_scale": 1.0,
+  "atomic_energies": [0.0, 0.0]
+}

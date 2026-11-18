@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from equitrain.backends.torch_wrappers import (
         AbstractWrapper,
         AniWrapper,
+        GraceWrapper,
         M3GNetWrapper,
         MaceWrapper,
         OrbWrapper,

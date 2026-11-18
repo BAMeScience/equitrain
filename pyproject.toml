@@ -195,6 +195,9 @@ disable_error_code = "import, annotation-unchecked"
 where = ["."]
 include = ["equitrain", "equitrain.*"]
 
+[tool.setuptools.package-data]
+"equitrain.models.grace" = ["couplings.json", "LICENSE.md"]
+
 [tool.equitrain]
 conda_env_file = "environment.yml"
 

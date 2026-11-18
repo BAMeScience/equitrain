@@ -95,7 +95,10 @@ def add_model_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     parser.add_argument('--model', help='Path to a model file', type=str, default=None)
     parser.add_argument(
-        '--model-wrapper', help='Model wrapper class [mace]', type=str, default=None
+        '--model-wrapper',
+        help='Model wrapper class [mace, ani, orb, sevennet, m3gnet, grace (Torch)]',
+        type=str,
+        default=None,
     )
     parser.add_argument(
         '--r-max',

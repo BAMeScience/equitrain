@@ -16,6 +16,10 @@ adapters.
 | `orb` | Torch | ORB model object or checkpoint. |
 | `ani` | Torch, JAX | TorchANI model/checkpoint or JAX-native ANI bundle. |
 | `m3gnet` | Torch, JAX | MatGL-backed Torch model or JAX-native M3GNet bundle. |
+| `grace` | Torch | Native GRACE-1L JSON configuration or exported Torch model (ASL). |
+
+See [Native GRACE-1L](grace.md) for its supported architecture, training from
+scratch, validation commands, and license.
 
 ## MACE
 

@@ -80,6 +80,7 @@ nav:
       - Python API: python-api.md
       - API Reference: api-reference.md
       - Model Wrappers: model-wrappers.md
+      - Native GRACE-1L: grace.md
       - JAX Bundles: jax-bundles.md
       - Calculators: calculators.md
   - Resources: resources.md

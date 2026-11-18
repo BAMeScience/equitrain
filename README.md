@@ -8,6 +8,7 @@ checkpoints, and running evaluation or prediction through one CLI/API.
 
 - Unified Torch and JAX training entry points.
 - Model wrappers for MACE, SevenNet, ORB, ANI, and M3GNet.
+- Native Torch GRACE-1L training from scratch (ASL; see [scope and usage](docs/grace.md)).
 - Native HDF5 preprocessing for large atomistic datasets.
 - Torch reaction-relative losses for barrier and reaction energies.
 - Fine-tuning adapters for Delta/L<sup>2</sup>-SP, Freeze, and LoRA workflows.
@@ -22,6 +23,7 @@ checkpoints, and running evaluation or prediction through one CLI/API.
 | `orb` | Torch | [`orbital-materials/orb-models`](https://github.com/orbital-materials/orb-models) | Torch ORB force-field models. |
 | `ani` | Torch, JAX | [`aiqm/torchani`](https://github.com/aiqm/torchani) | Torch uses TorchANI; JAX uses a JAX-native bundle. |
 | `m3gnet` | Torch, JAX | [`materialsvirtuallab/matgl`](https://github.com/materialsvirtuallab/matgl) | Torch uses MatGL; JAX uses a JAX-native bundle. |
+| `grace` | Torch | Native GRACE-1L adaptation | [Train from JSON configuration](docs/grace.md); academic noncommercial ASL license. |
 
 For MACE, use [`mace-model`](https://github.com/bamescience/mace-model) for
 model construction/conversion and `equitrain` for preprocessing, training,

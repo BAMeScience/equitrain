@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import torch
 
@@ -8,8 +9,16 @@ from . import torch_wrappers as _torch_wrappers
 
 
 def get_model(args, logger=None):
+    wrapper_name = str(getattr(args, 'model_wrapper', '') or '').strip().lower()
     if isinstance(args.model, torch.nn.Module):
         model = args.model
+    elif wrapper_name == 'grace' and Path(args.model).suffix.lower() == '.json':
+        from equitrain.models.grace import Grace1L
+
+        dtype_name = getattr(args, 'dtype', 'float64')
+        if dtype_name not in ('float32', 'float64'):
+            raise ValueError('Native GRACE supports float32 and float64.')
+        model = Grace1L.from_json(args.model).to(dtype=getattr(torch, dtype_name))
     else:
         model = torch.load(args.model, weights_only=False)
 
@@ -23,7 +32,6 @@ def get_model(args, logger=None):
         if not hasattr(args, 'stress_weight'):
             setattr(args, 'stress_weight', 0.0)
 
-        wrapper_name = str(getattr(args, 'model_wrapper', '') or '').strip().lower()
         if wrapper_name == 'ani':
             model = _torch_wrappers.AniWrapper(args, model)
         elif wrapper_name == 'mace':
@@ -34,10 +42,12 @@ def get_model(args, logger=None):
             model = _torch_wrappers.SevennetWrapper(args, model)
         elif wrapper_name == 'm3gnet':
             model = _torch_wrappers.M3GNetWrapper(args, model)
+        elif wrapper_name == 'grace':
+            model = _torch_wrappers.GraceWrapper(args, model)
         else:
             raise ValueError(
                 f"Unsupported torch model_wrapper '{wrapper_name}'. "
-                'Use one of: mace, ani, orb, sevennet, m3gnet.'
+                'Use one of: mace, ani, orb, sevennet, m3gnet, grace.'
             )
 
     if hasattr(args, 'r_max') and args.r_max is not None:
