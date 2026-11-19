@@ -65,6 +65,7 @@ jax = [
   "jaxlib>=0.4",
   "flax",
   "jraph",
+    "optax",
 ]
 ani = [
   "torch>=2.0.0",

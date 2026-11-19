@@ -27,3 +27,5 @@ _version.py
 
 # distribution
 dist/
+
+grace-tensorpotential/

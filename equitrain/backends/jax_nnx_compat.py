@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from flax.core import FrozenDict
+
 try:  # pragma: no cover - optional dependency
     from mace_jax.nnx_config import ConfigDict as _MaceConfigDict
     from mace_jax.nnx_config import ConfigVar as _MaceConfigVar
@@ -128,11 +130,12 @@ def _restore_template_types(template: Any, values: Any) -> Any:
 
     value_items = _mapping_items(values)
     if isinstance(template, Mapping) and value_items is not None:
-        return {
+        restored = {
             resolved_key: _restore_template_types(template.get(resolved_key), val)
             for key, val in value_items
             for resolved_key in (_resolve_mapping_key(template, key),)
         }
+        return FrozenDict(restored) if isinstance(template, FrozenDict) else restored
 
     if isinstance(template, tuple) and hasattr(template, '_fields'):
         if isinstance(values, tuple | list):

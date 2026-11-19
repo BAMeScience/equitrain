@@ -17,10 +17,11 @@ import multiprocessing as mp
 import threading
 from bisect import bisect_right
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from queue import Empty, Full
 
+import jax
 import jraph
 import numpy as np
 
@@ -43,7 +44,7 @@ _RESULT_ERROR = 'error'
 _INDEX_GRAPH = 'graph'
 _INDEX_DONE = 'done'
 _INDEX_STOP = 'stop'
-_CONVERTER_CACHE: dict[tuple[float, tuple[int, ...]], AtomsToGraphs] = {}
+_CONVERTER_CACHE: dict[tuple[float, tuple[int, ...], str], AtomsToGraphs] = {}
 
 
 class BatchIteratorWrapper:
@@ -76,6 +77,9 @@ class StreamingDatasetSpec:
     virials_key: str = 'virials'
     dipole_key: str = 'dipole'
     charges_key: str = 'charges'
+    dtype: str = field(
+        default_factory=lambda: 'float64' if jax.config.x64_enabled else 'float32'
+    )
 
 
 @dataclass(frozen=True)
@@ -106,13 +110,14 @@ def _atoms_to_graph(
     niggli_reduce: bool,
 ):
     """Convert an ASE atoms object into a jraph GraphsTuple."""
-    cache_key = (float(cutoff), tuple(int(z) for z in z_table))
+    cache_key = (float(cutoff), tuple(int(z) for z in z_table), spec.dtype)
     converter = _CONVERTER_CACHE.get(cache_key)
     if converter is None:
         converter = AtomsToGraphs(
             atomic_numbers=list(z_table),
             r_max=float(cutoff),
             niggli_reduce=False,
+            dtype=spec.dtype,
         )
         _CONVERTER_CACHE[cache_key] = converter
     if niggli_reduce:

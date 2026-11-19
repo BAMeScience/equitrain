@@ -138,6 +138,13 @@ def load_model_bundle(
         module = graphdef
 
     params = serialization.from_bytes(params_template, params_path.read_bytes())
+    if wrapper_name == 'grace':
+        if dtype not in ('float32', 'float64'):
+            raise ValueError('Native JAX GRACE supports float32 and float64.')
+        params = jtu.tree_map(
+            lambda value: jnp.asarray(value, dtype=getattr(jnp, dtype)), params
+        )
+        module.validate_variables(params)
 
     return ModelBundle(config=config, params=params, module=module)
 

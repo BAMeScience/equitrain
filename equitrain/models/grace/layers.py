@@ -12,6 +12,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from .topology import mixer_layout, scalar_indices
+
 
 class NormalizedLinear(nn.Module):
     """Bias-free GRACE linear map, with explicit fan-in normalization."""
@@ -95,48 +97,23 @@ def chebyshev_radial(distances, cutoff, n_basis, order):
     return torch.stack(values, -1) * envelope.unsqueeze(-1)
 
 
-def _groups(meta):
-    groups = {}
-    for index, (degree, _m, history, parity, _sum_l) in enumerate(meta):
-        groups.setdefault((degree, parity, history), []).append(index)
-    return dict(sorted(groups.items()))
-
-
 class RightToLeft(nn.Module):
     """Channel mixing and equivariant residual addition (FCRight2Left)."""
 
     def __init__(self, left_meta, right_meta, n_left, n_right, n_out):
         super().__init__()
-        left_groups, right_groups = _groups(left_meta), _groups(right_meta)
-        left_tile = [0] * len(left_meta)
-        right_tile, collect_from, collect_to, norm = [], [], [], [0.0] * len(left_meta)
-        count = 0
-        for group_index, ((degree, parity, _), indices) in enumerate(
-            left_groups.items()
-        ):
-            matches = [
-                v
-                for (l_val, p, _), v in right_groups.items()
-                if l_val == degree and p == parity
-            ]
-            for i in indices:
-                left_tile[i] = group_index
-                norm[i] = (1 + len(matches)) ** -0.5
-            for right_indices in matches:
-                collect_to.extend(indices)
-                collect_from.extend(right_indices)
-                right_tile.extend([count] * len(indices))
-                count += 1
-        self.weight_left = nn.Parameter(torch.randn(n_out, n_left, len(left_groups)))
-        self.weight_right = nn.Parameter(torch.randn(n_out, n_right, count))
-        for name, value in [
-            ('left_tile', left_tile),
-            ('right_tile', right_tile),
-            ('collect_from', collect_from),
-            ('collect_to', collect_to),
-        ]:
-            self.register_buffer(name, torch.tensor(value, dtype=torch.long))
-        self.register_buffer('output_norm', torch.tensor(norm, dtype=torch.float64))
+        layout = mixer_layout(left_meta, right_meta)
+        self.weight_left = nn.Parameter(
+            torch.randn(n_out, n_left, layout['left_groups'])
+        )
+        self.weight_right = nn.Parameter(
+            torch.randn(n_out, n_right, layout['right_groups'])
+        )
+        for name in ('left_tile', 'right_tile', 'collect_from', 'collect_to'):
+            self.register_buffer(name, torch.tensor(layout[name], dtype=torch.long))
+        self.register_buffer(
+            'output_norm', torch.tensor(layout['output_norm'], dtype=torch.float64)
+        )
         self.norm_left, self.norm_right = n_left**-0.5, n_right**-0.5
 
     def forward(self, left, right):
@@ -181,12 +158,7 @@ class TensorProduct(nn.Module):
 class ScalarReduce(nn.Module):
     def __init__(self, meta, n_types, n_in, n_out):
         super().__init__()
-        indices = [
-            i
-            for _, group in _groups(meta).items()
-            for i in group
-            if meta[i][0] == 0 and meta[i][3] == 1
-        ]
+        indices = scalar_indices(meta)
         self.register_buffer('indices', torch.tensor(indices, dtype=torch.long))
         self.weight = nn.Parameter(torch.randn(n_types, n_out, n_in, len(indices)))
         self.norm = n_in**-0.5

@@ -1,8 +1,8 @@
-# Native Torch GRACE-1L
+# Native GRACE-1L: Torch and JAX
 
-Equitrain includes a native PyTorch implementation of the
+Equitrain includes native PyTorch and JAX implementations of the
 `GRACE_1LAYER_v2_25` architecture from the local TensorPotential 0.6.2.1
-reference. Use `--backend torch --model-wrapper grace` to train a new model.
+reference. Select `--backend torch` or `--backend jax` with `--model-wrapper grace`.
 TensorFlow and TensorPotential are not runtime dependencies. No pretrained
 weights are downloaded.
 
@@ -17,8 +17,10 @@ weights are downloaded.
   trainable per-element shifts.
 - Batched periodic structures, energy-derived forces and stress, including
   the mixed derivatives required for force/stress training.
-- Torch float32 and float64, ordinary Equitrain losses, checkpoints, export,
-  and prediction interfaces.
+- Float32 and float64, ordinary Equitrain losses, checkpoints, and prediction
+  interfaces; Torch export and portable JAX checkpoint bundles.
+- JAX JIT and higher derivatives, with explicit masking of padded graphs,
+  atoms, and bonds. The JAX implementation imports neither Torch nor TensorFlow.
 
 This initial implementation does not load upstream SavedModels, YAML models,
 or pretrained checkpoints. GRACE-2L/3L, alternate radial bases, pair-specific
@@ -26,7 +28,7 @@ cutoffs, ZBL repulsion, uncertainty, and LAMMPS export are outside its supported
 scope. Unknown JSON fields fail instead of being silently ignored. GPU speed
 and distributed training have not yet been benchmarked.
 
-## Train from scratch
+## Train from scratch with Torch
 
 Install Equitrain's existing Torch dependencies:
 
@@ -86,19 +88,75 @@ gradients. Use `model.train()` for differentiable derivative losses and
 `model.eval()` for prediction. Derivatives work inside `torch.no_grad()`, but
 not `torch.inference_mode()`.
 
+## Train from scratch with JAX
+
+Install the JAX extra, then initialize a bundle from the same architecture JSON
+used by Torch. Initialization is explicit: loading a bundle always loads saved
+parameters rather than silently generating new weights.
+
+```bash
+pip install -e '.[jax]'
+python -m equitrain.models.grace.jax_model \
+  --config resources/models/grace/small.json \
+  --output runs/grace-jax-initial --seed 42 --dtype float64
+
+equitrain \
+  --backend jax --model-wrapper grace \
+  --model runs/grace-jax-initial \
+  --train-file data/train.h5 --valid-file data/valid.h5 \
+  --output-dir runs/grace-jax --epochs 10 \
+  --batch-max-edges 2048 --num-workers 0 \
+  --dtype float64 --energy-weight 1 --forces-weight 1 --stress-weight 0
+```
+
+Choose `--batch-max-edges` for your structures and available memory; the JAX
+loader uses it to pack fixed-shape batches. Model bundles contain `config.json`
+and `params.msgpack`. Each best-validation checkpoint is also a portable bundle.
+Use a trained checkpoint directory as `--model` for JAX prediction/evaluation.
+To resume optimizer and model state, keep the original model bundle and add
+`--load-checkpoint PATH_TO_CHECKPOINT` to the training command.
+
+Float64 parameters require `jax_enable_x64`; Equitrain enables it when
+`--dtype float64` is selected. The GRACE graph adapter preserves geometry dtype,
+and the graph loader carries its dtype into worker processes. A missing or zero
+cell volume on a real structure raises in eager stress evaluation; compiled
+evaluation produces NaN for invalid real stress. Zero-volume padded cells
+produce zero stress and never enter the loss as real structures.
+
+A local native Torch model can also supply identical JAX weights:
+
+```python
+import jax
+from equitrain.models.grace import JaxGrace1L
+from equitrain.models.grace.jax_model import save_bundle
+
+jax.config.update('jax_enable_x64', True)
+jax_native = JaxGrace1L(torch_native.config)
+variables = jax_native.variables_from_torch(torch_native)
+save_bundle('grace-jax-local', jax_native.config, variables=variables)
+```
+
+Here `torch_native` is a local `Grace1L` instance, or the `.model` of a
+`GraceWrapper`. Conversion uses model parameters already in memory and performs
+no downloads. JAX computation and training do not import Torch.
+
 ## Validation
 
 The mandatory tests use small local models:
 
 ```bash
-python -m pytest tests/test_grace_torch.py tests/test_train_grace.py -q
+python -m pytest tests/test_grace_torch.py tests/test_train_grace.py \
+  tests/test_grace_jax.py tests/test_train_grace_jax.py -q
 ```
 
 They cover rotation/reflection, translation, atom permutation, independent
 batching, zero net force, coordinate-axis derivatives, finite-difference forces
 and periodic stress, cutoff smoothness, isolated atoms, derivative-only training,
 configuration validation, checkpoint/export, and shared prediction integration.
-The runtime test verifies that neither TensorFlow nor TensorPotential is imported.
+The runtime tests verify backend isolation. JAX checks compare all supported
+angular/correlation orders to identical local Torch weights, plus JIT energies,
+forces, stress, mixed parameter gradients, symmetry, finite differences, padded
+graphs, and training/checkpoint/resume/prediction through the real backend.
 
 An optional reference suite builds fresh TensorFlow models and copies identical
 random weights. It compares intermediate tensors, atomic energies, bond and

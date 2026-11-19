@@ -43,8 +43,10 @@ def graph_from_configuration(
     *,
     cutoff: float,
     z_table: AtomicNumberTable,
+    dtype=None,
 ) -> jraph.GraphsTuple:
-    positions = np.asarray(config.positions, dtype=np.float32)
+    dtype = np.dtype(dtype or (np.float64 if jax.config.x64_enabled else np.float32))
+    positions = np.asarray(config.positions, dtype=dtype)
     num_atoms = int(positions.shape[0])
     if num_atoms <= 0:
         raise ValueError('Configurations without atoms cannot be converted to graphs.')
@@ -52,40 +54,43 @@ def graph_from_configuration(
     atomic_numbers = np.asarray(config.atomic_numbers, dtype=np.int32)
     species = _species_indices(z_table, atomic_numbers)
 
-    forces = np.asarray(config.forces, dtype=np.float32)
+    forces = np.asarray(config.forces, dtype=dtype)
     if forces.shape != positions.shape:
-        forces = np.zeros_like(positions, dtype=np.float32)
+        forces = np.zeros_like(positions, dtype=dtype)
 
     charges = None
     if config.charges is not None:
-        charges = np.asarray(config.charges, dtype=np.float32).reshape(num_atoms, -1)
+        charges = np.asarray(config.charges, dtype=dtype).reshape(num_atoms, -1)
 
-    cell = _safe_cell(config.cell)
+    cell = _safe_cell(config.cell, dtype=dtype)
     pbc = tuple(bool(x) for x in (config.pbc or (False, False, False)))
     senders, receivers, shifts, unit_shifts = _build_edges(
         positions, cutoff, pbc=pbc, cell=cell
     )
 
+    scalar_array = lambda value: _scalar_array(value, dtype=dtype)
+    matrix_array = lambda value: _matrix_array(value, dtype=dtype)
+    vector_array = lambda value: _vector_array(value, dtype=dtype)
     globals_dict = _AttrDict(
         cell=cell[None, ...],
-        energy=_scalar_array(config.energy),
-        weight=_scalar_array(config.energy_weight),
-        energy_weight=_scalar_array(config.energy_weight),
-        forces_weight=_scalar_array(config.forces_weight),
-        stress_weight=_scalar_array(config.stress_weight),
-        virials_weight=_scalar_array(config.virials_weight),
-        dipole_weight=_scalar_array(config.dipole_weight),
-        stress=_matrix_array(_voigt_to_full(config.stress)),
-        virials=_matrix_array(config.virials),
-        dipole=_vector_array(config.dipole),
-        total_charge=_scalar_array(
+        energy=scalar_array(config.energy),
+        weight=scalar_array(config.energy_weight),
+        energy_weight=scalar_array(config.energy_weight),
+        forces_weight=scalar_array(config.forces_weight),
+        stress_weight=scalar_array(config.stress_weight),
+        virials_weight=scalar_array(config.virials_weight),
+        dipole_weight=scalar_array(config.dipole_weight),
+        stress=matrix_array(_voigt_to_full(config.stress)),
+        virials=matrix_array(config.virials),
+        dipole=vector_array(config.dipole),
+        total_charge=scalar_array(
             0.0 if config.total_charge is None else config.total_charge
         ),
-        total_spin=_scalar_array(
+        total_spin=scalar_array(
             1.0 if config.total_spin is None else config.total_spin
         ),
-        external_field=_vector_array(
-            np.zeros(3, dtype=np.float32)
+        external_field=vector_array(
+            np.zeros(3, dtype=dtype)
             if config.external_field is None
             else config.external_field
         ),
@@ -127,7 +132,7 @@ def _build_edges(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if positions.size == 0 or cutoff <= 0.0:
         empty = np.zeros((0,), dtype=np.int32)
-        zero_vec = np.zeros((0, 3), dtype=np.float32)
+        zero_vec = np.zeros((0, 3), dtype=positions.dtype)
         return empty, empty, zero_vec, zero_vec
 
     edge_index, shifts, unit_shifts, _ = get_neighborhood(
@@ -139,12 +144,12 @@ def _build_edges(
 
     if edge_index.size == 0:
         empty = np.zeros((0,), dtype=np.int32)
-        zero_vec = np.zeros((0, 3), dtype=np.float32)
+        zero_vec = np.zeros((0, 3), dtype=positions.dtype)
         return empty, empty, zero_vec, zero_vec
 
     senders, receivers = edge_index.astype(np.int32, copy=False)
-    shifts = np.asarray(shifts, dtype=np.float32)
-    unit_shifts = np.asarray(unit_shifts, dtype=np.float32)
+    shifts = np.asarray(shifts, dtype=positions.dtype)
+    unit_shifts = np.asarray(unit_shifts, dtype=positions.dtype)
     return senders, receivers, shifts, unit_shifts
 
 
@@ -162,19 +167,19 @@ def _species_indices(
     return indices
 
 
-def _safe_cell(cell: np.ndarray | None) -> np.ndarray:
+def _safe_cell(cell: np.ndarray | None, *, dtype=np.float32) -> np.ndarray:
     if cell is None:
-        return np.eye(3, dtype=np.float32)
-    arr = np.asarray(cell, dtype=np.float32)
+        return np.eye(3, dtype=dtype)
+    arr = np.asarray(cell, dtype=dtype)
     if arr.shape != (3, 3):
         raise ValueError('Lattice cell must have shape (3, 3).')
     return arr
 
 
-def _scalar_array(value: float | int | None) -> np.ndarray:
+def _scalar_array(value: float | int | None, *, dtype=np.float32) -> np.ndarray:
     if value is None:
         value = 0.0
-    return np.asarray([float(value)], dtype=np.float32)
+    return np.asarray([float(value)], dtype=dtype)
 
 
 def _int_array(value: int | None) -> np.ndarray:
@@ -183,19 +188,19 @@ def _int_array(value: int | None) -> np.ndarray:
     return np.asarray([int(value)], dtype=np.int32)
 
 
-def _matrix_array(value: np.ndarray | None) -> np.ndarray:
+def _matrix_array(value: np.ndarray | None, *, dtype=np.float32) -> np.ndarray:
     if value is None:
-        base = np.zeros((3, 3), dtype=np.float32)
+        base = np.zeros((3, 3), dtype=dtype)
     else:
-        base = np.asarray(value, dtype=np.float32).reshape(3, 3)
+        base = np.asarray(value, dtype=dtype).reshape(3, 3)
     return base[None, ...]
 
 
-def _vector_array(value: np.ndarray | None) -> np.ndarray:
+def _vector_array(value: np.ndarray | None, *, dtype=np.float32) -> np.ndarray:
     if value is None:
-        base = np.zeros(3, dtype=np.float32)
+        base = np.zeros(3, dtype=dtype)
     else:
-        base = np.asarray(value, dtype=np.float32).reshape(3)
+        base = np.asarray(value, dtype=dtype).reshape(3)
     return base[None, ...]
 
 
@@ -219,8 +224,10 @@ def _voigt_to_full(stress: np.ndarray | None) -> np.ndarray | None:
     )
 
 
-def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.ndarray]:
-    positions = jnp.asarray(graph.nodes.positions, dtype=jnp.float32)
+def graph_to_data(
+    graph: jraph.GraphsTuple, num_species: int, *, dtype=jnp.float32
+) -> dict[str, jnp.ndarray]:
+    positions = jnp.asarray(graph.nodes.positions, dtype=dtype)
     shifts = jnp.asarray(graph.edges.shifts, dtype=positions.dtype)
     cell = jnp.asarray(graph.globals.cell, dtype=positions.dtype)
 
@@ -230,11 +237,6 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
 
     n_node = jnp.asarray(graph.n_node, dtype=jnp.int32)
     graph_mask = jraph.get_graph_padding_mask(graph)
-    node_padding_mask = jnp.repeat(
-        graph_mask,
-        graph.n_node,
-        total_repeat_length=positions.shape[0],
-    )
     all_positive = jnp.all(n_node > 0)
     graph_mask = jnp.where(
         all_positive,
@@ -272,7 +274,11 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
         'batch': batch,
         'ptr': ptr,
         'cell': cell,
-        'node_mask': node_padding_mask,
+        'node_mask': node_mask.astype(bool),
+        'graph_mask': graph_mask,
+        'edge_mask': jnp.repeat(
+            graph_mask, graph.n_edge, total_repeat_length=senders.shape[0]
+        ),
     }
 
     unit_shifts = getattr(graph.edges, 'unit_shifts', None)
@@ -310,7 +316,9 @@ def graph_to_data(graph: jraph.GraphsTuple, num_species: int) -> dict[str, jnp.n
 
 def make_apply_fn(wrapper, num_species: int):
     def apply_fn(variables, graph):
-        data_dict = graph_to_data(graph, num_species=num_species)
+        dtype_fn = getattr(wrapper, 'input_dtype', None)
+        dtype = dtype_fn(variables) if dtype_fn is not None else jnp.float32
+        data_dict = graph_to_data(graph, num_species=num_species, dtype=dtype)
         return wrapper.apply(
             variables,
             data_dict,

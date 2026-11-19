@@ -11,6 +11,7 @@ __all__ = [
     'MaceWrapper',
     'AniWrapper',
     'M3GNetWrapper',
+    'GraceWrapper',
     'available_wrappers',
     'create_wrapper',
     'get_wrapper_builder',
@@ -21,11 +22,13 @@ _MODULE_MAP = {
     'MaceWrapper': 'mace',
     'AniWrapper': 'ani',
     'M3GNetWrapper': 'm3gnet',
+    'GraceWrapper': 'grace',
 }
 _WRAPPER_CLASS_MAP = {
     'mace': 'MaceWrapper',
     'ani': 'AniWrapper',
     'm3gnet': 'M3GNetWrapper',
+    'grace': 'GraceWrapper',
 }
 _CACHE = {}
 _ERRORS = {}

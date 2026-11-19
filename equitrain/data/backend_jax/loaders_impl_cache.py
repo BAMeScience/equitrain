@@ -53,6 +53,7 @@ def spec_fingerprint(
         'virials_key': spec.virials_key,
         'dipole_key': spec.dipole_key,
         'charges_key': spec.charges_key,
+        'dtype': getattr(spec, 'dtype', 'float32'),
         'path': str(Path(spec.path)),
         'r_max': float(r_max),
         'atomic_numbers': [int(z) for z in atomic_numbers],

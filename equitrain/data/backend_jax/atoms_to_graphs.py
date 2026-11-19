@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+import jax
 import jraph
+import numpy as np
 from ase import Atoms
 
 from equitrain.data.atomic import AtomicNumberTable
@@ -26,6 +28,7 @@ class AtomsToGraphs:
         r_max: float,
         *,
         niggli_reduce: bool = False,
+        dtype=None,
     ) -> None:
         if atomic_numbers is None:
             raise ValueError('An atomic number table is required to build graphs.')
@@ -37,6 +40,9 @@ class AtomsToGraphs:
             raise ValueError('A positive cutoff radius is required to build graphs.')
         self._cutoff = cutoff
         self._niggli = bool(niggli_reduce)
+        self._dtype = np.dtype(
+            dtype or (np.float64 if jax.config.x64_enabled else np.float32)
+        )
 
     def _to_configuration(self, atoms: Atoms) -> Configuration:
         if self._niggli:
@@ -52,6 +58,7 @@ class AtomsToGraphs:
             config,
             cutoff=self._cutoff,
             z_table=self._z_table,
+            dtype=self._dtype,
         )
 
     def convert_dataset(self, dataset: HDF5Dataset) -> Iterable[jraph.GraphsTuple]:
