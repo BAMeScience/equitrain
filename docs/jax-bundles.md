@@ -167,6 +167,22 @@ the factory may return `(module, params_template)`.
   devices on one node.
 - Each process provides local micro-batches for `jax.local_device_count()`
   devices; Equitrain converts them into globally sharded arrays.
+- Energy, force, and stress losses use their respective global counts (graphs,
+  force components, and stress components). Gradients follow the same objective,
+  with clipping applied after the global reduction. Epoch totals combine the
+  accumulated component means, including when graph sizes differ between batches.
+- Partial device groups and exhausted processes participate with valid graphs
+  whose weights are zero. A process with no initial data receives a padding
+  template from an active process. Use matching fixed batch shapes and dtypes
+  across processes; mismatches and loader failures are reported collectively.
+- A globally empty batch leaves parameters, optimizer state, EMA, and its update
+  counter unchanged. Gradient reduction, optimizer updates, EMA, and parameter
+  freezing run in one compiled step before statistics are copied to the host.
+- Parameters and optimizer state are replicated across the global mesh without
+  an added device dimension, including when writing checkpoints. Initial training
+  state is broadcast from process zero.
+- Integer/boolean model buffers and NNX configuration dictionaries retain their
+  values and dtypes during optimizer and EMA updates, including with weight decay.
 - For multi-node jobs, launch one Equitrain process per JAX process with
   `--distributed --launcher none`, `--process-count <global-processes>`,
   `--process-index <rank>`, and `--coordinator-address <host>` plus

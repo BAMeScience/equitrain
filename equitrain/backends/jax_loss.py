@@ -53,6 +53,13 @@ def update_collection_from_aux(collection: JaxLossCollection, aux) -> np.ndarray
     metrics = aux_host['metrics']
     for key, (value, count) in metrics.items():
         collection.update_component(key, float(value), float(count))
+    if 'component_weights' in aux_host:
+        # Each component has its own denominator. Averaging batch totals by
+        # graph count would misweight forces when graph sizes differ.
+        collection.components['total'].value = sum(
+            float(weight) * collection.components[name].value
+            for name, weight in aux_host['component_weights'].items()
+        )
     return np.asarray(aux_host['per_graph_error'])
 
 

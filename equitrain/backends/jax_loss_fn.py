@@ -439,6 +439,15 @@ def build_loss_fn(apply_fn, settings: LossSettings):
         aux = {
             'metrics': metrics,
             'per_graph_error': per_graph_error,
+            'component_weights': {
+                name: weight
+                for name, weight in (
+                    ('energy', settings.energy_weight),
+                    ('forces', settings.forces_weight),
+                    ('stress', settings.stress_weight),
+                )
+                if weight > 0.0
+            },
         }
         return total_loss, aux
 

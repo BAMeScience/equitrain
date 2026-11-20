@@ -74,16 +74,17 @@ def test_process_local_sharded_to_global_uses_global_device_axis():
 def test_distributed_chunk_iterator_pads_exhausted_process(monkeypatch):
     graph = _minimal_graph([0, -1])
     gathered_states = [
-        np.array([1, 1], dtype=np.int32),
-        np.array([0, 1], dtype=np.int32),
-        np.array([0, 0], dtype=np.int32),
+        (1, 1),
+        (0, 1),
+        (0, 0),
     ]
 
     from jax.experimental import multihost_utils
 
-    def fake_process_allgather(_value, *, tiled=False):
+    def fake_process_allgather(value, *, tiled=False):
         assert tiled is False
-        return gathered_states.pop(0)
+        flags = gathered_states.pop(0)
+        return np.stack([np.concatenate(([flag], value[1:])) for flag in flags])
 
     class Logger:
         def __init__(self):
@@ -109,9 +110,9 @@ def test_distributed_chunk_iterator_pads_exhausted_process(monkeypatch):
     assert len(chunks[0]) == 2
     assert len(chunks[1]) == 2
     assert int(np.asarray(chunks[0][0].n_node).sum()) == 1
-    assert int(np.asarray(chunks[0][1].n_node).sum()) == 0
-    assert int(np.asarray(chunks[1][0].n_node).sum()) == 0
-    assert int(np.asarray(chunks[1][1].n_node).sum()) == 0
+    for empty in (chunks[0][1], *chunks[1]):
+        np.testing.assert_array_equal(empty.n_node, graph.n_node)
+        assert not np.any(empty.globals['weight'])
     assert not gathered_states
     assert logger.messages
 
@@ -357,7 +358,7 @@ def test_shard_map_train_step_ignores_zero_count_metric_shards():
     np.testing.assert_allclose(np.asarray(updated_state.params['w']), expected_params)
 
 
-def test_shard_map_train_step_preserves_equal_weight_for_nonempty_metric_shards():
+def test_shard_map_train_step_weights_nonempty_shards_by_count():
     if jax.local_device_count() < 2:
         pytest.skip('non-empty shard averaging test requires multiple local devices')
 
@@ -398,7 +399,9 @@ def test_shard_map_train_step_preserves_equal_weight_for_nonempty_metric_shards(
     _, aux, grads = grad_step(state.params, batch)
     updated_state = apply_updates(state, grads, 0.0)
 
-    expected_grad = np.mean(np.asarray(batch['x']), axis=0)
+    expected_grad = np.average(
+        np.asarray(batch['x']), weights=np.asarray(counts), axis=0
+    )
     expected_metric_loss = np.average(
         np.sum(np.asarray(batch['x']) * np.asarray(base_params['w']), axis=1),
         weights=np.asarray(batch['count']),
@@ -408,7 +411,7 @@ def test_shard_map_train_step_preserves_equal_weight_for_nonempty_metric_shards(
     np.testing.assert_allclose(
         np.asarray(aux['metrics']['total'][0]), expected_metric_loss
     )
-    np.testing.assert_allclose(np.asarray(grads['w']), expected_grad)
+    np.testing.assert_allclose(np.asarray(grads['w']), expected_grad, rtol=1e-6)
     np.testing.assert_allclose(np.asarray(updated_state.params['w']), expected_params)
 
 

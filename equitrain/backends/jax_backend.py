@@ -26,6 +26,9 @@ from equitrain.argparser import (
     validate_training_args,
 )
 from equitrain.backends import jax_checkpoint
+from equitrain.backends.jax_distributed import (
+    coordinated_chunks as _multi_device_chunk_iterator,
+)
 from equitrain.backends.jax_freeze import build_trainable_mask
 from equitrain.backends.jax_loss import JaxLossCollection, update_collection_from_aux
 from equitrain.backends.jax_loss_fn import LossSettings, build_loss_fn
@@ -40,14 +43,13 @@ from equitrain.backends.jax_utils import (
     DEVICE_AXIS_SPEC,
     REPLICATED_SPEC,
     ModelBundle,
-    iter_micro_batches,
     load_model_bundle,
     process_local_sharded_to_global,
     remove_local_device_axis,
+    replicate_global,
     set_jax_platform,
     shard_map_over_local_devices,
     supports_multiprocessing_workers,
-    take_chunk,
     unreplicate_from_local_devices,
 )
 from equitrain.backends.jax_utils import is_multi_device as _is_multi_device
@@ -363,12 +365,22 @@ def _iter_loader_for_epoch(
         return None
     iter_batches = getattr(loader, 'iter_batches', None)
     if callable(iter_batches):
-        return iter_batches(
-            epoch=epoch,
-            seed=seed,
-            process_count=process_count,
-            process_index=process_index,
-        )
+        try:
+            return iter_batches(
+                epoch=epoch,
+                seed=seed,
+                process_count=process_count,
+                process_index=process_index,
+            )
+        except Exception as exc:
+            if process_count == 1:
+                raise
+
+            def failed_iterator(error=exc):
+                raise error
+                yield  # pragma: no cover
+
+            return failed_iterator()
     return loader
 
 
@@ -384,6 +396,8 @@ def _normalize_max_steps(value):
 
 def _sanitize_grads(grads, clip_value: float | None):
     def _sanitize(x):
+        if is_config_dict(x):
+            return jtu.tree_map(lambda value: jnp.zeros_like(_sanitize(value)), x)
         arr = jnp.asarray(x)
         if 'float0' in str(arr.dtype):
             arr = jnp.zeros_like(arr, dtype=jnp.float32)
@@ -392,7 +406,7 @@ def _sanitize_grads(grads, clip_value: float | None):
             arr = jnp.clip(arr, -clip_value, clip_value)
         return arr
 
-    return jtu.tree_map(_sanitize, grads)
+    return jtu.tree_map(_sanitize, grads, is_leaf=_is_config_leaf)
 
 
 def _unreplicate(tree):
@@ -407,7 +421,9 @@ def _aggregate_metric_value(value, count):
     value = jnp.asarray(value)
     count = jnp.asarray(count, dtype=value.dtype)
     total_count = jax.lax.psum(count, axis_name=DEVICE_AXIS_NAME)
-    weighted_sum = jax.lax.psum(value * count, axis_name=DEVICE_AXIS_NAME)
+    weighted_sum = jax.lax.psum(
+        jnp.where(count > 0, value, 0.0) * count, axis_name=DEVICE_AXIS_NAME
+    )
     mean_value = jnp.where(
         total_count > 0.0,
         weighted_sum / jnp.maximum(total_count, 1.0),
@@ -422,9 +438,15 @@ def _aggregate_aux_metrics(aux):
         key: _aggregate_metric_value(value, count)
         for key, (value, count) in aux['metrics'].items()
     }
+    if 'component_weights' in aux:
+        total = sum(
+            weight * aggregated['metrics'][name][0]
+            for name, weight in aux['component_weights'].items()
+        )
+        aggregated['metrics']['total'] = (total, aggregated['metrics']['total'][1])
     if 'per_graph_error' in aggregated:
-        aggregated['per_graph_error'] = jax.lax.pmean(
-            aggregated['per_graph_error'], axis_name=DEVICE_AXIS_NAME
+        aggregated['per_graph_error'] = jax.lax.all_gather(
+            aggregated['per_graph_error'], axis_name=DEVICE_AXIS_NAME, tiled=True
         )
     return aggregated
 
@@ -433,113 +455,20 @@ def _pmean_tree(tree):
     return jtu.tree_map(lambda x: jax.lax.pmean(x, axis_name=DEVICE_AXIS_NAME), tree)
 
 
-def _multi_device_chunk_iterator(
-    loader,
-    device_count: int,
-    *,
-    phase: str,
-    logger,
-    sync_processes: bool = False,
-):
-    """Group per-device micro-batches for mapped device calls.
+def _local_loss_contribution(value, count):
+    """Return this shard's numerator divided by the global component count."""
+    total_count = jax.lax.psum(count, DEVICE_AXIS_NAME)
+    return jnp.where(count > 0, value, 0.0) * count / jnp.maximum(total_count, 1.0)
 
-    When ``sync_processes`` is true, all distributed JAX processes keep calling
-    collectives until every process has exhausted its loader. Processes that run
-    out of local data first contribute empty padding batches.
-    """
-    micro_iter = iter_micro_batches(loader)
 
-    def _warn(count, expected):
-        message = (
-            f'[{phase}] Padding incomplete multi-device chunk ({count}/{expected}).'
-        )
-        if logger is not None:
-            logger.log(1, message)
-        else:
-            print(message)
-
-    def _empty_graph_like(graph):
-        nodes = graph.nodes.__class__()
-        for key, value in graph.nodes.items():
-            nodes[key] = np.zeros_like(value)
-
-        edges = graph.edges.__class__()
-        for key, value in graph.edges.items():
-            edges[key] = np.zeros_like(value)
-
-        globals_attr = graph.globals
-        if globals_attr is None:
-            globals_dict = None
-        elif hasattr(globals_attr, 'items'):
-            globals_dict = globals_attr.__class__()
-            for key, value in globals_attr.items():
-                globals_dict[key] = np.zeros_like(value)
-        else:
-            globals_dict = np.zeros_like(globals_attr)
-
-        return graph._replace(
-            nodes=nodes,
-            edges=edges,
-            senders=np.zeros_like(graph.senders),
-            receivers=np.zeros_like(graph.receivers),
-            globals=globals_dict,
-            n_node=np.zeros_like(graph.n_node),
-            n_edge=np.zeros_like(graph.n_edge),
-        )
-
-    def _any_process_has_data(local_has_data: bool) -> bool:
-        if not sync_processes:
-            return bool(local_has_data)
-        try:
-            from jax.experimental import multihost_utils  # noqa: PLC0415
-
-            gathered = multihost_utils.process_allgather(
-                np.asarray(int(bool(local_has_data)), dtype=np.int32),
-                tiled=False,
-            )
-        except Exception as exc:  # pragma: no cover - requires distributed runtime
-            raise RuntimeError(
-                f'[{phase}] Failed to synchronize distributed loader state.'
-            ) from exc
-        return bool(np.any(np.asarray(gathered, dtype=np.int32)))
-
-    template_graph = None
-    first_chunk = True
-
-    while True:
-        chunk = take_chunk(micro_iter, device_count)
-        filtered = [g for g in chunk if g is not None]
-        local_has_data = bool(filtered)
-        if not _any_process_has_data(local_has_data):
-            break
-
-        if template_graph is None:
-            template_graph = next((g for g in filtered if g is not None), None)
-
-        if not sync_processes and first_chunk and len(filtered) < device_count:
-            raise RuntimeError(
-                f'[{phase}] Need at least {device_count} micro-batches to utilize all '
-                'available devices. Increase --batch-max-edges/--batch-max-nodes or '
-                'reduce the device count.'
-            )
-        first_chunk = False
-
-        if len(filtered) >= device_count:
-            yield filtered
-            continue
-
-        if template_graph is None:
-            raise RuntimeError(
-                f'[{phase}] This distributed process has no local batch to use as a '
-                'padding template while another process still has data. Reduce the '
-                'process count or increase the dataset size.'
-            )
-
-        _warn(len(filtered), device_count)
-        padded = list(filtered)
-        for _ in range(device_count - len(filtered)):
-            padded.append(_empty_graph_like(template_graph))
-        yield padded
+def _update_parameter(old, new, *, ema_factor=None):
+    # NNX bundles include configuration and integer/bool buffers in the state.
+    # Neither optimizer weight decay nor EMA may change these values or dtypes.
+    if is_config_dict(old) or not jnp.issubdtype(jnp.asarray(old).dtype, jnp.inexact):
+        return old
+    if ema_factor is not None:
+        new = ema_factor * old + (1.0 - ema_factor) * new
+    return jnp.asarray(new, dtype=jnp.asarray(old).dtype)
 
 
 def _build_train_functions(
@@ -552,33 +481,71 @@ def _build_train_functions(
 ):
     clip_value = None if grad_clip_value is None else float(grad_clip_value)
 
+    def apply_updates(state: TrainState, grads, ema_factor):
+        updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
+        new_params = jtu.tree_map(
+            _update_parameter,
+            state.params,
+            optax.apply_updates(state.params, updates),
+            is_leaf=_is_config_leaf,
+        )
+        # Keep the optimizer's existing layout, including legacy checkpoints
+        # with integer moment slots for non-differentiable model buffers.
+        new_opt_state = jtu.tree_map(
+            lambda old, new: jnp.asarray(new, dtype=jnp.asarray(old).dtype),
+            state.opt_state,
+            new_opt_state,
+        )
+        if use_ema and state.ema_params is not None:
+            coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
+            new_ema = jtu.tree_map(
+                lambda old, new: _update_parameter(old, new, ema_factor=coeff),
+                state.ema_params,
+                new_params,
+                is_leaf=_is_config_leaf,
+            )
+        else:
+            new_ema = state.ema_params
+        return TrainState(
+            params=new_params, opt_state=new_opt_state, ema_params=new_ema
+        )
+
     if multi_device:
         devices = jax.devices()
 
         def grad_step(params, batch):
             batch = remove_local_device_axis(batch)
-            (loss, aux), grads = jax.value_and_grad(
-                loss_fn, has_aux=True, allow_int=True
-            )(params, batch)
-            grads = _sanitize_grads(grads, clip_value)
+
+            def local_objective(params):
+                loss, aux = loss_fn(params, batch)
+                if _aux_has_metrics(aux):
+                    if 'component_weights' in aux:
+                        loss = sum(
+                            weight * _local_loss_contribution(*aux['metrics'][name])
+                            for name, weight in aux['component_weights'].items()
+                        )
+                    else:
+                        loss = _local_loss_contribution(
+                            loss, aux['metrics']['total'][1]
+                        )
+                else:
+                    loss = loss / jax.lax.psum(1.0, DEVICE_AXIS_NAME)
+                return loss, aux
+
+            (local_loss, aux), grads = jax.value_and_grad(
+                local_objective, has_aux=True, allow_int=True
+            )(params)
+            grads = _sanitize_grads(grads, None)
             if _aux_has_metrics(aux):
-                local_count = jnp.asarray(aux['metrics']['total'][1], dtype=loss.dtype)
-                active = jnp.asarray(local_count > 0.0, dtype=loss.dtype)
-                active_count = jax.lax.psum(active, axis_name=DEVICE_AXIS_NAME)
-                grads = jtu.tree_map(
-                    lambda grad: (
-                        jax.lax.psum(grad * active, axis_name=DEVICE_AXIS_NAME)
-                        / jnp.maximum(active_count, 1.0)
-                    ),
-                    grads,
-                )
+                active = aux['metrics']['total'][1] > 0
+                grads = jtu.tree_map(lambda g: jnp.where(active, g, 0.0), grads)
                 aux = _aggregate_aux_metrics(aux)
                 loss = aux['metrics']['total'][0]
             else:
-                grads = jax.lax.pmean(grads, axis_name=DEVICE_AXIS_NAME)
-                loss = jax.lax.pmean(loss, axis_name=DEVICE_AXIS_NAME)
+                loss = jax.lax.psum(local_loss, DEVICE_AXIS_NAME)
                 aux = _pmean_tree(aux)
-            return loss, aux, grads
+            grads = jtu.tree_map(lambda g: jax.lax.psum(g, DEVICE_AXIS_NAME), grads)
+            return loss, aux, _sanitize_grads(grads, clip_value)
 
         grad_step_fn = shard_map_over_local_devices(
             grad_step,
@@ -587,24 +554,6 @@ def _build_train_functions(
             devices=devices,
             check_vma=False,
         )
-
-        def apply_updates(state: TrainState, grads, ema_factor):
-            updates, new_opt_state = optimizer.update(
-                grads, state.opt_state, state.params
-            )
-            new_params = optax.apply_updates(state.params, updates)
-            if use_ema and state.ema_params is not None:
-                coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
-                new_ema = jtu.tree_map(
-                    lambda ema, new: coeff * ema + (1.0 - coeff) * new,
-                    state.ema_params,
-                    new_params,
-                )
-            else:
-                new_ema = state.ema_params
-            return TrainState(
-                params=new_params, opt_state=new_opt_state, ema_params=new_ema
-            )
 
         apply_updates_fn = shard_map_over_local_devices(
             apply_updates,
@@ -621,23 +570,50 @@ def _build_train_functions(
         grads = _sanitize_grads(grads, clip_value)
         return loss, aux, grads
 
-    def apply_updates(state: TrainState, grads, ema_factor):
-        updates, new_opt_state = optimizer.update(grads, state.opt_state, state.params)
-        new_params = optax.apply_updates(state.params, updates)
-        if use_ema and state.ema_params is not None:
-            coeff = jnp.asarray(ema_factor, dtype=jnp.float32)
-            new_ema = jtu.tree_map(
-                lambda ema, new: coeff * ema + (1.0 - coeff) * new,
-                state.ema_params,
-                new_params,
-            )
-        else:
-            new_ema = state.ema_params
-        return TrainState(
-            params=new_params, opt_state=new_opt_state, ema_params=new_ema
-        )
-
     return jax.jit(grad_step), jax.jit(apply_updates)
+
+
+def _build_train_step(grad_step_fn, apply_updates_fn, *, use_ema, ema_decay, mask=None):
+    """Compile gradient reduction, optimizer, EMA, and freezing as one update."""
+
+    def step(state, batch, ema_count):
+        _, aux, grads = grad_step_fn(state.params, batch)
+        active = aux['metrics']['total'][1] > 0 if _aux_has_metrics(aux) else True
+
+        def update(_):
+            next_count = ema_count + int(use_ema and ema_decay is not None)
+            factor = 0.0
+            if use_ema and ema_decay is not None:
+                factor = jnp.minimum(
+                    ema_decay, (1.0 + next_count) / (10.0 + next_count)
+                )
+            updated = apply_updates_fn(state, grads, factor)
+            if mask is not None:
+                params = jtu.tree_map(
+                    _select_restored_value,
+                    updated.params,
+                    state.params,
+                    mask,
+                    is_leaf=_is_config_leaf,
+                )
+                ema = updated.ema_params
+                if use_ema and ema is not None:
+                    ema = jtu.tree_map(
+                        _select_restored_value,
+                        ema,
+                        state.ema_params,
+                        mask,
+                        is_leaf=_is_config_leaf,
+                    )
+                updated = updated.replace(params=params, ema_params=ema)
+            return updated, next_count
+
+        state, ema_count = jax.lax.cond(
+            active, update, lambda _: (state, ema_count), operand=None
+        )
+        return state, aux, ema_count
+
+    return jax.jit(step)
 
 
 def _build_eval_step(loss_fn, *, multi_device: bool):
@@ -660,6 +636,9 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
             in_specs=(REPLICATED_SPEC, DEVICE_AXIS_SPEC),
             out_specs=REPLICATED_SPEC,
             devices=devices,
+            # Force differentiation/custom derivatives can defeat JAX's static
+            # variance inference; the reductions above replicate every output.
+            check_vma=False,
         )
 
     return jax.jit(loss_fn)
@@ -668,20 +647,16 @@ def _build_eval_step(loss_fn, *, multi_device: bool):
 def _run_train_epoch(
     state: TrainState,
     train_loader,
-    grad_step_fn,
-    apply_updates_fn,
+    train_step_fn,
     *,
     max_steps,
     multi_device: bool,
-    use_ema: bool,
-    ema_decay: float | None,
     ema_count_start: int,
     logger,
     args,
     epoch: int,
     metric_settings,
     learning_rate: float,
-    mask,
     is_primary: bool,
 ):
     loss_collection = JaxLossCollection()
@@ -707,10 +682,6 @@ def _run_train_epoch(
             total_steps = min(total_steps, max_steps)
         else:
             total_steps = max_steps
-
-    mask_tree = None
-    if mask is not None:
-        mask_tree = jtu.tree_map(lambda v: jnp.asarray(v, dtype=jnp.bool_), mask)
 
     use_tqdm = bool(getattr(args, 'tqdm', False) and tqdm is not None)
     if use_chunked_multi:
@@ -752,66 +723,21 @@ def _run_train_epoch(
 
         step_start = time.perf_counter()
 
-        params_before = state.params
-        ema_before = state.ema_params
-
-        ema_factor = 0.0
-        if use_ema and ema_decay is not None:
-            ema_count += 1
-            warmup_decay = (1.0 + ema_count) / (10.0 + ema_count)
-            ema_factor = float(min(float(ema_decay), warmup_decay))
-
-        macro_collection = JaxLossCollection()
-
         if use_chunked_multi:
             prepared_batch = _prepare_sharded_batch(micro_batches, device_count)
             prepared_batch = process_local_sharded_to_global(prepared_batch)
-            try:
-                _, aux_dev, grads = grad_step_fn(state.params, prepared_batch)
-            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
-                _raise_memory_hint(exc, args, phase='training')
-            accum_grads = grads
-            aux_host = _unreplicate(aux_dev)
-            update_collection_from_aux(loss_collection, aux_host)
-            update_collection_from_aux(macro_collection, aux_host)
         else:
             prepared_batch = _prepare_single_batch(batch_graph)
-            try:
-                _, aux_val, accum_grads = grad_step_fn(state.params, prepared_batch)
-            except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
-                _raise_memory_hint(exc, args, phase='training')
-            aux_host = jax.device_get(aux_val)
-            update_collection_from_aux(loss_collection, aux_host)
-            update_collection_from_aux(macro_collection, aux_host)
-
         try:
-            state = apply_updates_fn(state, accum_grads, ema_factor)
+            state, aux_dev, ema_count = train_step_fn(state, prepared_batch, ema_count)
         except jax.errors.JaxRuntimeError as exc:  # pragma: no cover - OOM path
             _raise_memory_hint(exc, args, phase='training')
 
-        if mask_tree is not None:
-            restored_params = jtu.tree_map(
-                _select_restored_value,
-                state.params,
-                params_before,
-                mask_tree,
-                is_leaf=_is_config_leaf,
-            )
-            if use_ema and state.ema_params is not None and ema_before is not None:
-                restored_ema = jtu.tree_map(
-                    _select_restored_value,
-                    state.ema_params,
-                    ema_before,
-                    mask_tree,
-                    is_leaf=_is_config_leaf,
-                )
-            else:
-                restored_ema = state.ema_params
-            state = TrainState(
-                params=restored_params,
-                opt_state=state.opt_state,
-                ema_params=restored_ema,
-            )
+        # Transfer statistics only after the compiled gradient/optimizer/EMA step.
+        aux_host = jax.device_get(aux_dev)
+        macro_collection = JaxLossCollection()
+        update_collection_from_aux(loss_collection, aux_host)
+        update_collection_from_aux(macro_collection, aux_host)
 
         print_freq = getattr(args, 'print_freq', None)
         verbose = getattr(args, 'verbose', 1)
@@ -855,7 +781,7 @@ def _run_train_epoch(
     if progress is not None:
         progress.close()
 
-    return state, loss_collection, ema_count
+    return state, loss_collection, int(ema_count)
 
 
 def _run_eval_loop(
@@ -869,6 +795,9 @@ def _run_eval_loop(
 ):
     if loader is None:
         return None, JaxLossCollection()
+
+    if multi_device:
+        params = replicate_global(params)
 
     loss_collection = JaxLossCollection()
     local_devices = jax.local_devices()
@@ -1188,7 +1117,13 @@ def train(args):
         use_ema=use_ema,
         multi_device=multi_device,
     )
+    train_step_fn = _build_train_step(
+        grad_step_fn, apply_updates_fn, use_ema=use_ema, ema_decay=ema_decay, mask=mask
+    )
     eval_step_fn = _build_eval_step(loss_fn, multi_device=multi_device)
+
+    if multi_device:
+        train_state = replicate_global(train_state, broadcast=True)
 
     def _host(tree):
         return _unreplicate(tree) if multi_device else tree
@@ -1298,19 +1233,15 @@ def train(args):
         train_state, train_metrics_collection, ema_count = _run_train_epoch(
             train_state,
             epoch_train_loader,
-            grad_step_fn,
-            apply_updates_fn,
+            train_step_fn,
             max_steps=train_max_steps,
             multi_device=multi_device,
-            use_ema=use_ema,
-            ema_decay=ema_decay,
             ema_count_start=ema_count,
             logger=logger,
             args=args,
             epoch=epoch,
             metric_settings=metric_settings,
             learning_rate=epoch_lr,
-            mask=mask,
             is_primary=is_primary,
         )
         epoch_time = time.perf_counter() - epoch_start_time
@@ -1418,6 +1349,13 @@ def train(args):
                 grad_clip_value=grad_clip_value,
                 use_ema=use_ema,
                 multi_device=multi_device,
+            )
+            train_step_fn = _build_train_step(
+                grad_step_fn,
+                apply_updates_fn,
+                use_ema=use_ema,
+                ema_decay=ema_decay,
+                mask=mask,
             )
             logger.log(
                 1,

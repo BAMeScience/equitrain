@@ -244,7 +244,9 @@ def shard_map_over_local_devices(
         shard_map_kwargs['check_vma'] = check_vma
     elif check_vma is not None and 'check_rep' in shard_map_params:
         shard_map_kwargs['check_rep'] = check_vma
-    mapped = _shard_map(fn, **shard_map_kwargs)
+    # Stage the device body first to prune unused inputs before Shardy lowers
+    # the manual region; this also avoids a JAX 0.11.2 compiler crash with MACE.
+    mapped = _shard_map(jax.jit(fn), **shard_map_kwargs)
     return jax.jit(mapped)
 
 
@@ -264,28 +266,48 @@ def replicate_to_local_devices(tree):
     return jtu.tree_map(_replicate, tree, is_leaf=_none_leaf)
 
 
-def unreplicate_from_local_devices(tree):
-    """Strip a replicated leading axis (if present) from a pytree."""
-    device_count = jax.local_device_count()
-    if device_count <= 1:
-        return tree
+def unreplicate_from_local_devices(tree, *, replicated_axis: bool = False):
+    """Copy logical arrays to the host, preserving their parameter dimensions.
 
+    Global replicated shard_map outputs have no extra axis. Only strip a legacy
+    leading device axis when the caller explicitly declares it.
+    """
     host = jax.device_get(tree)
-    if isinstance(host, list | tuple) and len(host) == device_count:
-        return jtu.tree_map(lambda x: x[0], host, is_leaf=_none_leaf)
+    device_count = jax.local_device_count()
+    if not replicated_axis or device_count <= 1:
+        return host
 
     def _maybe_collapse(leaf):
         if leaf is None:
             return None
         arr = np.asarray(leaf)
         if arr.ndim == 0 or arr.shape[0] != device_count:
-            return leaf
-        first = arr[0]
-        if np.all(arr == first):
-            return first
-        return leaf
+            raise ValueError('Expected an explicit leading local-device axis.')
+        return arr[0]
 
     return jtu.tree_map(_maybe_collapse, host, is_leaf=_none_leaf)
+
+
+def replicate_global(tree, *, broadcast=False):
+    """Place identical process-local state on the global replicated mesh."""
+    if broadcast and jax.process_count() > 1:
+        from jax.experimental import multihost_utils
+
+        tree = multihost_utils.broadcast_one_to_all(tree)
+    sharding = NamedSharding(global_device_mesh(), REPLICATED_SPEC)
+
+    def place(leaf):
+        if isinstance(leaf, jax.Array) and (
+            not leaf.is_fully_addressable or leaf.sharding == sharding
+        ):
+            return jax.device_put(leaf, sharding)
+        if not hasattr(leaf, 'shape'):
+            leaf = np.asarray(leaf)
+        return jax.make_array_from_process_local_data(
+            sharding, leaf, global_shape=leaf.shape
+        )
+
+    return jtu.tree_map(place, tree)
 
 
 def prepare_single_batch(graph):
@@ -570,6 +592,7 @@ __all__ = [
     'add_local_device_axis',
     'shard_map_over_local_devices',
     'replicate_to_local_devices',
+    'replicate_global',
     'unreplicate_from_local_devices',
     'prepare_single_batch',
     'prepare_sharded_batch',
