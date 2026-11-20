@@ -210,11 +210,16 @@ def test_fused_step_skips_empty_updates_and_preserves_freezing(multi_device):
 
 
 @pytest.mark.parametrize('placement', ['host', 'default', 'committed'])
+@pytest.mark.parametrize('frozen', [False, True])
 def test_checkpoint_roundtrip_preserves_replicated_parameter_dimensions(
-    tmp_path, placement
+    tmp_path, placement, frozen
 ):
+    from flax.core import freeze
+
     shape = (jax.local_device_count(), 3)
     params = {'zero': np.zeros(shape, np.float32), 'one': np.ones(shape, np.float32)}
+    if frozen:
+        params = freeze(params)
     if placement == 'default':
         params = jax.device_put(params)
     elif placement == 'committed':
@@ -245,6 +250,20 @@ def test_checkpoint_roundtrip_preserves_replicated_parameter_dimensions(
         np.testing.assert_array_equal(restored.params[key], params[key])
         np.testing.assert_array_equal(restored_ema[key], params[key])
     _assert_tree_close(restored_opt, opt_state)
+    reloaded = jax_backend.TrainState(restored.params, restored_opt, restored_ema)
+    assert jax.tree_util.tree_structure(reloaded) == jax.tree_util.tree_structure(host)
+
+    # A checkpoint must support another update, not only recover equal values.
+    optimizer = optax.adam(0.1)
+
+    def advance(state):
+        gradients = jax.tree_util.tree_map(jnp.ones_like, state.params)
+        updates, optimizer_state = optimizer.update(
+            gradients, state.opt_state, state.params
+        )
+        return optax.apply_updates(state.params, updates), optimizer_state
+
+    _assert_tree_close(jax.jit(advance)(reloaded), jax.jit(advance)(host))
 
 
 def test_legacy_replication_requires_explicit_device_axis():
@@ -311,6 +330,62 @@ def test_fused_step_preserves_mace_configuration(explicit_mask, multi_device):
     )
     _assert_tree_close(after_empty, updated)
     assert int(empty_count) == 1
+
+
+@pytest.mark.parametrize('multi_device', [False, True])
+@pytest.mark.parametrize('unfreeze', [[], ['.*']])
+def test_nnx_float_configuration_is_never_trainable(multi_device, unfreeze):
+    pytest.importorskip('mace_jax')
+    from flax import nnx
+    from mace_jax.nnx_config import ConfigVar
+    from mace_jax.nnx_utils import state_to_pure_dict
+
+    from equitrain.backends.jax_freeze import build_trainable_mask
+
+    class Model(nnx.Module):
+        def __init__(self):
+            self.w = nnx.Param(jnp.asarray(1.0))
+            self.scale = ConfigVar(jnp.asarray(2.0))
+            self.constant = ConfigVar(jnp.asarray(3.0))
+
+    module, variables = nnx.split(Model())
+    params = state_to_pure_dict(variables)
+    mask = build_trainable_mask(
+        SimpleNamespace(unfreeze_params=unfreeze, freeze_params=[]),
+        params,
+        module=module,
+    )
+    assert mask == {'w': True, 'scale': False, 'constant': False}
+    optimizer = optax.adamw(0.1, weight_decay=0.2)
+    user_mask = build_trainable_mask(
+        SimpleNamespace(unfreeze_params=unfreeze, freeze_params=[]), params
+    )
+    if user_mask is not None:
+        optimizer = optax.masked(optimizer, user_mask)
+
+    def loss_fn(p, batch):
+        value = (p['w'] * p['scale']) ** 2
+        return value, {'metrics': {'total': (value, batch['count'])}}
+
+    functions = jax_backend._build_train_functions(
+        loss_fn,
+        optimizer,
+        grad_clip_value=None,
+        use_ema=True,
+        multi_device=multi_device,
+    )
+    step = jax_backend._build_train_step(
+        *functions, use_ema=True, ema_decay=0.9, mask=mask
+    )
+    state = jax_utils.replicate_global(
+        jax_backend.TrainState(params, optimizer.init(params), params)
+    )
+    shape = (jax.local_device_count(),) if multi_device else ()
+    updated, _, _ = step(state, {'count': jnp.ones(shape)}, 0)
+    for name in ('scale', 'constant'):
+        np.testing.assert_array_equal(updated.params[name], params[name])
+        np.testing.assert_array_equal(updated.ema_params[name], params[name])
+    assert float(updated.params['w']) < 1.0
 
 
 def test_small_dataset_and_partial_tail_keep_geometry():
@@ -462,8 +537,11 @@ def test_train_epoch_keeps_tail_batch():
 @pytest.mark.parametrize('include_configuration', [False, True])
 def test_mace_force_training_matches_serial_update(include_configuration):
     pytest.importorskip('mace_jax')
+    from flax import nnx
     from flax.traverse_util import flatten_dict
-    from mace_jax.tools import gin_model
+    from mace_jax.tools import gin_model, model_builder
+
+    from equitrain.backends.jax_freeze import build_trainable_mask
 
     graph = _graph(2, 1.0)
     graph.nodes['species'] = np.zeros(2, np.int32)
@@ -506,11 +584,14 @@ def test_mace_force_training_matches_serial_update(include_configuration):
     expected = state.replace(
         params=optax.apply_updates(params, updates), opt_state=expected_opt
     )
+    mask = None
     if include_configuration:
         full_state = gin_model._merge_state_dicts(bundle['config'], params)
         state = jax_backend.TrainState(
             full_state, optimizer.init(full_state), full_state
         )
+        graphdef = nnx.graphdef(model_builder._build_jax_model(predictor.model_config))
+        mask = build_trainable_mask(SimpleNamespace(), full_state, module=graphdef)
     steps = jax_backend._build_train_functions(
         loss_fn,
         optimizer,
@@ -522,6 +603,7 @@ def test_mace_force_training_matches_serial_update(include_configuration):
         *steps,
         use_ema=include_configuration,
         ema_decay=0.9 if include_configuration else None,
+        mask=mask,
     )
     state = jax_utils.replicate_global(state)
     actual, aux, _ = train_step(state, _device_batch([graph]), 0)
@@ -529,6 +611,9 @@ def test_mace_force_training_matches_serial_update(include_configuration):
         actual_params = flatten_dict(actual.params)
         for path, value in flatten_dict(expected.params).items():
             np.testing.assert_allclose(actual_params[path], value, rtol=3e-6, atol=2e-6)
+        for path, value in flatten_dict(bundle['config']).items():
+            _assert_tree_close(actual_params[path], value)
+            _assert_tree_close(flatten_dict(actual.ema_params)[path], value)
         for before, after in zip(
             jax.tree_util.tree_leaves(state),
             jax.tree_util.tree_leaves(actual),

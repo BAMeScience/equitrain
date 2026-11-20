@@ -136,11 +136,13 @@ def _restore_template_types(template: Any, values: Any) -> Any:
 
     value_items = _mapping_items(values)
     if isinstance(template, Mapping) and value_items is not None:
-        return {
-            resolved_key: _restore_template_types(template.get(resolved_key), val)
-            for key, val in value_items
-            for resolved_key in (_resolve_mapping_key(template, key),)
-        }
+        return type(template)(
+            {
+                resolved_key: _restore_template_types(template.get(resolved_key), val)
+                for key, val in value_items
+                for resolved_key in (_resolve_mapping_key(template, key),)
+            }
+        )
 
     if isinstance(template, tuple) and hasattr(template, '_fields'):
         if isinstance(values, tuple | list):

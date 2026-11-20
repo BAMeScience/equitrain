@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from flax import core as flax_core
 from flax import serialization
 
 from equitrain.backends.jax_nnx_compat import (
@@ -120,7 +119,7 @@ def _load_opt_state(opt_template, opt_path: Path):
 def load_model_state(bundle: ModelBundle, state_dict_path: str) -> ModelBundle:
     params_path = Path(state_dict_path)
     params = _load_params(bundle.params, params_path)
-    return replace(bundle, params=flax_core.freeze(params))
+    return replace(bundle, params=params)
 
 
 def load_checkpoint(
@@ -189,11 +188,11 @@ def load_checkpoint(
             )
 
         params = _load_params(bundle.params, params_path)
-        bundle = replace(bundle, params=flax_core.freeze(params))
+        bundle = replace(bundle, params=params)
         ema_path = directory / 'ema_params.msgpack'
         if ema_path.exists():
             ema_loaded = _load_params(bundle.params, ema_path)
-            ema_params = flax_core.freeze(ema_loaded)
+            ema_params = ema_loaded
 
         opt_path = directory / 'opt_state.msgpack'
         if opt_state is not None:
@@ -212,7 +211,7 @@ def load_checkpoint(
         if logger is not None:
             logger.log(1, f'Loading JAX model checkpoint {model_path}')
         params = _load_params(bundle.params, model_path)
-        bundle = replace(bundle, params=flax_core.freeze(params))
+        bundle = replace(bundle, params=params)
         loaded = True
 
     if loaded:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from flax import traverse_util
+from flax import nnx, traverse_util
 from flax.core import frozen_dict
 from flax.core.frozen_dict import FrozenDict
 
@@ -53,6 +53,7 @@ def build_trainable_mask(
     logger=None,
     *,
     default_trainable: bool = True,
+    module=None,
 ) -> FrozenDict | dict | None:
     """
     Build a boolean PyTree mask indicating which parameters should receive updates.
@@ -61,13 +62,22 @@ def build_trainable_mask(
     -------
     FrozenDict | dict | None
         Mask PyTree with True for trainable entries, matching the input container
-        type. ``None`` if no freeze flags were set.
+        type. For NNX graph definitions, only ``nnx.Param`` variables are
+        eligible; configuration and other state stay frozen regardless of user
+        patterns. ``None`` if no freeze flags or NNX metadata were supplied.
     """
     patterns_unfreeze = tuple(getattr(args, 'unfreeze_params', []) or [])
     patterns_freeze = tuple(getattr(args, 'freeze_params', []) or [])
 
+    parameter_paths = None
+    if isinstance(module, nnx.GraphDef):
+        restored = nnx.merge(module, params)
+        parameter_paths = {
+            path for path, _ in nnx.state(restored, nnx.Param).flat_state()
+        }
+
     if not patterns_unfreeze and not patterns_freeze:
-        if default_trainable:
+        if default_trainable and parameter_paths is None:
             return None
 
     flat_params = traverse_util.flatten_dict(frozen_dict.unfreeze(params))  # type: ignore[arg-type]
@@ -81,6 +91,9 @@ def build_trainable_mask(
             patterns_freeze,
             default_trainable,
         )
+        if parameter_paths is not None and path not in parameter_paths:
+            trainable = False
+            action = 'Freezing'
         mask_entries[path] = trainable
 
         if logger is not None and action is not None:

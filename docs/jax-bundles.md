@@ -180,9 +180,12 @@ the factory may return `(module, params_template)`.
   freezing run in one compiled step before statistics are copied to the host.
 - Parameters and optimizer state are replicated across the global mesh without
   an added device dimension, including when writing checkpoints. Initial training
-  state is broadcast from process zero.
+  state is broadcast from process zero. Reloading preserves dictionary/FrozenDict
+  containers consistently across parameters, optimizer state, and EMA.
 - Integer/boolean model buffers and NNX configuration dictionaries retain their
   values and dtypes during optimizer and EMA updates, including with weight decay.
+  For NNX bundles, only `nnx.Param` variables are trainable; floating-point
+  configuration and other state remain frozen even with explicit unfreeze patterns.
 - For multi-node jobs, launch one Equitrain process per JAX process with
   `--distributed --launcher none`, `--process-count <global-processes>`,
   `--process-index <rank>`, and `--coordinator-address <host>` plus

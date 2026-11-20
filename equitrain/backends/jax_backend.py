@@ -1075,13 +1075,16 @@ def train(args):
     apply_fn = make_apply_fn(wrapper, num_species=num_species)
     loss_settings = LossSettings.from_args(args)
     loss_fn = build_loss_fn(apply_fn, loss_settings)
-    mask = build_trainable_mask(args, bundle.params, logger)
+    optimizer_mask = build_trainable_mask(args, bundle.params)
+    mask = build_trainable_mask(args, bundle.params, logger, module=bundle.module)
     optimizer_args = optimizer_kwargs(args)
     base_lr = float(optimizer_args.pop('learning_rate'))
     scheduler_controller = create_scheduler_controller(args, base_lr)
     current_lr = scheduler_controller.current_lr
     optimizer = create_optimizer(
-        mask=mask,
+        # Retain the historical optimizer layout for checkpoint compatibility;
+        # the update step restores non-parameter NNX state using the full mask.
+        mask=optimizer_mask,
         learning_rate=current_lr,
         **optimizer_args,
     )
@@ -1339,7 +1342,7 @@ def train(args):
         if lr_changed:
             current_lr = scheduler_controller.current_lr
             optimizer = create_optimizer(
-                mask=mask,
+                mask=optimizer_mask,
                 learning_rate=current_lr,
                 **optimizer_args,
             )
